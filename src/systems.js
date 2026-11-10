@@ -38,7 +38,7 @@ DI.findSystems = function (W) {
         continue;
       }
       if (!W.pd[k]) continue;
-      const g = DI.PIPES[W.pd[k] - 1].gal * DI.TILE_FT;
+      const g = DI.pipeAt(W, k).gal * DI.TILE_FT;
       tileSys[k] = v.id; par[k] = from; dvol[k] = vol + g / 2; tdist[k] = dist;
       s.vol += g; s.tiles.push(k);
       const rm = W.roomAt[k]; if (rm) s.thru.add(rm);

@@ -12,14 +12,15 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   ui.init = function () {
     $('bMenu').onclick = () => { DI.saveGame(); ui.showMenu(); };
-    $('bGoals').onclick = ui.showGoals; $('bReview').onclick = ui.showReview; $('bTests').onclick = ui.showTests; $('bManual').onclick = () => ui.showManual();
+    $('bGoals').onclick = ui.showGoals; $('bSite').onclick = () => ui.showSite(); $('bReview').onclick = ui.showReview; $('bTests').onclick = ui.showTests; $('bManual').onclick = () => ui.showManual();
     $('bDrill').onclick = ui.askDrill; $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
     $('bSnd').classList.add('on');
     document.querySelectorAll('.sp').forEach((b) => { b.onclick = () => DI.setSpeed(+b.dataset.sp); });
     $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, 44, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
     $('bInc').onclick = (e) => ui.pop(e.clientX - 100, 44, [
       ['Utility power: toggle', () => { g().W.power = !g().W.power; }], ['Weather: -10 °F', () => { g().W.outTemp = -10; }], ['Weather: 70 °F', () => { g().W.outTemp = 70; }],
-      ['False smoke in every room', () => { for (const r of g().W.rooms) g().S.smoke[r.id] = 2.5; }], ['Wipe the map and start over', () => { DI.LS.del('di.save.' + g().sc.id); DI.startScenario(g().sc.id, true); }], ['Tip: select a tile to ignite it or break its sprinkler', () => {}]]);
+      ['False smoke in every room', () => { for (const r of g().W.rooms) g().S.smoke[r.id] = 2.5; }],
+      ['Break a pipe', () => { const S = g().S, t = ['hall', 'elec', 'dock', 'stor', 'batt', 'office'].find((q) => DI.G.sysOf(S, q).length); if (!t || !DI.X.pipeBreak(t)(S)) ui.banner('No sprinkler system main to break yet. Or select a pipe tile and break that one.'); }], ['Wipe the map and start over', () => { DI.LS.del('di.save.' + g().sc.id); DI.startScenario(g().sc.id, true); }], ['Tip: select a tile to ignite it or break its sprinkler', () => {}]]);
     $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal') && ui.dismiss) ui.close(); });
     document.addEventListener('mousedown', (e) => { if (!$('pop').contains(e.target)) $('pop').style.display = 'none'; });
     DI.bus.on('log', (text, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = '<i>' + DI.clock(g().S ? g().S.t : 0).slice(-8) + '</i>' + esc(text); const L = $('log'); L.appendChild(d); while (L.childNodes.length > 80) L.removeChild(L.firstChild); L.scrollTop = 1e6; });
@@ -49,7 +50,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   };
   ui.onScenario = function () {
     const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
-    $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
+    $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
     ui.setTool('select'); DI.inspect.render(true);
   };
   ui.tick = function () {
@@ -77,7 +78,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       h += '<button class="card' + (open ? '' : ' lock') + '" data-sc="' + sc.id + '"' + (open ? '' : ' disabled') + '><em>' + (sc.sandbox ? 'FREE PLAY' : 'CONTRACT ' + (i + 1)) + '</em>' + (d ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') + '<b>' + esc(sc.name) + '</b><small>' + esc(sc.tag) + (sv ? ' · in progress' : '') + '</small></button>';
       if (!sc.sandbox && !d) unlocked = false;
     });
-    h += '</div><div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Progress saves in this browser. Numbers follow NFPA 13-2025, NFPA 20, NFPA 25 and NFPA 72; verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
+    h += '</div><div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Progress saves in this browser. Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
     ui.modal(h, false);
     $('mbox').querySelectorAll('.card').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); });
     $('mMan').onclick = () => ui.showManual(null, ui.showMenu);
@@ -98,10 +99,36 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('mRe').onclick = () => { if ($('mRe').dataset.sure) { DI.LS.del('di.save.' + G.sc.id); DI.startScenario(G.sc.id, true); } else { $('mRe').dataset.sure = 1; $('mRe').textContent = 'Click again to wipe this map'; $('mRe').className = 'hot'; } };
   };
   ui.showReview = function () {
-    const G = g(); G.S.rv = DI.review(G.S); let h = '<h4>AUTHORITY HAVING JURISDICTION</h4><h2>Plan review</h2><p>Click a finding to jump to it.</p>';
+    const G = g(); G.S.rv = DI.review(G.S); const J = DI.juris; let h = '<h4>AUTHORITY HAVING JURISDICTION</h4><h2>Plan review</h2>' + (J.delta.length ? '<p><b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + '</p>' : '') + '<p>Reviewed to NFPA 13-' + J.nfpa13 + '. Click a finding to jump to it.</p>';
     G.S.rv.forEach((f, i) => { h += '<div class="find ' + f.sev + '" data-i="' + i + '">' + esc(f.text) + (f.ref ? '<small>' + esc(f.ref) + '</small>' : '') + '</div>'; });
     ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
     $('mbox').querySelectorAll('.find').forEach((el) => { el.onclick = () => { const f = G.S.rv[+el.dataset.i]; if (f.x !== undefined) { ui.close(); ui.focus(f.x, f.y); } }; });
+  };
+  // Site / project settings: enforced edition, company rules and the values that are ASSUMED or NEEDS PE REVIEW.
+  ui.showSite = function () {
+    const G = g(), W = G.W, c = W.cfg, J = DI.setJuris(W), thr = DI.detThr(W), pol = DI.pipePolicy(W), ed = DI.JURIS[c.edition] && !DI.JURIS[c.edition].hidden ? c.edition : DI.EDITION_DEFAULT;
+    const opt = (grp, val, label, on, dis) => '<button data-s="' + grp + '" data-v="' + val + '"' + (on ? ' class="on"' : '') + (dis ? ' disabled' : '') + '>' + esc(label) + '</button>';
+    const rowL = (inner) => '<div class="mrow" style="justify-content:flex-start;margin-top:6px;flex-wrap:wrap">' + inner + '</div>';
+    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2><p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
+    h += '<h4>ENFORCED EDITION OF NFPA 13 (US)</h4>' + rowL(DI.editionChoices().map((k) => opt('ed', k, 'NFPA 13-' + DI.JURIS[k].nfpa13, ed === k)).join(''));
+    h += '<p>' + (J.delta.length ? '<b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + ' ' : '') + 'Citations in plan review follow the edition. Pass and fail do not differ by edition in this version.</p>';
+    h += '<h4>HAZEN-WILLIAMS C</h4><p>C = ' + DI.HW_C + ' for all sprinkler pipe: wet, dry, preaction, interior, yard and underground. Company rule. Nitrogen earns no credit.<br><span style="color:var(--dim)">Comparison only: the NFPA table value is 120 for wet steel. It has no effect on any calculation here.</span></p>';
+    h += '<h4>PIPE SCHEDULE</h4>' + rowL(Object.keys(DI.PIPE_POLICY).map((k) => opt('pol', k, DI.PIPE_POLICY[k], pol === k)).join('')) + '<p>Sets the inside diameter and volume of every pipe. Cost per size is the same for both schedules (ASSUMED).</p>';
+    h += '<h4>ASPIRATING DETECTION THRESHOLDS (EXAMPLE VALUES, %/FT)</h4>' + rowL(['Alert', 'Action', 'Fire 1', 'Fire 2'].map((n, i) => '<label style="font-size:13px;color:#b6c6d2">' + n + ' <input data-t="' + i + '" type="number" step="0.01" min="0.001" value="' + thr[i] + '" style="width:74px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"></label>').join(''));
+    h += '<p>Alert is supervisory only. Action is a pre-alarm. Fire 1 is the detection leg of a release. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing.</p>';
+    h += rowL('<span style="font-size:13px;color:#b6c6d2">NFPA 76 adopted on this site</span>' + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) + opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
+    h += '<p>NFPA 76 preset: Alert 0.2 %/ft and Fire 1 1.0 %/ft at most (NFPA 76-2024 &sect;8.5.3.1.2.5). Offered only where NFPA 76 is adopted. Action 0.6 is an ASSUMED example, used when the current Action value does not fit between them.</p>';
+    h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL('<span style="font-size:13px;color:#b6c6d2">Manual Release zone bypasses P</span>' + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
+    h += '<p><b style="color:var(--amb)">NEEDS PE REVIEW</b> (owner/insurer exception, footnote 9(c)). OFF: the panel manual station counts as detection and water still needs P. ON: the station alone releases water on an electric / electric trim. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed.</p>';
+    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
+    const done = () => { W.ver++; DI.setJuris(W); G.S.touch(); DI.edited(); ui.showSite(); };
+    $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => {
+      const k = b.dataset.s, v = b.dataset.v;
+      if (k === 'ed') c.edition = v; else if (k === 'pol') c.pipePolicy = v; else if (k === 'n76') c.nfpa76Adopted = v === '1'; else if (k === 'byp') c.manualReleaseBypassP = v === '1';
+      else if (k === 'pre') { if (v === 'reset') delete c.detThr; else { const m = DI.applyDetPreset(W, v); if (m) ui.banner(m); } }
+      done();
+    }; });
+    $('mbox').querySelectorAll('input[data-t]').forEach((inp) => { inp.onchange = () => { const t = DI.detThr(W).slice(), x = parseFloat(inp.value); if (isFinite(x) && x > 0) { t[+inp.dataset.t] = x; c.detThr = t; } done(); }; });
   };
   ui.resHtml = (r) => '<div class="res ' + (r.pass ? 'pass' : 'fail') + '"><b>' + (r.pass ? 'PASS' : 'FAIL') + ' · ' + esc(r.title) + '</b>' + r.lines.map(esc).join('<br>') + '</div>';
   ui.showTests = function () {

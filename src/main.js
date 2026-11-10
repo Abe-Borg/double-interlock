@@ -23,7 +23,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   DI.undo = function () {
     const j = g.undo.pop(); if (!j) return; const o = JSON.parse(j), W = DI.World.fromJSON(o);
     for (const r of W.rooms) { const q = g.W.rooms.find((a) => a.id === r.id); if (q) { r.exempt = q.exempt; r.temp = q.temp; r.burst = q.burst; r.smk = q.smk; r.cov = q.cov; } }
-    W.power = g.W.power; W.ver = g.W.ver + 1; g.W = W; g.S.W = W; g.S.sync(); g.sel = null; DI.edited();
+    W.power = g.W.power; W.cfg = g.W.cfg; W.ver = g.W.ver + 1; g.W = W; g.S.W = W; g.S.sync(); g.sel = null; DI.edited();
   };
   DI.edited = function () { g.S.editT = g.S.t; g.calcShow = null; };
   DI.setSpeed = function (s) { g.speed = s; g.warp = 0; document.querySelectorAll('.sp').forEach((b) => b.classList.toggle('on', +b.dataset.sp === s)); };

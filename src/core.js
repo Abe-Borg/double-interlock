@@ -38,29 +38,53 @@ DI.bus = {
   emit(ev, a, b, c) { const l = this.h[ev]; if (l) for (let i = 0; i < l.length; i++) l[i](a, b, c); },
 };
 
-// Pipe table. id = inside diameter (in), gal = gallons per foot, cost = $ per 10-ft tile installed.
-// Sch 40 through 2 in., Sch 10 above (typical grooved/welded sprinkler pipe).
+// Pipe table, split by schedule. id40 / id10 = inside diameter (in) of Schedule 40 / Schedule 10 steel pipe
+// (steel pipe dimensions table in the NFPA 13 annex / ASME B36.10M), cost = $ per 10-ft tile installed.
+// ASSUMED: cost is the same for both schedules of a size.
+// (verify) 12 in. "Sch 10" is the 0.180 in. wall value the game has always used; NFPA 13 names a thicker
+// minimum wall for 12 in. pipe. Kept so the default policy changes no existing number.
 DI.PIPES = [
-  { n: '1"', id: 1.049, cost: 90 },
-  { n: '1¼"', id: 1.38, cost: 110 },
-  { n: '1½"', id: 1.61, cost: 130 },
-  { n: '2"', id: 2.067, cost: 170 },
-  { n: '2½"', id: 2.635, cost: 230 },
-  { n: '3"', id: 3.26, cost: 290 },
-  { n: '4"', id: 4.26, cost: 400 },
-  { n: '6"', id: 6.357, cost: 640 },
-  { n: '8"', id: 8.249, cost: 900 },
-  { n: '10"', id: 10.37, cost: 1250 },
-  { n: '12"', id: 12.39, cost: 1600 },
+  { n: '1"', id40: 1.049, id10: 1.097, cost: 90 },
+  { n: '1¼"', id40: 1.38, id10: 1.442, cost: 110 },
+  { n: '1½"', id40: 1.61, id10: 1.682, cost: 130 },
+  { n: '2"', id40: 2.067, id10: 2.157, cost: 170 },
+  { n: '2½"', id40: 2.469, id10: 2.635, cost: 230 },
+  { n: '3"', id40: 3.068, id10: 3.26, cost: 290 },
+  { n: '4"', id40: 4.026, id10: 4.26, cost: 400 },
+  { n: '6"', id40: 6.065, id10: 6.357, cost: 640 },
+  { n: '8"', id40: 7.981, id10: 8.249, cost: 900 },
+  { n: '10"', id40: 10.02, id10: 10.37, cost: 1250 },
+  { n: '12"', id40: 11.938, id10: 12.39, cost: 1600 },
 ];
-DI.PIPES.forEach((p) => { p.gal = 0.0408 * p.id * p.id; });   // gal/ft = 0.0408 d^2
+// Pipe schedule policy (project setting W.cfg.pipePolicy):
+//   'assumed' (default, ASSUMED): 2 in. and smaller threaded Sch 40; 2½ in. and larger roll-grooved Sch 10.
+//   'lock'    (company lock text): mains and cross-mains 2 in. and larger Sch 10; branch lines Sch 40 at every size.
+DI.PIPE_POLICY = {
+  assumed: 'ASSUMED default: 2 in. and smaller threaded Sch 40; 2½ in. and larger roll-grooved Sch 10',
+  lock: 'Company lock text: mains and cross-mains 2 in. and larger Sch 10; branch lines Sch 40 at every size',
+};
+DI.PIPES.forEach((p, i) => {
+  const mk = (id, sch) => ({ n: p.n, id, gal: 0.0408 * id * id, cost: p.cost, sch });   // gal/ft = 0.0408 d^2
+  p.s40 = mk(p.id40, 40); p.s10 = mk(p.id10, 10);
+  const d = i <= 3 ? p.s40 : p.s10; p.id = d.id; p.gal = d.gal;                          // default-policy values
+});
+DI.pipePolicy = (W) => (W && W.cfg && DI.PIPE_POLICY[W.cfg.pipePolicy] ? W.cfg.pipePolicy : 'assumed');
+// schedule of size index i; branch = the tile is a branch line (W.pk != 0)
+DI.pipeSch = (policy, i, branch) => (policy === 'lock' ? (branch || i < 3 ? 40 : 10) : i <= 3 ? 40 : 10);
+// the pipe on tile k: { n, id, gal, cost, sch }. Every engine and UI reader goes through this.
+DI.pipeAt = (W, k) => { const i = W.pd[k] - 1, p = DI.PIPES[i]; return DI.pipeSch(DI.pipePolicy(W), i, W.pk[k] !== 0) === 40 ? p.s40 : p.s10; };
 
 // Hazen-Williams: friction loss in psi per foot at 1 gpm (multiply by Q^1.85).
 // p = 4.52 Q^1.85 / (C^1.85 d^4.87)   (NFPA 13)
 DI.hw = (C, d) => 4.52 / (Math.pow(C, 1.85) * Math.pow(d, 4.87));
+// Company rule: C = 100 for all sprinkler pipe: wet, dry, preaction, interior, yard and underground.
+// Nitrogen earns no C-factor credit. Any other C shown in the UI is a comparison label only.
+DI.HW_C = 100;
+DI.pipeC = () => DI.HW_C;
 
 // Hazard table: required density (gpm/ft2), design area (ft2), hose (gpm), duration (min),
-// fire growth alpha (kW/s2). Single-point density/area values (NFPA 13-2025 Ch. 19).
+// fire growth alpha (kW/s2). Single-point density/area values (NFPA 13 Ch. 19; the enforced edition
+// is a site setting, see juris.js).
 DI.HAZ = {
   LH: { name: 'Light Hazard', dens: 0.10, area: 1500, hose: 100, dur: 30, alpha: 0.0029, cap: 1500 },
   OH1: { name: 'Ordinary Hazard Group 1', dens: 0.15, area: 1500, hose: 250, dur: 60, alpha: 0.0117, cap: 4000 },
@@ -69,11 +93,13 @@ DI.HAZ = {
 };
 
 // Room types. val = $ of contents per tile, wetDmg = fraction of val ruined when soaked,
-// smokeDmg = sensitivity to smoke, cond = conditioned (heated) space.
+// smokeDmg = sensitivity to smoke, cond = conditioned (heated) space, spotRelease = one listed spot
+// smoke detector in alarm is the detection leg of a preaction release (support rooms only; white space
+// needs aspirating detection, and the battery room stays alarm-only until the Li-ion cycle).
 DI.ROOMS = {
   office: { name: 'Office / Admin', haz: 'LH', val: 6e3, wetDmg: 0.25, smokeDmg: 0.1, cond: true, col: '#263445', ceil: 10 },
   hall: { name: 'Data Hall', haz: 'OH1', val: 9e5, wetDmg: 0.8, smokeDmg: 1.0, cond: true, col: '#1d2f3a', ceil: 16 },
-  elec: { name: 'Electrical / UPS Room', haz: 'OH1', val: 4e5, wetDmg: 0.9, smokeDmg: 0.6, cond: true, col: '#2f2a3d', ceil: 14 },
+  elec: { name: 'Electrical / UPS Room', haz: 'OH1', val: 4e5, wetDmg: 0.9, smokeDmg: 0.6, cond: true, col: '#2f2a3d', ceil: 14, spotRelease: true },
   batt: { name: 'Battery Room', haz: 'OH2', val: 3e5, wetDmg: 0.5, smokeDmg: 0.5, cond: true, col: '#3a2a2f', ceil: 14 },
   dock: { name: 'Loading Dock', haz: 'OH2', val: 1.5e4, wetDmg: 0.1, smokeDmg: 0.05, cond: false, col: '#2e3328', ceil: 18 },
   stor: { name: 'Storage / Staging', haz: 'OH2', val: 3e4, wetDmg: 0.3, smokeDmg: 0.1, cond: true, col: '#33301f', ceil: 16 },

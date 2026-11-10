@@ -83,10 +83,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const k = W.k(tl.x, tl.y), p = W.at(tl.x, tl.y); let s = '';
     if (p) s = DI.PARTS[p.type].name + (p.p.label ? ' (' + p.p.label + ')' : '') + ' #' + p.id;
     else if (W.pd[k]) {
-      const pi = DI.PIPES[W.pd[k] - 1], sid = S.sysd.tileSys[k], ss = sid && S.ss.get(sid); let q = 0;
+      const pi = DI.pipeAt(W, k), sid = S.sysd.tileSys[k], ss = sid && S.ss.get(sid); let q = 0;
       if (S.G) q = Math.max(Math.abs(DI.edgeFlow(S.G, k, false)), Math.abs(DI.edgeFlow(S.G, k, true)), tl.x > 0 ? Math.abs(DI.edgeFlow(S.G, k - 1, false)) : 0, tl.y > 0 ? Math.abs(DI.edgeFlow(S.G, k - W.w, true)) : 0);
       const dry = ss && ss.state === 'dry';
-      s = pi.n + (W.pk[k] ? ' branch' : ' main') + (W.spk[k] ? ' + sprinkler' : '') + '\n' + (dry ? 'gas ' + DI.fmt(ss.P, 1) + ' psi' : DI.fmt(S.pT[k], 1) + ' psi') + (q > 0.4 ? '  ' + DI.fmt(q) + ' gpm  ' + DI.fmt(0.4085 * q / (pi.id * pi.id), 1) + ' ft/s' : '');
+      s = pi.n + ' Sch ' + pi.sch + (W.pk[k] ? ' branch' : ' main') + (W.spk[k] ? ' + sprinkler' : '') + (S.leaks.some((l) => l.k === k && l.a) ? '  BROKEN' : '') + '\n' + (dry ? 'gas ' + DI.fmt(ss.P, 1) + ' psi' : DI.fmt(S.pT[k], 1) + ' psi') + (q > 0.4 ? '  ' + DI.fmt(q) + ' gpm  ' + DI.fmt(0.4085 * q / (pi.id * pi.id), 1) + ' ft/s' : '');
       if (S.dens[k] > 0.005) s += '\napplied ' + DI.fmt(S.dens[k], 2) + ' gpm/ft²';
     } else { const r = W.room(tl.x, tl.y); if (r) s = r.name; }
     if (!s) { el.style.display = 'none'; return; }

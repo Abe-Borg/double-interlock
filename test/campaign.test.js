@@ -1,5 +1,5 @@
 // node test/campaign.test.js [id]  - plays each contract headlessly with a reference solution: goals, then the drill.
-for (const f of ['core', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'sim', 'calc', 'review', 'proc', 'scen', 'scen1', 'scen2', 'scen3']) require('../src/' + f + '.js');
+for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'sim', 'calc', 'review', 'proc', 'scen', 'scen1', 'scen2', 'scen3']) require('../src/' + f + '.js');
 require('./bot.js'); const DI = globalThis.DI; let fail = 0;
 const only = process.argv[2];
 for (const sc of DI.SCEN) {

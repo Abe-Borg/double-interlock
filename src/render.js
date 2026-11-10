@@ -13,13 +13,13 @@ var DI = globalThis.DI || (globalThis.DI = {});
       case 'city': st.loop = q.loop; break;
       case 'fdc': st.on = q.active; break;
       case 'testhdr': st.open = q.open; break;
-      case 'wetv': case 'dryv': case 'prev': { const s = S.ss.get(p.id), i = S.sysd.info.get(p.id); if (s) { st.alarm = s.alarm; st.tripped = s.state !== 'dry'; st.low = s.lowAir && s.state === 'dry'; st.sol = q.sol; st.mode = q.mode; st.n2 = i && i.hasN2; } break; }
+      case 'wetv': case 'dryv': case 'prev': { const s = S.ss.get(p.id), i = S.sysd.info.get(p.id); if (s) { st.alarm = s.alarm; st.tripped = s.state !== 'dry'; st.low = s.lowAir && s.state === 'dry'; st.sol = q.sol || q.pull; st.pl = q.pLatch; st.n2 = i && i.hasN2; } break; }
       case 'panel': { let al = 0, sv = 0, tr = 0; for (const o of S.sig.values()) if (o.mon) { if (o.type === 'ALARM') al = 1; else if (o.type === 'SUPV') sv = 1; else tr = 1; } st.al = al; st.sv = sv; st.tr = tr; st.alive = q.alive; break; }
       case 'vesda': case 'smoke': st.lvl = q.lvl; break;
     }
     return st;
   };
-  const pipeW = (W, k, z) => Math.max(1.6, (1.2 + DI.PIPES[W.pd[k] - 1].id * 0.62) * z / 22);
+  const pipeW = (W, k, z) => Math.max(1.6, (1.2 + DI.pipeAt(W, k).id * 0.62) * z / 22);
 
   DI.draw = function (g, c, cw, ch, now) {
     const W = g.W, S = g.S, z = g.cam.z, ox = Math.round(cw / 2 - g.cam.x * z), oy = Math.round(ch / 2 - g.cam.y * z), w = W.w;
@@ -89,6 +89,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
         }
       }
       c.setLineDash([]);
+    }
+    // pipe breaks: a red cross on the tile
+    for (const lk of S.leaks) if (lk.a) {
+      const X = ox + ((lk.k % w) + 0.5) * z, Y = oy + (((lk.k / w) | 0) + 0.5) * z, r = z * 0.3;
+      c.strokeStyle = C.red; c.lineWidth = Math.max(1.5, z * 0.09); c.beginPath(); c.moveTo(X - r, Y - r); c.lineTo(X + r, Y + r); c.moveTo(X + r, Y - r); c.lineTo(X - r, Y + r); c.stroke();
     }
     // sprinklers
     if (z >= 6) for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {

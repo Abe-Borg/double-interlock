@@ -2,16 +2,17 @@
 var DI = globalThis.DI || (globalThis.DI = {});
 (function () {
   const G = DI.G, X = DI.X;
-  const di = (S, types) => types.every((t) => G.each(S, t, (v) => v.type === 'prev' && v.p.mode === 'double'));
-  const inService = (S, types) => types.every((t) => G.each(S, t, (v, i, s) => v.type === 'wetv' ? s.state === 'wet' : s.state === 'dry' && s.set));
+  const di = (S, types) => types.every((t) => G.each(S, t, (v) => v.type === 'prev'));
+  // in service: set and pressurized, and for preaction the P sensor is not sitting latched
+  const inService = (S, types) => types.every((t) => G.each(S, t, (v, i, s) => v.type === 'wetv' ? s.state === 'wet' : s.state === 'dry' && s.set && !v.p.pLatch));
   const mark = (S) => { S.drill.g0 = S.stats.gallons; };
 
   DI.SCEN.push({
     id: 'c5', name: 'Double Interlock', tag: 'Preaction, VESDA, releasing panel', w: 64, h: 36, money: 430000, par: 345000,
     parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'prev', 'comp', 'panel', 'vesda', 'smoke'],
     brief: ['Data Hall 1: 48,000 square feet and nine figures of servers. The owner wants sprinklers, because a fire that is not stopped takes the whole building. The owner is also terrified of water.',
-      'Double interlock preaction answers both. The pipe is dry and held under supervisory pressure. Water is admitted only when two independent things have happened: the detection system has alarmed AND a sprinkler has opened and dumped the air. A broken sprinkler alone does nothing. A false detection alone does nothing.'],
-    learn: ['The two interlocks: releasing panel solenoid + loss of supervisory pressure', 'Aspirating detection thresholds (Alert / Action / Fire 1 / Fire 2) and what each should trigger', 'System size: 60 s water delivery above 500 gal, +30% design area, no gridding', 'An impaired interlock is half a system: why you fix low air now', 'One control valve per system, so an impairment stays small'],
+      'Double interlock preaction answers both. The pipe is dry and held under supervisory pressure. Water is admitted only when two independent things have happened: detection has reached Fire 1 (or someone has operated the manual station) AND P, the pipe pressure falling below the P trip setpoint. A broken sprinkler alone gives P and no water. A false detection alone energizes the solenoid and no water. P stays latched until you reset it, so a broken sprinkler that was replaced but never reset still counts.'],
+    learn: ['The two interlocks: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint)', 'Aspirating detection stages: Alert is supervisory, Action is a pre-alarm, Fire 1 releases, Fire 2 only escalates', 'System size: 60 s water delivery above 500 gal, +30% design area, no gridding', 'Low air is a warning, P is a latch: after every repair, reset the panel or one detection event floods the room', 'One control valve per system, so an impairment stays small'],
     build(W) {
       const b = DI.mk(W); W.addRoom('riser', 15, 10, 6, 8).exempt = true; W.addRoom('hall', 22, 5, 30, 16); W.addRoom('elec', 22, 22, 12, 7);
       b.p('city', 2, 14, 0, { stat: 135, resid: 115, flow: 2500, fixed: true, loop: true, label: 'Campus Fire Loop' }); b.h(3, 12, 14, 8); b.p('gate', 13, 14); b.h(14, 16, 14, 8);
@@ -22,7 +23,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'Releasing panel wired: detection, every solenoid, every tamper switch', ok: (S) => S.W.byType('prev').length > 0 && G.wired(S, ['prev', 'gate', 'vesda', 'smoke']), hint: 'Wire tool: panel first, then each device.' },
       { t: 'Hydraulic calc passes on every system: 0.15 gpm/ft² over 1,950 ft² + 250 gpm hose', ok: (S) => G.calcOk(S, 'hall') && G.calcOk(S, 'elec'), hint: 'Feed the hall from the middle so no branch line is long.' },
       { t: 'Trip test passes on every preaction valve', ok: (S) => G.test(S, 'trip', 'hall') && G.test(S, 'trip', 'elec'), hint: 'Over 500 gal the water has 60 s to reach the far end. Split the hall into more than one system if it cannot.' },
-      { t: 'All systems reset, pressurized and in service', ok: (S) => inService(S, ['hall', 'elec']), hint: 'Close control valve, drain, reset the valve, panel reset, air up, reopen. Give each preaction valve its own control valve, or restoring one system takes all of them out of service.' },
+      { t: 'All systems reset, pressurized and in service', ok: (S) => inService(S, ['hall', 'elec']), hint: 'Close control valve, drain, panel reset, reset the valve, air up, reopen. A valve showing P LATCHED is not in service: reset the panel once the air is back. Give each preaction valve its own control valve, or restoring one system takes all of them out of service.' },
     ],
     drill: { name: 'Three Bad Days', len: 4200, steps: () => [
       [10, X.smash('hall', 0.3, 0.3), 'A contractor’s ladder just snapped a sprinkler off in the data hall.'],
@@ -36,14 +37,14 @@ var DI = globalThis.DI || (globalThis.DI = {});
     id: 'c6', name: 'Rust Never Sleeps', tag: 'Nitrogen, corrosion, leak testing', w: 64, h: 36, money: 78000, par: 52000,
     parts: ['gate', 'comp', 'n2', 'panel'],
     brief: ['Six years ago someone filled this preaction system with compressed air and walked away. Air is 21% oxygen. Every trip test left a little water in the low points. Oxygen, water and steel have been doing what they do.',
-      'The compressor now runs all day, low-air supervisories come in at 3 a.m., and facilities has started ignoring them. That is how a double interlock system quietly becomes a single interlock system.'],
-    learn: ['Why dry and preaction pipe corrodes from the inside, and where', 'Reading compressor run time and the 24-hour air test (1.5 psi limit)', 'Nitrogen generator + vent: purge to 98% and the corrosion reaction starves', 'The design bonus: C = 120 instead of 100 for dry pipe on nitrogen'],
+      'The compressor now runs all day, low-air supervisories come in at 3 a.m., and facilities has started ignoring them. That is how a double interlock system quietly loses an interlock: the day the leak outruns the compressor, P latches, and from then on one detection event is all it takes.'],
+    learn: ['Why dry and preaction pipe corrodes from the inside, and where', 'Reading compressor run time and the 24-hour air test (1.5 psi limit)', 'Nitrogen generator + vent: purge to 98% and the corrosion reaction starves', 'Nitrogen buys corrosion protection, not smaller pipe: the calc stays at C = 100'],
     build(W) {
       const b = DI.mk(W); W.addRoom('riser', 15, 10, 6, 8).exempt = true; W.addRoom('hall', 22, 8, 20, 12);
       b.p('city', 2, 14, 0, { stat: 96, resid: 74, flow: 1500, fixed: true, loop: true, label: 'Campus Fire Loop' }); b.h(3, 12, 14, 8);
-      const g = b.p('gate', 13, 14); b.h(14, 16, 14, 7); const v = b.p('prev', 17, 14, 0, { mode: 'double', airSet: 20 });
-      const d = b.p('vesda', 41, 19); b.h(18, 30, 14, 5); for (let x = 22; x <= 30; x++) W.spk[W.k(x, 14)] = 1;
-      b.v(31, 8, 19, 5, true); b.grid(22, 8, 30, 19, 2, 1); b.grid(32, 8, 41, 19, 2, 1);
+      const g = b.p('gate', 13, 14); b.h(14, 16, 14, 7); const v = b.p('prev', 17, 14, 0);
+      const d = b.p('vesda', 41, 19); b.h(18, 30, 14, 6); for (let x = 22; x <= 30; x++) W.spk[W.k(x, 14)] = 1;
+      b.v(31, 8, 19, 6, true); b.grid(22, 8, 30, 19, 2, 1); b.grid(32, 8, 41, 19, 2, 1);
       const c = b.p('comp', 17, 12, 0, { scfm: 5 }); b.air([[17, 13]]); const pn = b.p('panel', 19, 12); b.wire(pn, g, v, d);
     },
     start(S) { for (const s of S.ss.values()) { s.corr = 0.6; s.holes = 5; s.moist = 1; } },
@@ -52,7 +53,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'Repair the pinhole leaks', ok: (S) => G.each(S, 'hall', (v, i, s) => !s.holes), hint: 'Preaction valve → Repair leaks.' },
       { t: 'Supervisory gas is 98% nitrogen or better', ok: (S) => G.each(S, 'hall', (v, i, s) => i.hasN2 && s.G > 0 && s.o2g / s.G <= 0.02), hint: 'Tube a nitrogen generator to the valve and enable the purge vent. Purging takes about a week: skip ahead.' },
       { t: '24-hour air test passes', ok: (S) => G.test(S, 'leak', 'hall'), hint: 'Limit is 1.5 psi in 24 hours.' },
-      { t: 'Hydraulic calc passes', ok: (S) => G.calcOk(S, 'hall'), hint: 'It fails at C = 100. Nitrogen-filled pipe is calculated at C = 120.' },
+      { t: 'Hydraulic calc passes (C = 100: nitrogen earns no pipe-size credit)', ok: (S) => G.calcOk(S, 'hall'), hint: 'Select the preaction valve and run the calc. All pipe is calculated at C = 100, with or without nitrogen.' },
       { t: 'Five years on nitrogen with no new leaks', ok: (S) => G.each(S, 'hall', (v, i, s) => !s.holes && s.n2T > 0 && S.t - s.n2T >= 5 * DI.YEAR), hint: 'Clock menu → skip 5 years once the gas is at 98%.' },
     ],
     tick(S) { for (const [id, s] of S.ss) { const i = S.sysd.info.get(id), pure = i.hasN2 && s.G > 0 && s.o2g / s.G <= 0.021 && s.state === 'dry'; if (pure && !(s.n2T > 0)) s.n2T = S.t; if (!pure || s.holes) s.n2T = -1; } },

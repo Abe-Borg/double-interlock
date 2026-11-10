@@ -56,7 +56,7 @@
       devs.push(b.p('vesda', 42, 11), b.p('vesda', 70, 11), b.p('vesda', 61, 32));
       hall(36, 30, 42); hall(49, 43, 55); hall(64, 58, 70); hall(77, 71, 83); b.capCol(42, 11, 24); b.capCol(70, 11, 24);
       south(38, 'wetv'); room(38, 30, 45, 1, 5); const E = south(55, 'prev'); room(55, 48, 61, 2, 5); south(69, 'wetv'); room(69, 64, 73, 2, 5);
-      const D = south(82, 'dryv', { qod: true, airSet: 50 }); room(82, 76, 87, 2, 6);
+      const D = south(82, 'dryv', { qod: true, airSet: 50, hiAir: 60, loAir: 40 }); room(82, 76, 87, 2, 6);
       b.p('comp', 27, 27, 0, { scfm: 20 }); const air = []; for (let x = 28; x <= 82; x++) { if (x <= 77) air.push([x, 26]); air.push([x, 30]); } for (let y = 27; y <= 29; y++) air.push([28, y]); b.air(air);
       b.wire(pn, ...devs);
       return { settle: 2400, tests: [['pump', ep.id], ['pump', dp.id], ['trip', A1.id], ['trip', A2.id], ['trip', B1.id], ['trip', B2.id], ['trip', E.id], ['trip', D.id]], after: (S) => DI.botRestore(S, 5000), ops: (S) => DI.botOps(S) };
@@ -73,7 +73,12 @@
     if (S.fires.length) return;
     for (const [id, s] of S.ss) {
       const v = W.parts.get(id); if (v.type === 'wetv') { if (s.openK && s.openK.length && S.outFlow < 1) DI.replaceSprinklers(S, id); continue; }
-      if (s.state === 'dry') { if (s.openK && s.openK.length) DI.replaceSprinklers(S, id); continue; }
+      if (s.state === 'dry') {
+        if (s.openK && s.openK.length) DI.replaceSprinklers(S, id);
+        // repair done and air back above P trip: reset the panel so a latched P does not sit waiting for one detection event
+        else if (v.p.pLatch && s.P > v.p.pTrip + 1 && !v.p.sol) { const pn = W.panelOf(id); if (pn) DI.panelReset(S, pn.id); }
+        continue;
+      }
       const g = DI.botGate(S, id); if (g) { g.p.target = 0; g.p.bot = true; if (g.p.open > 0.02) continue; }
       if (!v.p.sdrain) { v.p.sdrain = 1; S.touch(); }
       for (const pn of W.byType('panel')) if ([...W.parts.values()].every((d) => !(d.type === 'vesda' || d.type === 'smoke') || !(d.p.live > 0))) DI.panelReset(S, pn.id);

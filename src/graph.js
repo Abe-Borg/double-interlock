@@ -17,12 +17,12 @@ DI.buildGraph = function (W, S) {
   const rawOf = new Int32Array(n).fill(-1);
   const rCap = [], rKeep = [], rTile = [], rP = [];
   const raw = (cap, keep, tile, p) => { rCap.push(cap); rKeep.push(keep ? 1 : 0); rTile.push(tile); rP.push(p); return rCap.length - 1; };
-  const Cof = (k) => { const sid = ts[k], s = sid && sd.info.get(sid); if (s && s.type !== 'wetv') return s.hasN2 ? 120 : 100; return W.roomAt[k] ? 120 : 140; };
-  const halfR = (k) => DI.hw(Cof(k), DI.PIPES[W.pd[k] - 1].id) * 5 * DI.FIT;
+  const Cof = () => DI.pipeC();          // company rule: one C for all pipe, any state, indoors or out
+  const halfR = (k) => DI.hw(Cof(k), DI.pipeAt(W, k).id) * 5 * DI.FIT;
   // --- raw nodes
   for (let k = 0; k < n; k++) {
     if (!W.pd[k] || isDry(ts[k])) continue;
-    const vol = DI.PIPES[W.pd[k] - 1].gal * 10, s = ts[k] && st(ts[k]);
+    const vol = DI.pipeAt(W, k).gal * 10, s = ts[k] && st(ts[k]);
     let cap = vol * DI.CAPW + 1e-5;
     if (s && s.state === 'filling') { const inf = sd.info.get(ts[k]); cap = (vol / inf.vol) * Math.max(inf.vol - s.wat, 0.02 * inf.vol) / (Math.max(s.P, 0) + DI.ATM); }
     rawOf[k] = raw(cap, 0, k, S.pT[k]);
