@@ -31,7 +31,12 @@ const { chromium } = require('playwright'); const path = require('path');
     return { v: v.id, g: g.id, pn: pn.id, d: d.id, st: st.id, head: W.k(39, 16), room: W.roomAt[W.k(39, 16)] };
   }, trim); await tick(); return ids; };
   const st = (id) => ev((i) => { const S = DI.game.S, s = S.ss.get(i), q = S.W.parts.get(i).p; return { state: s.state, set: s.set, P: s.P, pLatch: q.pLatch, sol: q.sol, pull: q.pull, solOut: q.solOut, mech: q.mech, wat: s.wat }; }, id);
-  const breakFix = async (r) => { await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(240); await sel(r.v); await press('Replace 1 sprinkler'); };
+  // break a head, then replace it the way the head gate (Cycle 3) requires: control valve closed, air isolated, drain
+  // open and the gauge at 0. The drain is then closed and the supply restored; the control valve stays closed.
+  const breakFix = async (r) => { await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(240);
+    await ev(({ g, v }) => { const S = DI.game.S, q = S.W.parts.get(v).p; DI.setGate(S, g, 0); for (let i = 0; i < 24; i++) S.step(0.25); q.airValve = 0; q.sdrain = 1; S.touch(); for (let i = 0; i < 400 && !S.ss.get(v).dz; i++) S.step(0.25); }, r);
+    await sel(r.v); await press('Replace 1 sprinkler');
+    await ev(({ v }) => { const S = DI.game.S, q = S.W.parts.get(v).p; q.sdrain = 0; q.airValve = 1; S.touch(); S.step(0.25); }, r); await sel(r.v); };
 
   // ---- 1. Site menu: read-only in a contract, editable in the sandbox, saved with the map, edition delta shown
   await start('c5'); await p.click('#bSite'); await tick();
@@ -81,11 +86,11 @@ const { chromium } = require('playwright'); const path = require('path');
   // ---- 3. dead panel + manual pull never releases
   r = await rig(); await ev((id) => { DI.game.W.power = false; DI.game.W.parts.get(id).p.battH = 0; }, r.pn); await step(2);
   await sel(r.st); await press('Operate station'); await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(300); await sel(r.v); s = await st(r.v);
-  ok('dead panel + manual pull + P: the valve stays shut and the solenoid de-energized', s.state === 'dry' && s.wat === 0 && s.pLatch && !s.pull && !s.solOut && (await row('Solenoid (D AND P)')) === 'de-energized' && (await row('D: detection')) === 'normal');
-  const dead = await ev(() => [...DI.game.S.sig.values()].filter((o) => o.type === 'TRBL').map((o) => o.text + (o.mon ? ' [monitored]' : '')).join());
-  ok('dead panel: a monitored trouble reports the loss of signal', /PANEL DEAD.*loss of signal.*\[monitored\]/.test(dead), dead);
+  ok('dead panel + manual pull + pipe below P trip: the valve stays shut, nothing is latched, and the panel-fed rows are dark', s.state === 'dry' && s.wat === 0 && s.P < 20 && !s.pLatch && !s.pull && !s.solOut && (await row('Solenoid (D AND P)')) === 'not displayed: panel dead' && (await row('D: detection')) === 'not displayed: panel dead' && (await row('P: pipe pressure')) === 'not displayed: panel dead');
+  const dead = await ev(() => [...DI.game.S.sig.values()].filter((o) => o.type === 'TRBL' && o.lost).map((o) => o.text + (o.mon ? ' [monitored]' : '')).join());
+  ok('dead panel: the supervising station reports the loss of communication as a monitored trouble', /^LOSS OF COMMUNICATION - panel #\d+ \(no signal, supervising station reports trouble\) \[monitored\]$/.test(dead), dead);
   await ev(() => { DI.game.W.power = true; }); await step(2); s = await st(r.v);
-  ok('power back: the station is still operated, so D returns and D AND P releases', s.pull === true && s.state !== 'dry');
+  ok('power back: the panel reads its inputs again. The station is still operated and the pipe is still low, so D and P both return and the valve releases', s.pull === true && s.pLatch === true && s.state !== 'dry');
 
   // ---- 4. stage order at a fixed time step (A1)
   r = await rig(); await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(240);
@@ -112,7 +117,7 @@ const { chromium } = require('playwright'); const path = require('path');
   ok('mechanical release: the riser reset is refused while the system holds water', s.state !== 'dry' && /still holds|still flowing/.test(refused), refused);
   await sel(r.g); await press('Close valve'); await step(8); await sel(r.v); await press('System drain'); await ev((id) => { const S = DI.game.S, s2 = S.ss.get(id); for (let t = 0; t < 2400 && s2.wat > 0.01 * s2.vol + 0.2; t += 0.5) S.step(0.5); }, r.v);
   await sel(r.v); await press('Reset valve at the riser'); await step(2); s = await st(r.v);
-  ok('mechanical release: after the drain the riser reset closes the valve and the release', s.state === 'dry' && s.mech === false && (await row('System (gas)')) !== null);
+  ok('mechanical release: after the drain the riser reset closes the valve and the release, with the drain still open', s.state === 'dry' && s.mech === false && (await row('System (gas)')) !== null && (await ev((id) => DI.game.W.parts.get(id).p.sdrain, r.v)) === 1);
   ok('and the empty pipe then reads low: P is latched until the air is back and the panel is reset', s.pLatch === true);
 
 

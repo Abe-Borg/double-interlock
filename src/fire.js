@@ -115,11 +115,27 @@ DI.fireWater = function (S, dt) {
   }
 };
 
+// Is it safe to open the pipe of a dry or preaction system to change a head? Water isolated, air / N2 supply
+// isolated, pipe water-free and at about 0 psi (FP Lead; the 0.5 psi value is ASSUMED). The drain may be open
+// or closed: "drain closed" is not a condition. Returns '' or what is still wrong.
+// Simplification: a system with no control valve upstream skips the water-isolation test (review warns).
+DI.headSafe = function (S, id) {
+  const W = S.W, v = W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id); if (!v || !s || !inf) return 'No system.';
+  const g = DI.ctrlValve(W, id);
+  if (g && (g.p.open > 0.02 || Math.abs(s.flow || 0) > 1)) return 'Close the control valve first.';
+  if (inf.src.length && v.p.airValve) return 'Isolate the air / N2 supply first.';
+  const wat = s.state === 'wet' ? inf.vol : s.wat;
+  if (wat <= DI.dryLim(inf.vol) && s.state !== 'wet' && s.P > DI.SAFE_PSI) return 'The pipe still holds ' + DI.fmt(s.P, 1) + ' psi. Open the system drain and wait for the gauge to read 0.';
+  if (wat > DI.dryLim(inf.vol)) return 'The pipe still holds ' + DI.fmt(wat) + ' gal of water. Open the drain.';
+  return '';
+};
 DI.replaceSprinklers = function (S, id) {
-  const s = S.ss.get(id), inf = S.sysd.info.get(id); if (!s) return 'No system.';
+  const s = S.ss.get(id), inf = S.sysd.info.get(id), v = S.W.parts.get(id); if (!s) return 'No system.';
   if (!s.openK || !s.openK.length) return 'No operated sprinklers on this system.';
-  if (Math.abs(s.flow) > 1 || (s.qOut || 0) > 1) return 'Water is still flowing. Close the control valve first.';
+  if (v && v.type !== 'wetv') { const m = DI.headSafe(S, id); if (m) return m; }
+  else if (Math.abs(s.flow) > 1 || (s.qOut || 0) > 1) return 'Water is still flowing. Close the control valve first.';
   const n = s.openK.length; for (const k of s.openK) { S.W.spk[k] = 1; S.lt[k] = 21; }
+  s.openK = [];                       // at once, so a paused game shows the head as replaced
   S.spkVer++; S.dirty = true; S.W.money -= n * 180; S.act('replace-head', id); S.say('Replaced ' + n + ' sprinkler(s) with matching heads (-' + DI.money(n * 180) + ')', 'good');
   return '';
 };

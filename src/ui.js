@@ -68,14 +68,17 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
     // Annunciator: alarm, then OPEN (release input, class not elected), then supervisory, then trouble. A detector
     // stage that a higher stage has superseded stays listed as the record of the crossing and is not counted.
-    let h = '', al = 0, sv = 0, tr = 0, op = 0, loud = 0; const ORD = DI.SIG_ORDER;
-    const list = [...S.sig.values()].sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
+    // A dead panel is dark: its own signals (o.dark) are not listed. What the supervising station reports about it
+    // (o.lost: loss of communication) is listed ahead of the rest, on its own line.
+    let h = '', al = 0, sv = 0, tr = 0, op = 0, loud = 0, lost = 0; const ORD = DI.SIG_ORDER, all = [...S.sig.values()];
+    for (const o of all) if (o.lost) { lost++; h += '<div class="sig TRBL stn" data-p="' + o.part + '"><b>TRBL</b><span><em>SUPERVISING STATION</em> ' + esc(o.text) + '</span></div>'; }
+    const list = all.filter((o) => !o.lost && !o.dark).sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
     for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; if (!DI.sigSilenced(W, o)) loud++; }
       h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? '' : ' <em>(local only)</em>') + '</span></div>'; }
     if ($('sigs').dataset.h !== h) { $('sigs').innerHTML = h || '<div class="sig"><span style="color:var(--dim)">All systems normal.</span></div>'; $('sigs').dataset.h = h; }
     // ASSUMED presentation: the banner reads OPEN ITEM only when nothing but OPEN is present
     const st = $('annState'), sil = (al || sv || tr || op) && !loud;       // SILENCED only when every active signal's own panel is silenced
-    st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
+    st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : lost ? 'PANEL DEAD - DISPLAY DARK' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr || lost ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
     DI.inspect.render(false);
   };
 
@@ -123,9 +126,15 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if (key === 'ed') { if (!DI.editionChoices().includes(val)) return false; c.edition = val; }
     else if (key === 'cut') { if (!DI.PIPE_CUTS.includes(+val)) return false; c.pipeCut = +val; }
     else if (key === 'n76') c.nfpa76Adopted = val === '1';
+    // the aspirating detector model: only a model in the table. It never edits a threshold (no clamping).
+    else if (key === 'asd') { if (!Object.prototype.hasOwnProperty.call(DI.ASD_MODELS, val)) return false; c.asdModel = val; }
+    // which stage the NFPA 76 alarm limit applies to: the owner's election, or not elected (OPEN)
+    else if (key === 'n76s') { if (val === 'fire1' || val === 'fire2') c.n76AlarmStage = val; else if (val === 'open') delete c.n76AlarmStage; else return false; }
     else if (key === 'byp') c.manualReleaseBypassP = val === '1';
     else if (key === 'ins') c.insurer = val === 'FM' ? 'FM' : 'none';
-    else if (key === 'pre') { if (val === 'reset') { delete c.detThr; delete c.spotThr; } else { const m = DI.applyDetPreset(W, val); if (m) { ui.banner(m); return false; } } }
+    // a preset writes only the parts that fit and says which did not (the dialog shows the message)
+    else if (key === 'pre') { ui.siteNote = ''; if (val === 'reset') { delete c.detThr; delete c.spotThr; } else { const m = DI.applyDetPreset(W, val); if (m) { ui.siteNote = m; ui.banner(m); } if (!DI.PRESETS[val] || !DI.juris.nfpa76Adopted) return false; } }
+    // a threshold is stored exactly as typed: out of range or out of order shows red and fails plan review, it is never clamped
     else if (key === 'thr') { const t = DI.detThr(W).slice(); if (!num(val[1], 1e-6, 1e3)) return false; t[val[0]] = val[1]; c.detThr = t; }
     else if (key === 'spot') { if (!num(val, 1e-6, 1e3)) return false; c.spotThr = val; }
     else if (key === 'fit') { if (!num(val, 0, 50)) return false; c.fitPct = val; }
@@ -141,7 +150,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const lab = (t) => '<span style="font-size:13px;color:#b6c6d2">' + t + '</span>';
     const inp = (key, val, step, w) => '<input data-n="' + key + '" type="number" step="' + step + '" min="0" value="' + val + '"' + (ro ? ' disabled' : '') + ' style="width:' + (w || 74) + 'px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace">';
     const A = ' <b style="color:var(--amb)">ASSUMED</b>', PE = '<b style="color:var(--amb)">NEEDS PE REVIEW</b>', CLS = { SUPV: 'Supervisory', ALARM: 'Alarm', TRBL: 'Trouble', OPEN: 'Not elected' };
-    const LA = DI.LISTED.vesda, LS = DI.LISTED.smoke, D = DI.DELIVERY;
+    const LS = DI.LISTED.smoke, D = DI.DELIVERY, mk = DI.asdModel(W), M = DI.ASD_MODELS[mk], RG = DI.asdRange(W), af = DI.asdFmt;
+    const badStage = new Set(DI.asdFindings(W).map((x) => x.stage)), flags = DI.n76Flags(W), flag = (code) => flags.find((x) => x.code === code), st76 = DI.n76Stage(W);
+    const chip = (id, text, col, tip) => ' <b id="' + id + '" title="' + esc(tip).replace(/"/g, '&quot;') + '" style="font:11px var(--mono);color:#0b1016;background:' + col + ';border-radius:3px;padding:2px 7px">' + text + '</b>';
     let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2>';
     if (ro) h += '<p id="siteRO" style="border-left:3px solid var(--amb);padding-left:10px"><b>Basis of design is fixed in a contract: set by the AHJ, the owner and the insurer.</b> These settings are read-only here. They can be changed in the Sandbox.</p>';
     h += '<p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
@@ -154,18 +165,29 @@ var DI = globalThis.DI || (globalThis.DI = {});
     h += '<p>Zone volume = pipe + fittings + trim.' + A + ' (5 % and 2 gal). NFPA 13 judges the size exemptions on it: a dry system needs the ' + D.timed + ' s timed trip test above ' + D.dry + ' gal (' + D.dryQod + ' gal with a quick-opening device), a double-interlock system above ' + D.di + ' gal, and a quick-opening device does not extend that one.</p>';
     h += rowL(lab('Insurer') + opt('ins', 'none', 'None', DI.insurer(W) === 'none') + opt('ins', 'FM', 'FM', DI.insurer(W) === 'FM'));
     h += '<p>' + PE + ' With FM, dry and double-interlock systems must deliver water in ' + D.fm + ' s at any volume (' + D.fmRef + '). The most stringent limit governs, so a zone can pass NFPA 13 and fail FM. FM density, hose and duration are not part of this setting.</p>';
-    h += '<h4>ASPIRATING DETECTION THRESHOLDS (EXAMPLE VALUES, %/FT)</h4>' + rowL(['Alert', 'Action', 'Fire 1', 'Fire 2'].map((n, i) => '<label>' + lab(n + ' ') + '<input data-t="' + i + '" type="number" step="0.01" min="0.001" value="' + thr[i] + '"' + (ro ? ' disabled' : '') + ' style="width:74px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"></label>').join(''));
-    h += '<p>Alert and Action are pre-alarm. Fire 1 is the detection leg of a release: D is true at or above it. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing, and a Fire 1 or Fire 2 outside the listed window of the detector: ' + LA.min + ' to ' + LA.max + ' %/ft' + A + ' (placeholder until the maker’s listing is given).</p>';
+    h += '<h4>ASPIRATING DETECTION (%/FT OBSCURATION)</h4>' + rowL(lab('Aspirating detector model') + Object.keys(DI.ASD_MODELS).map((k) => opt('asd', k, DI.ASD_MODELS[k].label, mk === k)).join(''));
+    h += '<p id="asdDoc">Listed range per stage, ' + esc(M.label) + ' (' + esc(M.models) + '): ' + esc(M.doc) + ' ' + esc(DI.ASD_SRC) + '. Changing the model never changes a threshold.</p>';
+    // one input per stage with its listed range printed under it. A value outside its range, or out of order, is
+    // drawn red and left exactly as typed: plan review fails it, nothing is clamped.
+    h += rowL(DI.ASD_STAGES.map(([, n], i) => { const bad = badStage.has(i) || !(thr[i] > 0) || (i > 0 && !(thr[i] > thr[i - 1])) || (i < 3 && !(thr[i] < thr[i + 1]));
+      return '<label style="display:inline-flex;flex-direction:column;gap:3px">' + lab(n) + '<input data-t="' + i + '"' + (bad ? ' data-bad="1"' : '') + ' type="number" step="any" min="' + RG[i][0] + '" max="' + RG[i][1] + '" value="' + thr[i] + '"' + (ro ? ' disabled' : '') + ' style="width:86px;background:#0c1218;color:' + (bad ? 'var(--red)' : '#e6eef3') + ';border:1px solid ' + (bad ? 'var(--red)' : '#2f4254') + ';border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"><small data-r="' + i + '" style="font:11px var(--mono);color:var(--dim)">' + af(RG[i][0]) + ' to ' + af(RG[i][1]) + '</small></label>'; }).join(''));
+    h += '<p>The four thresholds are owner-set values inside the listed range:' + A + ', ' + PE + '. The datasheets print setting ranges, not defaults; 0.03 / 0.06 / 0.12 / 1.2 are example values. Alert and Action are pre-alarm. Fire 1 is the detection leg of a release: D is true at or above it. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing and any stage outside its listed range. A value typed outside the range is kept as typed and shown red.</p>';
     h += rowL('<label>' + lab('Spot detector alarm threshold ') + inp('spot', DI.spotThr(W), 0.1) + '</label>' + lab('listed window ' + LS.min + ' to ' + LS.max + ' %/ft (example data)') + A);
-    h += rowL(lab('NFPA 76 adopted on this site') + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) + opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
-    h += '<p>Where NFPA 76 is adopted, plan review fails an Alert above 0.2 %/ft or a Fire 1 above 1.0 %/ft (NFPA 76-2024 &sect;8.5.3.1.2.5). The preset sets both. Action 0.6 is an ASSUMED example, used when the current Action value does not fit between them.</p>';
+    h += rowL(lab('NFPA 76 adopted on this site') + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) +
+      (flag('N76_STAGE_OPEN') ? chip('n76Open', 'OPEN', 'var(--amb)', flag('N76_STAGE_OPEN').text) : '') + (flag('N76_BOUND_CONFLICT') ? chip('n76Conf', 'CONFLICT', 'var(--red)', flag('N76_BOUND_CONFLICT').text) : ''));
+    h += rowL(lab('NFPA 76 alarm stage: which stage the 1.0 %/ft limit applies to') + opt('n76s', 'open', 'Not elected', !st76) + opt('n76s', 'fire1', 'Fire 1', st76 === 'fire1') + opt('n76s', 'fire2', 'Fire 2', st76 === 'fire2'));
+    h += rowL(opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
+    if (ui.siteNote) h += '<p id="siteNote" style="border-left:3px solid var(--amb);padding-left:10px">' + esc(ui.siteNote) + '</p>';
+    h += flags.map((x) => '<p class="n76" data-c="' + x.code + '" style="border-left:3px solid ' + (x.code === 'N76_STAGE_OPEN' ? 'var(--amb)' : 'var(--red)') + ';padding-left:10px">' + esc(x.text) + '</p>').join('');
+    h += '<p>' + PE + ' Where NFPA 76 is adopted its limits are ceilings: Alert 0.2 %/ft or less and an alarm threshold of 1.0 %/ft or less (NFPA 76-2024 &sect;8.5.3.1.2.5). Which stage is the alarm is not settled, so it is the owner’s election here and is never assumed: until one is elected the item stays OPEN. Plan review fails an Alert above 0.2 %/ft, and the elected stage above 1.0 %/ft. The preset writes a limit only where it fits the listed range of that stage and keeps the order. It never clamps, never writes the 1.0 into a stage that was not elected, and never moves another stage to make room. Action 0.6 is an ASSUMED example, written only together with Alert when the current Action does not fit above it.</p>';
     h += '<h4>SIGNAL CLASSES</h4>' + [['alert', 'Aspirating Alert'], ['action', 'Aspirating Action'], ['pLatch', 'Latched P (release input)']].map(([k, n]) => rowL(lab(n) + DI.SIG_CLASS[k].map((v) => opt(k, v, CLS[v], DI.sigClass(W, k) === v)).join(''))).join('');
-    h += '<p>' + PE + A + ' Alert and Action are supervisory unless the engineer elects alarm. A latched P is a release input whose class has not been elected: it shows as an OPEN item until it is elected alarm or trouble. Supervisory is blocked for it. Fixed: Fire 1, Fire 2, manual station and waterflow are alarm; low and high air are supervisory; panel and battery are trouble.</p>';
+    h += '<p>' + PE + A + ' Alert and Action are supervisory unless the engineer elects alarm. A latched P is a release input whose class has not been elected: it shows as an OPEN item until it is elected alarm or trouble. Supervisory is blocked for it. Fixed: Fire 1, Fire 2, manual station and waterflow are alarm; low and high air are supervisory; panel AC failure, low battery, loss of communication with a dead panel and loss of supply air are trouble (the last is fixed here and ' + PE + ').</p>';
     h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL(lab('Manual Release zone bypasses P') + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
-    h += '<p>' + PE + ' (owner/insurer exception, footnote 9(c)). OFF: the manual station is typed DETECTION, sits inside D, and water still needs P. ON: the station is typed MANUAL RELEASE and alone releases water on an electric / electric trim. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve.</p>';
-    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
+    h += '<p>' + PE + ' (owner/insurer exception, footnote 9(c)). OFF: the manual station is typed DETECTION, sits inside D, and water still needs P. ON: the station is typed MANUAL RELEASE and alone releases water on an electric / electric trim. That is a separate release path, not detection: Release = (D AND P) OR (bypass AND Manual Release zone). It does not latch D, and it latches its own release until the panel is reset. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve.</p>';
+    const keep = ui.modalOpen ? $('mbox').scrollTop : 0;
+    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = () => { ui.siteNote = ''; ui.close(); }; $('mbox').scrollTop = keep;      // a redraw keeps the reader's place
     if (ro) return;
-    const set = (k, v) => { ui.siteSet(k, v); ui.showSite(); };
+    const set = (k, v) => { if (k !== 'pre') ui.siteNote = ''; ui.siteSet(k, v); ui.showSite(); };
     $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => set(b.dataset.s, b.dataset.v); });
     $('mbox').querySelectorAll('input[data-t]').forEach((el) => { el.onchange = () => set('thr', [+el.dataset.t, parseFloat(el.value)]); });
     $('mbox').querySelectorAll('input[data-n]').forEach((el) => { el.onchange = () => set(el.dataset.n, parseFloat(el.value)); });

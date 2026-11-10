@@ -3,7 +3,11 @@
 const path = require('path');
 for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'sim', 'calc', 'review', 'proc']) require(path.join('..', 'src', f + '.js'));
 const TT = require('../test/truth-table.js'), DI = globalThis.DI;
-const res = TT.run(DI, process.argv[2]); let bad = 0;
+// The repo fixture must hash to the pin (TT.FIXTURE_SHA16). A file named on the command line is somebody
+// else's copy: its sha16 is printed and it must still pass the self-consistency checks.
+const file = process.argv[2];
+console.log('fixture ' + (file || TT.FILE) + '  sha16 ' + TT.sha16(file || TT.FILE) + (file ? '  (not the repo fixture: pin ' + TT.FIXTURE_SHA16 + ' not enforced)' : '  (pinned)'));
+const res = TT.run(DI, file, file ? { pin: null } : undefined); let bad = 0;
 console.log(['Row', 'Trim  ', ...TT.CHECKED].join('  '));
 for (const r of res) {
   if (!r.ok) bad++;

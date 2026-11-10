@@ -188,8 +188,10 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     ok('A9 manual station with full air: no release', r.s.state === 'dry' && r.s.wat === 0 && r.S.sig.has('ms' + r.v.id) && r.W.cfg.manualReleaseBypassP === undefined);
     breakHead(r);
     ok('A9 manual station + P: releases', r.s.tripT > 0);
-    const b1 = rig(); b1.W.cfg.manualReleaseBypassP = true; b1.v.p.pull = true; run(b1.S, 5, 0.25);
-    ok('A9 bypass ON + el-el trim: releases without P', b1.s.tripT > 0 && b1.v.p.pLatch === false);
+    const b0 = rig(); b0.W.cfg.manualReleaseBypassP = true; b0.v.p.pull = true; run(b0.S, 60, 0.25);
+    ok('A9 bypass ON + el-el trim: a DETECTION latch (pull) is still D and still needs P', b0.s.state === 'dry' && DI.relState(b0.W, b0.v).D === true && !DI.relState(b0.W, b0.v).mrz);
+    const b1 = rig(); b1.W.cfg.manualReleaseBypassP = true; b1.v.p.mrzL = true; run(b1.S, 5, 0.25);       // the zone latch (C3-1), not pull
+    ok('A9 bypass ON + el-el trim: the Manual Release zone releases without P', b1.s.tripT > 0 && b1.v.p.pLatch === false && DI.relState(b1.W, b1.v).D === false);
     ok('A9 review warns while the bypass is ON', DI.review(b1.S).some((f) => f.sev === 'warn' && f.text.includes('NEEDS PE REVIEW')));
     const b2 = rig(); DI.loadTrim(b2.v, 'el-pn'); b2.W.cfg.manualReleaseBypassP = true; b2.v.p.pull = true; run(b2.S, 60, 0.25);
     ok('A9 bypass ON + el-pn trim: still needs P', b2.s.state === 'dry' && b2.s.wat === 0);
@@ -201,8 +203,9 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     ok('A10 mechanical release, heads closed: valve trips, nothing flows', r.s.tripT > 0 && spkFlow(r.S).length === 0 && r.S.outFlow < 0.5 && r.S.stats.waterLoss === 0, 'state=' + r.s.state + ' Q=' + r.S.outFlow.toFixed(2));
     const r2 = rig(); DI.breakSprinkler(r2.S, r2.head); r2.v.p.mech = true; run(r2.S, 180, 0.25);
     ok('A10 mechanical release, one broken head: exactly one sprinkler flows', r2.s.tripT > 0 && spkFlow(r2.S).length === 1 && spkFlow(r2.S)[0].link.q > 10, spkFlow(r2.S).map((e) => e.link.q.toFixed(0) + ' gpm').join());
-    r.s.wat = 0; r.s.flow = 0;        // as if the control valve were shut and the system drained
-    ok('A10 valve reset closes the emergency release', DI.resetValve(r.S, r.v.id) === '' && r.v.p.mech === false && r.v.p.pLatch === false);
+    r.s.wat = 0; r.s.flow = 0; r.v.p.sdrain = 1;        // as if the control valve were shut and the system drained, drain still open
+    ok('A10 valve reset closes the emergency release, with the drain open, and leaves the drain as it was', DI.resetValve(r.S, r.v.id) === '' && r.v.p.mech === false && r.v.p.pLatch === false && r.v.p.sdrain === 1);
+    r.v.p.sdrain = 0;
   }
   // A11 dead panel leaves the valve shut; recovery is the mechanical release
   {
@@ -210,9 +213,11 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     const ac = r.S.sig.get('ac' + r.pn.id);
     ok('A11 AC fail: trouble, monitored, on standby battery', !!ac && ac.type === 'TRBL' && ac.mon && ac.text.includes('PANEL AC FAIL') && r.pn.p.alive === true);
     r.S.warp(24 * 3600);
-    ok('A11 after 24 h the panel is dead and the valve is shut', r.pn.p.alive === false && r.S.sig.get('pd' + r.pn.id).text.includes('PANEL DEAD') && !r.S.sig.has('ac' + r.pn.id) && r.s.state === 'dry');
+    ok('A11 after 24 h the panel is dead and the valve is shut', r.pn.p.alive === false && r.S.sig.get('pd' + r.pn.id).text.startsWith('LOSS OF COMMUNICATION - panel #' + r.pn.id) && r.S.sig.get('pd' + r.pn.id).lost === true && !r.S.sig.has('ac' + r.pn.id) && r.s.state === 'dry');
     breakHead(r); smoke(r.S, 0.2, 30);
-    ok('A11 dead panel + Fire 1 + P: still shut, solenoid off', r.v.p.pLatch === true && r.v.p.sol === false && r.s.state === 'dry' && r.s.wat === 0);
+    ok('A11 dead panel + Fire 1 + P: still shut, solenoid off, and the El/El P latch is gone with the panel', r.s.P < r.v.p.pTrip && r.v.p.pLatch === false && r.v.p.sol === false && r.s.state === 'dry' && r.s.wat === 0);
+    const n0 = r.S.acts.length, sil0 = r.pn.p.silenced;
+    ok('A11 a dead panel cannot be reset or silenced: the message comes back and nothing changes', DI.panelReset(r.S, r.pn.id) === DI.PANEL_DEAD_MSG && DI.silence(r.S, r.pn.id) === DI.PANEL_DEAD_MSG && r.S.acts.length === n0 && r.pn.p.silenced === sil0 && DI.PANEL_DEAD_MSG.startsWith('The panel is dead: no power, no display.'));
     r.v.p.pull = true; run(r.S, 5, 0.25); ok('A11 dead panel: manual station does nothing', r.v.p.pull === false && r.s.state === 'dry');
     r.v.p.mech = true; run(r.S, 5, 0.25); ok('A11 mechanical emergency release still trips it', r.s.tripT > 0);
   }
@@ -242,8 +247,13 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     r.W.cfg.detThr = [0.03, 0.06, 0.12, 1.2];
     ok('A14 NFPA 76 preset refused where not adopted', DI.applyDetPreset(r.W, 'nfpa76') !== '' && DI.detThr(r.W)[0] === 0.03 && DI.juris.nfpa76Adopted === false);
     r.W.cfg.nfpa76Adopted = true;
-    ok('A14 NFPA 76 preset applies where adopted: Alert 0.2, Fire 1 1.0', DI.applyDetPreset(r.W, 'nfpa76') === '' && DI.detThr(r.W).join() === '0.2,0.6,1,1.2' && fails(r.S, 'strictly increasing').length === 0);
-    smoke(r.S, 0.5, 10); ok('A14 thresholds are live: 0.5 is only Alert under the preset', r.d.p.lvl === 1 && r.v.p.sol === false);
+    const open = DI.applyDetPreset(r.W, 'nfpa76');
+    ok('A14 NFPA 76 preset, adopted, alarm stage OPEN: nothing is written and the message names the Alert and alarm parts', open !== '' && /Alarm limit 1\.0 %\/ft not written: no alarm stage is elected \(OPEN, NEEDS PE REVIEW\)/.test(open) && /Alert 0\.2 %\/ft not written: it would break the order against Action 0\.06/.test(open) && open.endsWith('No threshold was changed.') && DI.detThr(r.W).join() === '0.03,0.06,0.12,1.2' && r.W.cfg.detThr.join() === '0.03,0.06,0.12,1.2', open);
+    r.W.cfg.n76AlarmStage = 'fire1'; const f1 = DI.applyDetPreset(r.W, 'nfpa76');
+    ok('A14 stage Fire 1 elected: the 1.0 is refused, citing the model maximum 0.614, and Fire 1 stays 0.12', f1.includes('Alarm limit 1.0 %/ft not written to Fire 1: it is above the VESDA-E VEP listed Fire 1 maximum (0.614 %/ft) [HB, datasheet; UL Product iQ not checked]') && DI.detThr(r.W).join() === '0.03,0.06,0.12,1.2', f1);
+    r.W.cfg.n76AlarmStage = 'fire2';
+    ok('A14 stage Fire 2 elected: the preset writes 1.0 into Fire 2 and nothing else', DI.applyDetPreset(r.W, 'nfpa76') === '' && DI.detThr(r.W).join() === '0.03,0.06,0.12,1' && fails(r.S, 'strictly increasing').length === 0);
+    smoke(r.S, 1.1, 10); ok('A14 thresholds are live: 1.1 is Fire 2 once the preset has written 1.0 there', r.d.p.lvl === 4 && r.v.p.sol === true);
     DI.setJuris(new DI.World(4, 4));
   }
   // A15 single- and non-interlock are gone; old saves migrate
@@ -390,18 +400,22 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
   }
   // A22 detection thresholds: listed windows, strict order, NFPA 76
   {
-    const r = rig(), out = (S) => fails(S, 'outside the listed window');
-    ok('A22 example thresholds and the spot default sit inside the listed windows', out(r.S).length === 0 && DI.spotThr(r.W) === 1.3 && DI.LISTED.smoke.min === 0.5 && DI.LISTED.smoke.max === 4.0 && DI.LISTED.vesda.assumed === true);
+    const r = rig(), out = (S) => fails(S, 'outside the listed'), VEP = DI.ASD_MODELS.VEP, n76 = (S) => DI.review(S).filter((f) => f.ref.startsWith('NFPA 76-2024'));
+    ok('A22 example thresholds and the spot default sit inside the listed ranges', out(r.S).length === 0 && DI.spotThr(r.W) === 1.3 && DI.LISTED.smoke.min === 0.5 && DI.LISTED.smoke.max === 4.0 && DI.LISTED.vesda === undefined && DI.asdModel(r.W) === 'VEP');
+    ok('A22 the VEP range table: Alert and Action 0.0015 to 0.614, Fire 1 0.0030 to 0.614, Fire 2 0.0061 to 6.575', JSON.stringify(VEP.range) === '{"alert":[0.0015,0.614],"action":[0.0015,0.614],"fire1":[0.003,0.614],"fire2":[0.0061,6.575]}' && VEP.doc.startsWith('Xtralis Doc. 36106_07'));
     r.W.cfg.detThr = [0.03, 0.06, 50, 60];
-    ok('A22 Fire 1 = 50 is outside the aspirating window and fails, citing the listing', out(r.S).some((f) => f.text.includes('Fire 1 threshold 50') && f.ref.includes('NFPA 72 Ch. 14')) && out(r.S).some((f) => f.text.includes('Fire 2 threshold 60')));
-    r.W.cfg.detThr = [0.03, 0.06, 0.12, 6]; ok('A22 Fire 2 alone outside the window fails', out(r.S).length === 1 && out(r.S)[0].text.includes('Fire 2'));
+    ok('A22 Fire 1 = 50 is outside the VEP range and fails, citing the datasheet and the listing chapter', out(r.S).some((f) => f.text.includes('Fire 1 threshold 50 %/ft is outside the listed range of the VESDA-E VEP (0.0030 to 0.614 %/ft)') && f.ref.includes('Xtralis Doc. 36106_07') && f.ref.includes('NFPA 72 Ch. 14')) && out(r.S).some((f) => f.text.includes('Fire 2 threshold 60')));
+    r.W.cfg.detThr = [0.03, 0.06, 0.12, 7]; ok('A22 Fire 2 alone outside the range fails', out(r.S).length === 1 && out(r.S)[0].text.includes('Fire 2'));
     delete r.W.cfg.detThr; r.W.cfg.spotThr = 9; ok('A22 a spot threshold of 9 fails', out(r.S).length === 1 && out(r.S)[0].text.includes('Spot detector alarm threshold 9'));
     r.W.cfg.spotThr = 1.3; ok('A22 a spot threshold of 1.3 passes', out(r.S).length === 0);
-    r.W.cfg.nfpa76Adopted = true; ok('A22 NFPA 76 adopted: the example values pass', fails(r.S, 'NFPA 76 is adopted').length === 0);
+    r.W.cfg.nfpa76Adopted = true;
+    ok('A22 NFPA 76 adopted: the example values raise no fail, and the OPEN and CONFLICT warnings are shown', n76(r.S).filter((f) => f.sev === 'fail').length === 0 && n76(r.S).filter((f) => f.sev === 'warn').map((f) => f.ref.match(/\((\w+)\)$/)[1]).join() === 'N76_STAGE_OPEN,N76_BOUND_CONFLICT');
     r.W.cfg.detThr = [0.3, 0.6, 2.0, 3.0];
-    ok('A22 NFPA 76 adopted with Fire 1 = 2.0 fails (and Alert 0.3 with it)', fails(r.S, 'NFPA 76 is adopted').length === 2 && fails(r.S, 'Fire 1 must be 1 %/ft or less').length === 1);
-    ok('A22 the NFPA 76 preset passes', DI.applyDetPreset(r.W, 'nfpa76') === '' && fails(r.S, 'NFPA 76 is adopted').length === 0 && fails(r.S, 'strictly increasing').length === 0);
-    r.W.cfg.nfpa76Adopted = false; ok('A22 where NFPA 76 is not adopted its limits are not applied', fails(r.S, 'NFPA 76 is adopted').length === 0);
+    ok('A22 Alert 0.3 fails NFPA 76; Fire 1 = 2.0 fails the VEP range and, with the stage OPEN, not NFPA 76', fails(r.S, 'NFPA 76 is adopted').length === 1 && fails(r.S, 'Alert must be 0.2 %/ft or less (it is 0.3)').length === 1 && out(r.S).some((f) => f.text.includes('Fire 1 threshold 2 %/ft')) && !n76(r.S).some((f) => f.ref.includes('N76_STAGE_OVER')));
+    r.W.cfg.n76AlarmStage = 'fire1';
+    ok('A22 with Fire 1 elected as the alarm stage, Fire 1 = 2.0 also fails the NFPA 76 ceiling', fails(r.S, 'Fire 1, the elected alarm stage, must be 1.0 %/ft or less (it is 2)').length === 1 && n76(r.S).some((f) => f.sev === 'fail' && f.ref.includes('N76_STAGE_OVER')));
+    delete r.W.cfg.n76AlarmStage; delete r.W.cfg.detThr;
+    r.W.cfg.nfpa76Adopted = false; ok('A22 where NFPA 76 is not adopted its limits are not applied and no flag is shown', fails(r.S, 'NFPA 76 is adopted').length === 0 && n76(r.S).length === 0 && DI.n76Flags(r.W).length === 0);
     const e = rig({ det: 'smoke', room: 'elec' }); e.W.cfg.spotThr = 3; smoke(e.S, 2, 10);
     ok('A22 the spot threshold is live: 2.0 does not alarm at a setting of 3', e.d.p.lvl === 0 && e.v.p.sol === false); e.W.cfg.spotThr = 1.3; smoke(e.S, 2, 5); ok('A22 and it alarms at 1.3', e.d.p.lvl === 1 && e.v.p.sol === true);
     DI.setJuris(new DI.World(4, 4));
@@ -427,14 +441,25 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
   }
   // A24 delivery citations are keyed by edition
   {
-    const J = DI.JURIS, a = J['US-2019'].ref, b = J['US-2025'].ref, c = J['US-2022'].ref, set = (ed) => { const W = new DI.World(4, 4); W.cfg.edition = ed; DI.setJuris(W); };
-    ok('A24 2019 cites §8.2.3.2, §8.2.3.3, §8.2.3.4 and Table 8.2.3.6.1', a.timedTest.endsWith('2019 §8.2.3.2') && a.noQod.endsWith('§8.2.3.3') && a.qod.endsWith('§8.2.3.4') && a.table.endsWith('Table 8.2.3.6.1'));
-    ok('A24 2025 cites §8.2.4 and Table 8.2.4.3.2', b.timedTest.endsWith('2025 §8.2.4') && b.noQod.endsWith('§8.2.4') && b.qod.endsWith('§8.2.4') && b.table.endsWith('Table 8.2.4.3.2'));
-    ok('A24 the DI exemption is §8.3.2.3.1.1 in 2019 and 2025, QOD help §8.3.2.3.2', a.di.endsWith('2019 §8.3.2.3.1.1') && b.di.endsWith('2025 §8.3.2.3.1.1') && a.diQod.endsWith('§8.3.2.3.2') && b.diQod.endsWith('§8.3.2.3.2'));
-    ok('A24 every 2022 delivery reference is marked VERIFY', ['delivery', 'timedTest', 'noQod', 'qod', 'table', 'di', 'diQod'].every((k) => c[k].includes('2022') && c[k].includes('VERIFY')) && J['US-2022'].delta.join(' ').includes('VERIFY'));
+    // (also A38) the C3-7 table, key by key. `undefined` = the key is not given for that edition.
+    const J = DI.JURIS, set = (ed) => { const W = new DI.World(4, 4); W.cfg.edition = ed; DI.setJuris(W); }, AV = ' (ASSUMED, VERIFY)';
+    const T = {            // key: [2025, 2022, 2019]
+      timedTest: ['§8.2.4.2', '§8.2.3.2' + AV, '§8.2.3.2'], noQod: ['§8.2.4.2.1', '§8.2.3.3' + AV, '§8.2.3.3'], qod: ['§8.2.4.2.2', '§8.2.3.4' + AV, '§8.2.3.4'],
+      calc: ['§8.2.4.3.1', '§8.2.3.5 to .6' + AV, '§8.2.3.5 to .6 (VERIFY)'], table: ['Table 8.2.4.3.2', 'Table 8.2.3.6.1', 'Table 8.2.3.6.1'],
+      manifold: ['§8.2.4.4', '§8.2.3.7', undefined], otherTimes: ['§8.2.4.5', '§8.2.3.8' + AV, undefined],
+      di: ['§8.3.2.3.1.1', '§8.3.2.3.1.1 to .4', '§8.3.2.3.1.1'], diQod: ['§8.3.2.3.2', '§8.3.2.3.2', '§8.3.2.3.2'], delivery: ['§8.2.4', '§8.2.3', '§8.2.3'],
+      airTest: ['§29.2.2.1', '§29.2.2.1' + AV, '§28.2.2.1' + AV] };
+    const yrs = [2025, 2022, 2019], bad = [];
+    for (const [k, row] of Object.entries(T)) row.forEach((tail, i) => { const got = J['US-' + yrs[i]].ref[k], want = tail === undefined ? undefined : 'NFPA 13-' + yrs[i] + ' ' + tail; if (got !== want) bad.push(yrs[i] + ' ' + k + ': ' + got); });
+    ok('A24 / A38 delivery and air-test citations match the FP Lead table, key by key, in 2025, 2022 and 2019', bad.length === 0, bad.join('; ') || undefined);
+    const c = J['US-2022'].ref, assumed22 = ['timedTest', 'noQod', 'qod', 'calc', 'otherTimes', 'airTest'], held22 = ['table', 'manifold', 'di', 'diQod', 'delivery'];
+    ok('A24 / A38 every 2022 key the Lead marked ASSUMED carries (ASSUMED, VERIFY), and no held key does', assumed22.every((k) => c[k].endsWith(AV)) && held22.every((k) => !/ASSUMED|VERIFY/.test(c[k])) && J['US-2022'].verify === true && J['US-2022'].delta.join(' ').includes('2022 keeps the 2019 numbering'));
+    ok('A24 / A38 2025 is held throughout; the 2019 delta names the air-test section against 2025', Object.values(J['US-2025'].ref).every((x) => !/ASSUMED|VERIFY/.test(x)) && J['US-2025'].delta.length === 0 && J['US-2019'].delta.join(' ').includes('§28.2.2.1 (2025: §29.2.2.1)'));
     set('US-2019'); const d19 = [DI.deliveryRule('dryv', false, 600, 'none').nfpa.ref, DI.deliveryRule('dryv', false, 400, 'none').nfpa.ref, DI.deliveryRule('dryv', true, 600, 'none').nfpa.ref, DI.deliveryRule('prev', false, 600, 'none').nfpa.rule];
-    set('US-2025'); const d25 = DI.deliveryRule('dryv', false, 600, 'none').nfpa.rule;
-    ok('A24 the rule follows the site edition', d19[0] === 'NFPA 13-2019 §8.2.3.2' && d19[1] === 'NFPA 13-2019 §8.2.3.3' && d19[2] === 'NFPA 13-2019 §8.2.3.4' && d19[3] === 'NFPA 13: 60 s (over 500 gal) [NFPA 13-2019 §8.3.2.3.1.1]' && d25 === 'NFPA 13: 60 s (over 500 gal) [NFPA 13-2025 §8.2.4]');
+    set('US-2022'); const d22 = [DI.deliveryRule('dryv', false, 600, 'none').nfpa.ref, DI.deliveryRule('prev', false, 600, 'none').nfpa.ref];
+    set('US-2025'); const d25 = [DI.deliveryRule('dryv', false, 600, 'none').nfpa.rule, DI.deliveryRule('dryv', false, 400, 'none').nfpa.ref, DI.deliveryRule('dryv', true, 600, 'none').nfpa.ref];
+    ok('A24 / A38 the rule follows the site edition', d19[0] === 'NFPA 13-2019 §8.2.3.2' && d19[1] === 'NFPA 13-2019 §8.2.3.3' && d19[2] === 'NFPA 13-2019 §8.2.3.4' && d19[3] === 'NFPA 13: 60 s (over 500 gal) [NFPA 13-2019 §8.3.2.3.1.1]' &&
+      d22[0] === 'NFPA 13-2022 §8.2.3.2 (ASSUMED, VERIFY)' && d22[1] === 'NFPA 13-2022 §8.3.2.3.1.1 to .4' && d25[0] === 'NFPA 13: 60 s (over 500 gal) [NFPA 13-2025 §8.2.4.2]' && d25[1] === 'NFPA 13-2025 §8.2.4.2.1' && d25[2] === 'NFPA 13-2025 §8.2.4.2.2');
     DI.setJuris(new DI.World(4, 4));
   }
   // A25 contract 5 as a lesson: the deliberate tip-over, the recovery score, the air test report
@@ -449,50 +474,70 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     const fm = DI.deliveryRule('prev', false, big.zone, 'FM');
     ok('A25 c5: with FM set the same zone passes NFPA 13 and fails FM', big.val <= fm.nfpa.limit && big.val > fm.fm.limit && fm.by === 'FM' && fm.governing - big.val < 0);
     const sc = [...S.sysd.info.keys()].map((id) => DI.recoveryScore(S, id));
-    ok('A25 c5: the reference bot recovers every valve 8 of 8 steps, in order', sc.length === 3 && sc.every((q) => q && q.done === 8 && q.total === 8 && q.complete && q.inOrder && q.closed && q.time > 0), sc.map((q) => q && q.done + '/' + q.total + (q.inOrder ? ' in order' : ' out of order')).join(', '));
-    ok('A25 c5: all seven goals are met with default settings, the recovery goal among them', DI.botCheck(S, c5).every(Boolean) && c5.goals.length === 7 && c5.goals.some((q) => q.t.startsWith('Recovery done in order')));
+    ok('A25 c5: after the trip tests the reference operator has put every valve back 13 of 13, in order (practice: no goal reads it)', sc.length === 3 && sc.every((q) => q && q.done === 13 && q.total === 13 && q.complete && q.inOrder && q.closed && q.tripped && q.time > 0), sc.map((q) => q && q.done + '/' + q.total + (q.inOrder ? ' in order' : ' out of order')).join(', '));
+    ok('A25 c5: all six goals are met with default settings, and none of them reads the recovery score', DI.botCheck(S, c5).every(Boolean) && c5.goals.length === 6 && !c5.goals.some((q) => /recover/i.test(q.t)) && typeof DI.G.recovered === 'undefined');
     ok('A25 c5: the drill has no hard timer and the false alarm comes after the 30 min air-restore window', c5.drill.steps().some((st) => st[0] === 2100 && /dust/.test(st[2])) && c5.drill.len === 5600 && DI.RECOVERY_TARGET === 660);
     const S2 = new DI.Sim(DI.World.fromJSON(JSON.parse(JSON.stringify(S.W.toJSON())))); S2.restore(JSON.parse(JSON.stringify(S.dump())));
-    ok('A25 the recovery log is saved with the game', [...S2.sysd.info.keys()].every((id) => { const q = DI.recoveryScore(S2, id); return q && q.complete && q.inOrder; }));
+    ok('A25 the recovery log is saved with the game', [...S2.sysd.info.keys()].every((id) => { const q = DI.recoveryScore(S2, id); return q && q.complete && q.inOrder; }) && S2.acts.length === S.acts.length);
+    // the drill's broken-sprinkler incident is the only scored recovery
+    DI.startDrill(S, c5.drill); let guard = 0; while (!S.drill.done && guard++ < 400000) { S.step(S.fires.length || S.outFlow > 1 ? 0.25 : 1); DI.drillStep(S); sol.ops(S); }
+    const dr = S.drill.result, inc = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), ds = DI.recoveryScore(S, inc.id, S.drill.t0), nas = ds.steps.filter((q) => q.na).map((q) => q.kind).join();
+    ok('A25 c5 drill: the broken-sprinkler incident is 13 of 13 in order (never tripped, D never latched, El/El: steps 6, 8 and 11 do not apply)', dr.pass && ds.done === 13 && ds.complete && ds.inOrder && !ds.tripped && !ds.det && nas === 'reset-panel-1,reset-valve,reset-trim' && ds.why === 'head', ds.steps.map((q) => q.kind + (q.na ? ' n/a' : '@' + Math.round(q.t - S.drill.t0))).join(' '));
+    ok('A25 c5 drill report: the 13-step line with its star, the informational time bonus, no water-filled line and no gate', dr.lines.some((l) => l === '★ Recovery after the broken sprinkler: 13 of 13 steps, in order') && dr.lines.some((l) => /^[★•] Time bonus: recovered in [\d.]+ min, target 11\.0 min \(ASSUMED, informational\)$/.test(l)) && !dr.lines.some((l) => l.includes('Water-filled zone')) && dr.lines.filter((l) => l[0] === '✗').length === 0, dr.lines.join(' | '));
     // one run that passes NFPA 13 at 60 s and fails FM at 30 s: valve A with enough fittings allowance to pass 500 gal
     const F = DI.buildScenario(c5, { insurer: 'FM', fitPct: 40 }), fsol = DI.botBuild(F.S, 'c5'); F.S.warp(fsol.settle);
     const [kind, id] = fsol.tests[0]; DI.startTest(F.S, kind, id); F.S.warp(420); const fr = DI.lastResult(F.S, 'trip', id);
     ok('A25 FM: a 37 s zone passes NFPA 60 s and fails FM 30 s on the same run', !!fr && !fr.pass && fr.zone > 500 && fr.nfpa === 60 && fr.fm === 30 && fr.val > 30 && fr.val < 60 && fr.by === 'FM' && fr.governing === 30 && fr.margin < 0, fr && fr.lines.slice(2).join(' | '));
     ok('A25 FM: the report highlights the governing line', fr.lines[fr.gov].startsWith('Governing: FM 30 s, margin −') && fr.lines.some((l) => l.startsWith('NFPA 13: 60 s (over 500 gal)')) && fr.lines.includes('FM: 30 s (any volume, DS 5-32, NEEDS PE REVIEW)'));
     const r = rig(); DI.startTest(r.S, 'leak', r.v.id); r.S.warp(86500); const lk = DI.lastResult(r.S, 'leak', r.v.id);
-    ok('A25 24 h air test report: start, end, drop and allowed loss, and no mention of P', lk.lines.length === 2 && /^Start: [\d.]+ psi, end: [\d.]+ psi$/.test(lk.lines[0]) && /^Drop: [\d.]+ psi in 24 h, allowed 1\.5 psi$/.test(lk.lines[1]) && !/\bP\b|latch/i.test(lk.title + lk.lines.join(' ')), lk.lines.join(' | '));
+    ok('A25 24 h air test report: test pressure, start and end, the pass line, the drop, and no mention of P', lk.lines.length === 4 && lk.lines[0] === 'Test pressure: 40 psi' && /^Start: [\d.]+ psi, end: [\d.]+ psi$/.test(lk.lines[1]) && lk.lines[2] === 'Pass: end reading at least 38.5 psi (loss of 1.5 psi or less in 24 h) [NFPA 13-2025 §29.2.2.1]' && /^Drop: [\d.]+ psi in 24 h$/.test(lk.lines[3]) && !/\bP\b|latch/i.test(lk.title + lk.lines.join(' ')), lk.lines.join(' | '));
   }
-  // A26 recovery score: order, the early reset, the El/Pn trim step
+  // A26 recovery score (13 steps): order, the head gate, the early reset, the El/Pn trim step. Untripped incidents here; tripped ones are A36.
+  const R = {
+    start: (o) => { const r = rig(Object.assign({ gate: true }, o)); DI.breakSprinkler(r.S, r.head); run(r.S, 60, 0.25); return r; },
+    shut: (r) => { const m = DI.setGate(r.S, r.g.id, 0); run(r.S, 6, 0.25); return m; },
+    iso: (r, on) => { r.v.p.airValve = on ? 0 : 1; run(r.S, 1, 0.25); },                        // isolate (1) or restore (0) the air supply
+    drain: (r, on) => { r.v.p.sdrain = on; r.S.touch(); run(r.S, 2, 0.25); },
+    zero: (r) => { let n = 0; while (!r.s.dz && n++ < 20000) r.S.step(0.25); return !!r.s.dz; },   // wait for the confirmed drain: 0 psi and no water
+    air: (r) => run(r.S, 1800, 1),
+    reopen: (r) => { const m = DI.setGate(r.S, r.g.id, 1); run(r.S, 6, 0.25); return m; },
+    score: (r) => DI.recoveryScore(r.S, r.v.id),
+    step: (r, kind) => DI.recoveryScore(r.S, r.v.id).steps.find((q) => q.kind === kind),
+    show: (q) => q.steps.map((x) => x.kind + (x.na ? ' n/a' : x.t === null ? ' -' : '@' + Math.round(x.t))).join(' '),
+  };
   {
-    const start = (o) => { const r = rig(Object.assign({ gate: true }, o)); DI.breakSprinkler(r.S, r.head); run(r.S, 60, 0.25); return r; };
-    const shut = (r) => { r.g.p.target = 0; run(r.S, 6, 0.25); }, drain = (r, on) => { r.v.p.sdrain = on; r.S.touch(); run(r.S, 2, 0.25); };
-    const air = (r) => { r.g.p.target = 1; run(r.S, 1800, 1); }, score = (r) => DI.recoveryScore(r.S, r.v.id);
-    const a = start(); ok('A26 a broken head opens an incident and P latches without a trip', a.v.p.pLatch === true && a.s.state === 'dry' && score(a).why === 'head' && score(a).done < 8);
+    const a = R.start(); ok('A26 a broken head opens an incident and P latches without a trip', a.v.p.pLatch === true && a.s.state === 'dry' && R.score(a).why === 'head' && R.score(a).done < 13 && R.score(a).total === 13 && DI.RECOVERY.length === 13);
     DI.silence(a.S, a.pn.id); ok('A26 find-head counts only on an operated head', DI.findHead(a.S, a.head) === true && DI.findHead(a.S, a.head - 1) === false);
-    shut(a); drain(a, 1); ok('A26 replacing the head is logged', DI.replaceSprinklers(a.S, a.v.id) === ''); drain(a, 0);
+    R.shut(a); R.iso(a, 1); R.drain(a, 1);
+    ok('A26 the drain is confirmed at 0 psi with no water, and replacing the head is logged with the drain still open', R.zero(a) && DI.replaceSprinklers(a.S, a.v.id) === '' && a.v.p.sdrain === 1 && R.step(a, 'replace-head').done);
+    R.drain(a, 0); R.iso(a, 0);
     DI.panelReset(a.S, a.pn.id); run(a.S, 2, 0.25);
-    ok('A26 a reset before the air is back latches P again and scores nothing', a.v.p.pLatch === true && !score(a).steps.find((q) => q.kind === 'reset-panel').done && !score(a).complete);
-    air(a); ok('A26 air restored, P still latched: not yet in service', a.v.p.pLatch === true && score(a).steps.find((q) => q.kind === 'restore-air').done && !score(a).closed);
-    DI.panelReset(a.S, a.pn.id); run(a.S, 2, 0.25); const sa = score(a);
-    ok('A26 El/El in order: 8 of 8 (no actuator to reset at the trim), in order, back in service', sa.done === 8 && sa.complete && sa.inOrder && sa.closed && sa.time > 0 && sa.steps.find((q) => q.kind === 'reset-trim').na && a.v.p.pLatch === false, sa.steps.map((q) => q.kind + (q.na ? ' n/a' : '@' + Math.round(q.t))).join(' '));
+    ok('A26 a reset before the air is back latches P again and scores nothing', a.v.p.pLatch === true && !R.step(a, 'reset-panel').done && !R.score(a).complete);
+    R.air(a); ok('A26 air restored, P still latched: not yet in service', a.v.p.pLatch === true && R.step(a, 'restore-air').done && !R.score(a).closed);
+    DI.panelReset(a.S, a.pn.id); run(a.S, 2, 0.25);
+    ok('A26 panel reset #2 clears P and the valve is in service, but the recovery is not complete until the control valve is reopened', a.v.p.pLatch === false && R.score(a).closed && R.score(a).done === 12 && !R.score(a).complete && !R.step(a, 'open-valve').done && R.score(a).time === null);
+    const m = R.reopen(a), sa = R.score(a), na = sa.steps.filter((q) => q.na).map((q) => q.kind).join();
+    ok('A26 El/El in order: 13 of 13, in order, back in service (never tripped, D never latched, no actuator: steps 6, 8, 11 do not apply)', m === '' && sa.done === 13 && sa.complete && sa.inOrder && sa.closed && sa.time > 0 && na === 'reset-panel-1,reset-valve,reset-trim' && a.g.p.open > 0.99, R.show(sa));
     {  // silence belongs to one panel: a second panel's signals stay audible, and its new alarm is not muted by the first
-      const m = rig({ gate: true }), p2 = m.W.addPart('panel', 18, 4, 0); m.W.wire(p2.id, m.g.id); breakHead(m);
-      DI.silence(m.S, m.pn.id); m.g.p.target = 0; run(m.S, 6, 0.25);
-      const pl = m.S.sig.get('pl' + m.v.id), tm = m.S.sig.get('tm' + m.g.id);
-      ok('A26 silencing one panel does not silence a signal on another panel', !!pl && !!tm && m.pn.p.silenced === true && DI.sigSilenced(m.W, pl) === true && DI.sigSilenced(m.W, tm) === false && !p2.p.silenced);
-      m.W.unwire(m.g.id); run(m.S, 1, 0.25); ok('A26 a signal that reaches no panel cannot be silenced', DI.sigSilenced(m.W, m.S.sig.get('tm' + m.g.id)) === false && m.S.sig.get('tm' + m.g.id).mon === false);
+      const m2 = rig({ gate: true }), p2 = m2.W.addPart('panel', 18, 4, 0); m2.W.wire(p2.id, m2.g.id); breakHead(m2);
+      DI.silence(m2.S, m2.pn.id); m2.g.p.target = 0; run(m2.S, 6, 0.25);
+      const pl = m2.S.sig.get('pl' + m2.v.id), tm = m2.S.sig.get('tm' + m2.g.id);
+      ok('A26 silencing one panel does not silence a signal on another panel', !!pl && !!tm && m2.pn.p.silenced === true && DI.sigSilenced(m2.W, pl) === true && DI.sigSilenced(m2.W, tm) === false && !p2.p.silenced);
+      m2.W.unwire(m2.g.id); run(m2.S, 1, 0.25); ok('A26 a signal that reaches no panel cannot be silenced', DI.sigSilenced(m2.W, m2.S.sig.get('tm' + m2.g.id)) === false && m2.S.sig.get('tm' + m2.g.id).mon === false);
     }
     ok('A26 silence is acknowledged at the panel and a new signal resounds it', a.pn.p.silenced === false && a.S.log.some((l) => l.text.startsWith('Panel silenced')));
-    const b = start(); DI.replaceSprinklers(b.S, b.v.id); DI.findHead(b.S, b.head); shut(b); drain(b, 1); drain(b, 0); DI.silence(b.S, b.pn.id); air(b); DI.panelReset(b.S, b.pn.id); run(b.S, 2, 0.25);
-    ok('A26 the same steps done out of order do not score as a clean recovery', score(b).complete === false || score(b).inOrder === false, score(b).done + '/8 ' + score(b).inOrder);
-    const c = start({ props: { trim: 'el-pn' } }); DI.silence(c.S, c.pn.id); DI.findHead(c.S, c.head); shut(c); drain(c, 1); DI.replaceSprinklers(c.S, c.v.id); drain(c, 0); air(c);
+    // the same work with the drain closed before the head is replaced (backward) and the silence last
+    const b = R.start(); DI.findHead(b.S, b.head); R.shut(b); R.iso(b, 1); R.drain(b, 1); R.zero(b); R.drain(b, 0); DI.replaceSprinklers(b.S, b.v.id); DI.silence(b.S, b.pn.id); R.iso(b, 0); R.air(b); DI.panelReset(b.S, b.pn.id); run(b.S, 2, 0.25); R.reopen(b);
+    ok('A26 the same steps done out of order are complete and do not score as a clean recovery', R.score(b).complete === true && R.score(b).inOrder === false && R.step(b, 'drain-close').t < R.step(b, 'replace-head').t, R.show(R.score(b)));
+    const c = R.start({ props: { trim: 'el-pn' } }); DI.silence(c.S, c.pn.id); DI.findHead(c.S, c.head); R.shut(c); R.iso(c, 1); R.drain(c, 1); R.zero(c); DI.replaceSprinklers(c.S, c.v.id); R.drain(c, 0); R.iso(c, 0); R.air(c);
     DI.panelReset(c.S, c.pn.id); run(c.S, 2, 0.25);
-    ok('A26 El/Pn: without the trim reset the recovery is 7 of 8 and P is still latched', score(c).done === 7 && c.v.p.pLatch === true && !score(c).steps.find((q) => q.kind === 'reset-trim').na);
-    DI.resetTrimP(c.S, c.v.id); run(c.S, 2, 0.25); ok('A26 El/Pn: trim reset after the panel reset is complete but out of order', score(c).complete && !score(c).inOrder && c.v.p.pLatch === false);
-    const d = start({ props: { trim: 'el-pn' } }); DI.silence(d.S, d.pn.id); DI.findHead(d.S, d.head); shut(d); drain(d, 1); DI.replaceSprinklers(d.S, d.v.id); drain(d, 0); air(d);
-    DI.resetTrimP(d.S, d.v.id); run(d.S, 1, 0.25); DI.panelReset(d.S, d.pn.id); run(d.S, 2, 0.25);
-    ok('A26 El/Pn: restore air, reset the trim, reset the panel is 8 of 8 in order', score(d).done === 8 && score(d).complete && score(d).inOrder && score(d).closed);
-    DI.breakSprinkler(d.S, d.head); run(d.S, 5, 0.25); ok('A26 a new incident starts a new score', score(d).done < 8 && DI.recoveryScore(d.S, d.v.id, 0).complete);
+    ok('A26 El/Pn: without the trim reset the recovery is 11 of 13, P is still latched and the control valve stays shut', R.score(c).done === 11 && c.v.p.pLatch === true && !R.step(c, 'reset-trim').na && !R.step(c, 'reset-trim').done && R.reopen(c) === 'Reset the actuator at the trim: P is still latched.' && c.g.p.target === 0);
+    DI.resetTrimP(c.S, c.v.id); run(c.S, 2, 0.25); const mc = R.reopen(c);
+    ok('A26 El/Pn: trim reset after the panel reset is complete but out of order', mc === '' && R.score(c).complete && !R.score(c).inOrder && c.v.p.pLatch === false, R.show(R.score(c)));
+    const d = R.start({ props: { trim: 'el-pn' } }); DI.silence(d.S, d.pn.id); DI.findHead(d.S, d.head); R.shut(d); R.iso(d, 1); R.drain(d, 1); R.zero(d); DI.replaceSprinklers(d.S, d.v.id); R.drain(d, 0); R.iso(d, 0); R.air(d);
+    DI.resetTrimP(d.S, d.v.id); run(d.S, 1, 0.25); DI.panelReset(d.S, d.pn.id); run(d.S, 2, 0.25); R.reopen(d);
+    ok('A26 El/Pn: restore air, reset the trim, reset the panel, reopen the valve is 13 of 13 in order', R.score(d).done === 13 && R.score(d).complete && R.score(d).inOrder && R.score(d).closed && R.step(d, 'reset-valve').na && R.step(d, 'reset-panel-1').na, R.show(R.score(d)));
+    DI.breakSprinkler(d.S, d.head); run(d.S, 5, 0.25); ok('A26 a new incident starts a new score', R.score(d).done < 13 && DI.recoveryScore(d.S, d.v.id, 0).complete);
   }
   // A27 site gate: contract settings and the Manual Release zone bypass as an impairment
   {
@@ -520,9 +565,11 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     const o = rig({ stn: true }); o.W.partAt[o.W.k(o.stn.x, o.stn.y)] = 0; o.stn.x = 5; o.stn.y = 1; o.W.partAt[o.W.k(5, 1)] = o.stn.id; o.W.ver++; o.stn.p.on = true; breakHead(o);
     ok('A28 a station outside the protected room raises the alarm and releases nothing', o.v.p.pull === false && o.s.state === 'dry' && o.S.sig.has('mn' + o.stn.id) && DI.review(o.S).some((f) => f.sev === 'warn' && f.text.includes('not in a room protected by a preaction valve')));
     const d = rig({ stn: true }); d.W.power = false; d.pn.p.battH = 0; d.stn.p.on = true; breakHead(d);
-    ok('A28 dead panel + manual pull + P never releases', d.pn.p.alive === false && d.v.p.pull === false && d.v.p.solOut === false && d.s.state === 'dry' && d.v.p.pLatch === true);
+    ok('A28 dead panel + manual pull + P never releases (the El/El P latch is not held by a dead panel)', d.pn.p.alive === false && d.v.p.pull === false && d.v.p.solOut === false && d.s.state === 'dry' && d.s.P < d.v.p.pTrip && d.v.p.pLatch === false);
+    d.stn.p.on = false; d.W.power = true; run(d.S, 0.25, 0.25);
+    ok('A28 power back: the panel reads PSL-REL again and P returns within one tick; no station, so nothing releases', d.pn.p.alive === true && d.v.p.pLatch === true && d.s.state === 'dry' && d.S.log.some((l) => l.text.startsWith('Panel power restored: inputs re-read. P returns (pipe still below P trip)')));
     const m = rig({ stn: true }); m.W.cfg.manualReleaseBypassP = true; m.stn.p.on = true; run(m.S, 5, 0.25);
-    ok('A28 with the bypass ON on El/El the station is typed MANUAL RELEASE and releases without P', m.s.tripT > 0 && m.v.p.pLatch === false && m.S.sig.get('ms' + m.v.id).text.startsWith('MANUAL RELEASE ZONE (BYPASSES P)') && DI.relState(m.W, m.v).D === false);
+    ok('A28 with the bypass ON on El/El the station is typed MANUAL RELEASE and releases without P', m.s.tripT > 0 && m.v.p.pLatch === false && m.v.p.mrzL === true && m.v.p.pull === false && m.S.sig.get('ms' + m.v.id).text.startsWith('MANUAL RELEASE ZONE (BYPASSES P)') && DI.relState(m.W, m.v).D === false);
     ok('A28 contract 5 offers the station', c5.parts.includes('mstn') && DI.PARTS.mstn.cat === 'alarm');
   }
   // A29 solenoid output by trim (C2-2)
@@ -552,6 +599,312 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     W.setCut(30, 4, false, 1); W.setCut(31, 4, false, 1); S.sync(); const c3 = DI.hydCalc(S, wv.id);
     ok('A30 a sprinkler connected to no riser is a coverage failure for the calc verdict as well', S.sysd.tileSys[W.k(31, 4)] === 0 && fails(S, 'not connected to any system riser').length === 1 && fails(S, 'tiles have no sprinkler').length === 0 && c2.verdict === 'PASS' && c3.pass && c3.covOk === false && c3.verdict === 'PASS (hydraulics only); coverage FAIL, see plan review', 'before: ' + c2.verdict + ', after: ' + c3.verdict);
   }
+  // ====================== Cycle 3 acceptance (A31 onward: fixture pin, Manual Release zone, dead panel, air test, drain and air,
+  // 13-step recovery, supply air and the water-filled zone, citations, bundle, ASD ranges and NFPA 76 flags, reopen gate)
+  const os = require('os'), TT = require('./truth-table.js');
+  const tmpFix = (edit) => { const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'di-fix-')), 'tt.csv'); fs.writeFileSync(f, edit(fs.readFileSync(TT.FILE))); return f; };
+  const throws = (fn) => { try { fn(); return ''; } catch (e) { return e.message; } };
+  // A31 fixture: pinned, self-checked
+  {
+    ok('A31 the fixture is the FA Lead\'s file: sha16 cb3462b268359c6e over the raw bytes, 18 lines, LF endings', TT.sha16(TT.FILE) === 'cb3462b268359c6e' && TT.FIXTURE_SHA16 === 'cb3462b268359c6e' && TT.checkFixture() === TT.FIXTURE_SHA16 && fs.readFileSync(TT.FILE).length === 2429 && !fs.readFileSync(TT.FILE).includes(13) && fs.readFileSync(TT.FILE, 'utf8').split('\n').length === 19);
+    const txt = (b) => b.toString('utf8'), cell = tmpFix((b) => txt(b).replace('R01,El/El,0,0,0', 'R01,El/El,0,0,1')), note = tmpFix((b) => txt(b).replace('Normal. No release.', 'Normal, no release.')), crlf = tmpFix((b) => txt(b).replace(/\n/g, '\r\n'));
+    const names = (m) => m.includes('cb3462b268359c6e') && /sha16 [0-9a-f]{16}, pinned cb3462b268359c6e/.test(m);
+    ok('A31 one changed cell, one changed note character or CRLF line endings fail the pin, naming both hashes', [cell, note, crlf].every((f) => names(throws(() => TT.readRows(f)))) && throws(() => TT.run(DI, cell)).includes('pinned'), throws(() => TT.readRows(note)).slice(0, 90));
+    const f2 = tmpFix((b) => txt(b).replace('R08,El/El,1,1,', 'R08,El/El,0,1,')), vo = tmpFix((b) => txt(b).replace('R02,El/El,1,0,0,0,0,0,0,AC,0,1,0,0,', 'R02,El/El,1,0,0,0,0,0,0,AC,0,1,0,1,'));
+    ok('A31 Fire2 = 1 with Fire1 = 0 fails at load, even with the pin set aside', throws(() => TT.readRows(f2, { pin: null })).includes('R08: Fire2 = 1 with Fire1 = 0'));
+    ok('A31 a ValveOpen that breaks the release formula fails at load', /R02: ValveOpen = 1 but \(D AND P\) OR \(Bypass9c AND ManualReleaseZone AND El\/El\) = 0/.test(throws(() => TT.readRows(vo, { pin: null }))));
+    const sol = tmpFix((b) => txt(b).replace('R15,El/Pn,1,0,0,0,0,0,0,AC,0,1,1,0,', 'R15,El/Pn,1,0,0,0,0,0,0,AC,0,1,0,0,')), mz = tmpFix((b) => txt(b).replace('R14,El/El,0,0,0,1,0,0,0,AC,1,0,1,1,', 'R14,El/El,0,0,0,1,0,0,0,AC,0,0,1,1,'));
+    ok('A31 a solenoid that is not D on El/Pn, and a Manual Release zone that releases with the bypass OFF, fail at load', throws(() => TT.readRows(sol, { pin: null })).includes('R15: Solenoid = 0 but D = 1 on El/Pn') && throws(() => TT.readRows(mz, { pin: null })).includes('R14: ManualReleaseZone = 1 with Bypass9c = 0 expects a release'));
+    const rows = TT.readRows(), res = rows.map((r) => TT.runRow(DI, r)), by = (n) => rows.find((r) => r.Row === n);
+    ok('A31 17 of 17 rows match the engine, with R08 at Fire1 = 1 and R14 at D = 0 in the file', rows.length === 17 && res.every((r) => r.ok) && by('R08').Fire1 === '1' && by('R08').Fire2 === '1' && by('R14').D === '0' && by('R14').ValveOpen === '1', res.filter((r) => !r.ok).map((r) => r.row).join() || undefined);
+    const r14 = res.find((r) => r.row === 'R14');
+    ok('A31 R14 releases through the zone latch, not through D', r14.mrzL === true && r14.pull === false && r14.got.D === '0');
+  }
+  // A32 Manual Release zone: its own latched release path
+  {
+    const m = rig({ stn: true }); m.W.cfg.manualReleaseBypassP = true; run(m.S, 1, 0.25);
+    ok('A32 bypass ON, station idle: the release path reads BYPASS ARMED', DI.relPath(m.W, m.v).join('|') === 'Manual Release zone BYPASS ARMED (9(c), NEEDS PE REVIEW)|warn' && m.v.p.mrzL === false);
+    m.stn.p.on = true; run(m.S, 5, 0.25); const rs = DI.relState(m.W, m.v);
+    ok('A32 the station typed MANUAL RELEASE sets the zone latch, opens the valve with P normal, and D stays false (R14)', m.v.p.mrzL === true && m.v.p.pull === false && m.v.p.sol === false && rs.mrz && !rs.D && !rs.P && rs.open && rs.sol && m.s.tripT > 0 && m.v.p.pLatch === false && m.v.p.solOut === true);
+    ok('A32 while it releases the path row reads RELEASING - without P', DI.relPath(m.W, m.v).join('|') === 'Manual Release zone RELEASING - without P|bad');
+    m.stn.p.on = false; run(m.S, 30, 0.25);
+    ok('A32 resetting the station alone leaves the zone and its release latched', m.v.p.mrzL === true && DI.relState(m.W, m.v).open === true && m.v.p.solOut === true && m.S.sig.has('ms' + m.v.id));
+    ok('A32 the riser reset is refused while the zone is latched', (m.s.wat = 0, m.s.flow = 0, DI.resetValve(m.S, m.v.id)).startsWith('Detection is still active'));
+    DI.panelReset(m.S, m.pn.id); const cleared = m.v.p.mrzL === false; run(m.S, 1, 0.25);
+    ok('A32 a panel reset clears the zone latch, and it stays clear with the station reset', cleared && m.v.p.mrzL === false && !DI.relState(m.W, m.v).open && m.S.acts.some((a) => a.kind === 'reset-panel' && a.id === m.v.id && a.det === true));
+    m.stn.p.on = true; run(m.S, 1, 0.25); DI.panelReset(m.S, m.pn.id); const c2 = m.v.p.mrzL === false; run(m.S, 0.25, 0.25);
+    ok('A32 a station that is still operated relatches the zone on the next tick', c2 && m.v.p.mrzL === true);
+    const off = rig({ stn: true }); off.stn.p.on = true; off.v.p.mrzL = true; run(off.S, 1, 0.25);
+    ok('A32 flag OFF: the station is DETECTION (pull), and a zone latch is forced clear', off.v.p.mrzL === false && off.v.p.pull === true && off.s.state === 'dry' && DI.relPath(off.W, off.v)[0] === '(D AND P)  armed');
+    const pn = rig({ stn: true, props: { trim: 'el-pn' } }); pn.W.cfg.manualReleaseBypassP = true; pn.stn.p.on = true; pn.v.p.mrzL = true; run(pn.S, 30, 0.25);
+    ok('A32 El/Pn with the flag ON: no zone, the station is DETECTION and still needs P', pn.v.p.mrzL === false && pn.v.p.pull === true && pn.s.state === 'dry' && DI.stationType(pn.W, pn.v) === 'DETECTION');
+    const dd = rig({ stn: true }); dd.W.cfg.manualReleaseBypassP = true; dd.W.power = false; dd.pn.p.battH = 0; dd.stn.p.on = true; dd.v.p.mrzL = true; run(dd.S, 30, 0.25);
+    ok('A32 a dead panel never sets or holds the zone latch', dd.pn.p.alive === false && dd.v.p.mrzL === false && dd.s.state === 'dry' && dd.v.p.solOut === false);
+    const old = JSON.parse(JSON.stringify(m.W.toJSON())); delete old.parts.find((q) => q.type === 'prev').p.mrzL;
+    ok('A32 an old save without the zone latch loads with it clear', DI.World.fromJSON(old).byType('prev')[0].p.mrzL === false && DI.PARTS.prev.props.mrzL === false);
+  }
+  // A33 dead panel: trouble first, dark, unresettable; the El/El P latch lives in panel memory
+  {
+    const r = rig(); r.W.power = false; r.S.warp(3600); const T = (k) => r.S.sig.get(k + r.pn.id);
+    ok('A33 AC fail is a monitored trouble; no low battery at 23 h', T('ac') && T('ac').type === 'TRBL' && T('ac').mon && !T('lb') && DI.PANEL_LOWBATT_H === 2);
+    r.S.warp(21.2 * 3600);
+    ok('A33 at about 22 h of 24 h LOW BATTERY is raised, monitored, while the panel is still alive', r.pn.p.alive === true && r.pn.p.battH < 2 && r.pn.p.battH > 1.5 && T('lb') && T('lb').type === 'TRBL' && T('lb').mon && T('lb').text.startsWith('LOW BATTERY - panel #') && !!T('ac') && !T('pd'), 'battery ' + r.pn.p.battH.toFixed(2) + ' h');
+    const lbT = T('lb').t0; r.S.warp(2 * 3600);
+    ok('A33 at death the supervising station reports loss of communication, later than both troubles', r.pn.p.alive === false && T('pd') && T('pd').lost && T('pd').mon && T('pd').type === 'TRBL' && T('pd').text === 'LOSS OF COMMUNICATION - panel #' + r.pn.id + ' (no signal, supervising station reports trouble)' && !T('ac') && !T('lb') && T('pd').t0 > lbT);
+    const n0 = r.S.acts.length, st0 = JSON.stringify([r.v.p, r.pn.p, r.d.p]);
+    ok('A33 reset and silence on a dead panel return the message, change no state and log nothing', DI.panelReset(r.S, r.pn.id) === DI.PANEL_DEAD_MSG && DI.silence(r.S, r.pn.id) === DI.PANEL_DEAD_MSG && r.S.acts.length === n0 && JSON.stringify([r.v.p, r.pn.p, r.d.p]) === st0);
+    breakHead(r); const sg = r.S.sig.get('la' + r.v.id);
+    ok('A33 El/El: P is not latched while the panel is dead and the pipe falls; the dead panel\'s own signals are dark', r.s.P < r.v.p.pTrip && r.v.p.pLatch === false && !r.S.sig.has('pl' + r.v.id) && !!sg && sg.dark === true && sg.mon === false);
+    fixHead(r); r.W.power = true; r.S.step(0.25);
+    ok('A33 power restored with the pipe still low: P returns within one tick, and it is logged', r.pn.p.alive === true && r.v.p.pLatch === true && r.S.log.filter((l) => l.text.startsWith('Panel power restored: inputs re-read. P returns (pipe still below P trip)')).length === 1 && r.s.state === 'dry');
+    const c = rig(); c.W.power = false; c.pn.p.battH = 0; run(c.S, 5, 0.25); c.W.power = true; run(c.S, 5, 0.25);
+    ok('A33 power restored with the pipe above P trip: P stays clear', c.pn.p.alive === true && c.v.p.pLatch === false && c.s.P > c.v.p.pTrip && c.S.log.filter((l) => l.text.startsWith('Panel power restored: inputs re-read. P is clear')).length === 1);
+    const e = rig({ props: { trim: 'el-pn' } }); e.W.power = false; e.pn.p.battH = 0; breakHead(e);
+    ok('A33 El/Pn: P is the actuator at the valve and latches with the panel dead', e.pn.p.alive === false && e.v.p.pLatch === true && e.s.state === 'dry' && e.v.p.solOut === false);
+    const f = rig(); breakHead(f); fixHead(f); f.W.power = false; f.pn.p.battH = 0; smoke(f.S, 0.2, 30);
+    ok('A33 dead panel, live Fire 1 reading, pipe low: nothing releases', f.s.state === 'dry' && f.v.p.sol === false && f.v.p.pLatch === false);
+    f.W.power = true; smoke(f.S, 0.2, 2);
+    ok('A33 power back with Fire 1 still read and the pipe still low: D and P are both true again and the valve trips (the inputs release, not the power)', f.v.p.sol === true && f.v.p.pLatch === true && f.s.tripT > 0 && !/W\.power/.test(DI.gasPre.toString()));
+  }
+  // A34 24 h air test: 40 psi, end reading 38.5 psi or more
+  {
+    const leak = (r, x) => { const V = r.S.sysd.info.get(r.v.id).vol; r.S.leaks.push({ k: r.head, K: 0, a: x * V, sys: r.v.id }); };     // a gas-only leak, in2 per gallon of pipe
+    const setP = (r, p) => { const V = r.S.sysd.info.get(r.v.id).vol; r.s.G = (p + DI.ATM) * V; run(r.S, 0.25, 0.25); };
+    const a = rig(); a.v.p.airValve = 0; setP(a, 37.9); a.v.p.airValve = 1;
+    ok('A34 a zone at 37.9 psi starts in the charge stage, supply open', DI.startTest(a.S, 'leak', a.v.id) === '' && a.S.procs[0].stage === 0 && a.v.p.airValve === 1 && Math.abs(a.s.P - 37.9) < 0.05 && DI.airTarget(a.S, a.v.id, a.v) === 40);
+    const tA = a.S.t; let n = 0; while (a.S.procs.length && a.S.procs[0].stage === 0 && n++ < 8000) a.S.step(0.25);
+    ok('A34 the clock starts only at test pressure: the zone is charged to 40.0 first, then the supply is isolated', a.S.procs[0].stage === 1 && DI.fmt(a.S.procs[0].p0, 1) === '40.0' && Math.abs(a.S.procs[0].p0 - 40) <= DI.AIR_TEST.tol && a.v.p.airValve === 0 && a.S.t < DI.AIR_TEST.chargeMax, 'p0 ' + a.S.procs[0].p0.toFixed(2) + ' after ' + Math.round(a.S.t) + ' s');
+    a.S.warp(86500); const ra = DI.lastResult(a.S, 'leak', a.v.id);
+    ok('A34 it then holds 24 h and passes on sound pipe, and the supply is restored', ra.pass && ra.end >= 38.5 && /^Start: 40\.0 psi, end: 39\.\d psi$/.test(ra.lines[1]) && a.v.p.airValve === 1 && !a.S.acts.some((q) => q.t > tA && (q.kind === 'isolate-air' || q.kind === 'supply-open')));
+    const b = rig(); setP(b, 45);
+    ok('A34 a zone above 40.5 psi is refused', DI.startTest(b.S, 'leak', b.v.id) === 'Test pressure is 40 psi. This zone is at 45.0 psi: lower the normal pressure or bleed it at the drain first.' && b.S.procs.length === 0);
+    const c = rig(); c.s.holes = 500; setP(c, 37); DI.startTest(c.S, 'leak', c.v.id); c.S.warp(2000); const rc = DI.lastResult(c.S, 'leak', c.v.id);
+    ok('A34 a zone that cannot reach 40 psi in 1,800 s fails with the charge message', !!rc && !rc.pass && rc.lines[1] === 'Could not reach 40 psi in 30 min: the supply is too small or the leaks are too big.' && c.S.procs.length === 0 && rc.end < 39.9, rc && rc.lines.join(' | '));
+    const g1 = rig(); leak(g1, 3.0e-9); DI.startTest(g1.S, 'leak', g1.v.id); g1.S.warp(86500); const r1 = DI.lastResult(g1.S, 'leak', g1.v.id);
+    const g2 = rig(); leak(g2, 4.3e-9); DI.startTest(g2.S, 'leak', g2.v.id); g2.S.warp(86500); const r2 = DI.lastResult(g2.S, 'leak', g2.v.id);
+    ok('A34 golden values: a 24 h run ending at 38.6 psi passes and one ending at 38.4 psi fails', r1.pass && r1.lines[1] === 'Start: 40.0 psi, end: 38.6 psi' && !r2.pass && r2.lines[1] === 'Start: 40.0 psi, end: 38.4 psi' && r1.end >= 38.5 && r2.end < 38.5 && g2.s.state === 'dry', r1.end.toFixed(3) + ' / ' + r2.end.toFixed(3));
+    ok('A34 the report: test pressure, start and end, the pass line with the 2025 section, the drop; no mention of P', r2.lines.length === 4 && r2.lines[0] === 'Test pressure: 40 psi' && r2.lines[2] === 'Pass: end reading at least 38.5 psi (loss of 1.5 psi or less in 24 h) [NFPA 13-2025 §29.2.2.1]' && r2.lines[3] === 'Drop: 1.60 psi in 24 h' && !/\bP\b|latch/i.test(r2.title + r2.lines.join(' ')), r2.lines.join(' | '));
+    const refs = ['US-2022', 'US-2019'].map((ed) => { const q = rig(); q.W.cfg.edition = ed; DI.startTest(q.S, 'leak', q.v.id); q.S.warp(86500); return DI.lastResult(q.S, 'leak', q.v.id).lines[2]; });
+    ok('A34 the cited section follows the edition: 2022 §29.2.2.1 and 2019 §28.2.2.1, both ASSUMED, VERIFY', refs[0].endsWith('[NFPA 13-2022 §29.2.2.1 (ASSUMED, VERIFY)]') && refs[1].endsWith('[NFPA 13-2019 §28.2.2.1 (ASSUMED, VERIFY)]'), refs.join(' | '));
+    DI.setJuris(new DI.World(4, 4));
+    const off = rig(); off.v.p.airValve = 0; setP(off, 37);
+    ok('A34 a zone below test pressure with its supply isolated is refused (it cannot be charged)', DI.startTest(off.S, 'leak', off.v.id).startsWith('The air / N2 supply to this zone is isolated.'));
+    // contract 6: the baseline test fails and leaves P latched; repair, air, panel reset, re-test
+    const c6 = DI.SCEN.find((q) => q.id === 'c6'), C = DI.buildScenario(c6), sol = DI.botBuild(C.S, 'c6'), v6 = C.W.byType('prev')[0]; C.S.warp(120);
+    DI.startTest(C.S, 'leak', v6.id); C.S.warp(86500 + DI.AIR_TEST.chargeMax); const base = DI.lastResult(C.S, 'leak', v6.id);
+    ok('A34 c6 baseline: FAIL with an end reading below 20 psi, and P is latched (PSL-REL tripped; the test never touches it)', !!base && !base.pass && base.end < 20 && v6.p.pLatch === true && !/\bP\b|latch/i.test(base.lines.join(' ')) && C.S.log.some((l) => /P latched .* until the releasing panel is reset/.test(l.text)), base && base.lines[1]);
+    sol.after(C.S, 'leak', v6.id); const again = DI.lastResult(C.S, 'leak', v6.id);
+    ok('A34 c6 after the repair, the air back and a panel reset: P is clear and the re-test passes', again !== base && again.pass && again.end >= 38.5 && v6.p.pLatch === false && C.S.ss.get(v6.id).set, again.lines[1]);
+    ok('A34 c6 says so in its lesson and its goal hint', c6.learn.some((l) => l.startsWith('A failed air test can leave P latched')) && c6.goals.some((q) => q.hint.includes('A failed test can leave P latched: after the repair, restore the air and reset the panel')));
+  }
+  // A35 drain and air: air out a drain is air; the head gate; the riser reset with the drain open
+  {
+    const r = rig({ gate: true }), comp = r.W.byType('comp')[0], V = r.S.sysd.info.get(r.v.id).vol, lim = DI.dryLim(V);
+    r.v.p.mech = true; run(r.S, 60, 0.25); const wat0 = r.s.wat;
+    ok('A35 head gate, tripped and full of water: control valve first', wat0 > 20 && DI.headSafe(r.S, r.v.id) === 'Close the control valve first.');
+    r.g.p.target = 0; run(r.S, 8, 0.25);
+    ok('A35 head gate: then the air / N2 supply', DI.headSafe(r.S, r.v.id) === 'Isolate the air / N2 supply first.');
+    r.v.p.airValve = 0; run(r.S, 1, 0.25);
+    ok('A35 head gate: then the water', DI.headSafe(r.S, r.v.id) === 'The pipe still holds ' + DI.fmt(r.s.wat) + ' gal of water. Open the drain.' && r.s.wat > lim);
+    r.v.p.airValve = 1; r.v.p.sdrain = 1; r.S.touch(); let n = 0; while (r.s.wat > 0 && n++ < 20000) r.S.step(0.25); run(r.S, 60, 0.25);
+    ok('A35 compressor running, tripped system drained, drain open: no drain emitter, qOut 0, no gallons counted', r.s.wat === 0 && r.s.state === 'filling' && r.s.qOut === 0 && !r.S.G.emit.some((e) => e.kind === 'drain') && r.S.outFlow === 0 && comp.p.on === true && r.s.gasOut > 0, 'P ' + r.s.P.toFixed(2) + ' psi, compressor ' + (comp.p.on ? 'on' : 'off'));
+    const run0 = comp.p.runSec; run(r.S, 20, 0.25);
+    ok('A35 the open drain shows as falling pipe pressure and compressor run time, never as gpm', r.s.P <= DI.SAFE_PSI && comp.p.runSec > run0 + 15 && r.s.gasIn > 0 && r.S.stats.gallons === (run(r.S, 5, 0.25), r.S.stats.gallons));
+    r.v.p.sdrain = 0; r.S.touch(); run(r.S, 200, 0.25);
+    ok('A35 air pressure alone behind a tripped clapper is not waterflow', r.s.state === 'filling' && r.s.P > 4 && r.s.wat === 0 && r.s.alarm === false && !r.S.sig.has('wf' + r.v.id) && r.s.qOut === 0, 'P ' + r.s.P.toFixed(1) + ' psi');
+    ok('A35 head gate: pipe water-free but still holding pressure', DI.headSafe(r.S, r.v.id) === 'Isolate the air / N2 supply first.' && (r.v.p.airValve = 0, run(r.S, 1, 0.25), DI.headSafe(r.S, r.v.id)) === 'The pipe still holds ' + DI.fmt(r.s.P, 1) + ' psi. Open the system drain and wait for the gauge to read 0.');
+    r.v.p.sdrain = 1; r.S.touch(); run(r.S, 60, 0.25);
+    ok('A35 with the supply isolated and the drain open the gauge reaches 0.5 psi or less, and the gate is satisfied with the drain open', r.s.P <= DI.SAFE_PSI && DI.SAFE_PSI === 0.5 && DI.headSafe(r.S, r.v.id) === '' && r.S.acts.some((a) => a.kind === 'drain-zero' && a.id === r.v.id));
+    r.v.p.sdrain = 0; r.S.touch(); run(r.S, 5, 0.25);
+    ok('A35 and it stays satisfied with the drain closed: "drain closed" is not a condition either way', DI.headSafe(r.S, r.v.id) === '');
+    r.v.p.sdrain = 1; r.S.touch(); run(r.S, 2, 0.25); r.v.p.sol = true;
+    ok('A35 the riser reset still refuses while D is latched', DI.resetValve(r.S, r.v.id).startsWith('Detection is still active') && r.s.state !== 'dry');
+    r.v.p.sol = false; r.v.p.pLatch = true;
+    ok('A35 the riser reset succeeds with the drain open and does not close it', DI.resetValve(r.S, r.v.id) === '' && r.s.state === 'dry' && r.v.p.sdrain === 1 && r.v.p.mech === false && r.S.acts.some((a) => a.kind === 'reset-valve' && a.id === r.v.id));
+    r.v.p.airValve = 1; run(r.S, 900, 1);
+    ok('A35 with the drain left open the air cannot build and restore-air is not logged', r.s.P < 2 && !r.s.set && !r.S.acts.some((a) => a.kind === 'restore-air' && a.t > 1));
+    r.v.p.sdrain = 0; r.S.touch(); run(r.S, 1500, 1);
+    ok('A35 once the drain is closed the air returns and restore-air is logged', r.s.set && r.s.P > 36 && r.S.acts.filter((a) => a.kind === 'restore-air' && a.t > 1).length === 1);
+    const w = new DI.World(40, 14); w.addRoom('office', 20, 2, 12, 8); w.addPart('city', 1, 6, 0); hline(w, 2, 13, 6, 6); const wv = w.addPart('wetv', 14, 6, 0); hline(w, 15, 19, 6, 6); for (let y = 2; y <= 9; y++) w.setPipe(20, y, 4, 0, true); grid(w, 21, 2, 31, 9);
+    const wS = new DI.Sim(w); wS.commission(); DI.breakSprinkler(wS, w.k(28, 5)); run(wS, 20, 0.25);
+    ok('A35 a wet riser keeps its own flow check', DI.replaceSprinklers(wS, wv.id) === 'Water is still flowing. Close the control valve first.');
+    const ng = rig(); DI.breakSprinkler(ng.S, ng.head); run(ng.S, 120, 0.25); ng.v.p.airValve = 0; run(ng.S, 60, 0.25);
+    ok('A35 with no control valve upstream the water-isolation test is waived (simplification)', DI.ctrlValve(ng.W, ng.v.id) === null && DI.headSafe(ng.S, ng.v.id) === '' && DI.replaceSprinklers(ng.S, ng.v.id) === '');
+    const j = JSON.parse(JSON.stringify(r.W.toJSON())); for (const q of j.parts) { delete q.p.mrzL; delete q.p.fault; delete q.p.viaGate; delete q.p.pT; } delete j.cfg.asdModel;
+    const d = JSON.parse(JSON.stringify(r.S.dump())); for (const [, o] of d.ss) for (const k of ['dz', 'av', 'det', 'dT', 'pDark', 'zf']) delete o[k];
+    const W2 = DI.World.fromJSON(j), S2 = new DI.Sim(W2); S2.restore(d); run(S2, 5, 0.25);
+    ok('A35 an old save loads: missing props take their defaults and the sim runs', W2.byType('prev')[0].p.mrzL === false && W2.byType('comp')[0].p.fault === false && DI.asdModel(W2) === 'VEP' && S2.ss.get(r.v.id).state === 'dry' && S2.acts.length === r.S.acts.length);
+  }
+  // A36 recovery, tripped valves: the riser reset comes before the air, with the drain still open
+  {
+    const trip = (o) => { const r = R.start(o); smoke(r.S, 0.2, 10); r.S.smoke[1] = 0; run(r.S, 30, 0.25); return r; };                    // broken head, then Fire 1: D AND P
+    const safe = (r) => { DI.silence(r.S, r.pn.id); DI.findHead(r.S, r.head); R.shut(r); R.iso(r, 1); R.drain(r, 1); return R.zero(r); };   // steps 1 to 5
+    const finish = (r) => { R.air(r); if (r.v.p.trim === 'el-pn') { DI.resetTrimP(r.S, r.v.id); run(r.S, 1, 0.25); } DI.panelReset(r.S, r.pn.id); run(r.S, 2, 0.25); return R.reopen(r); };
+    const a = trip({ props: { trim: 'el-pn' } });
+    ok('A36 El/Pn: a broken head plus Fire 1 trips the valve and it discharges', a.s.state !== 'dry' && a.s.tripT > 0 && a.v.p.sol === true && a.v.p.pLatch === true && R.score(a).why === 'head');
+    const z = safe(a); const early = DI.resetValve(a.S, a.v.id);
+    DI.panelReset(a.S, a.pn.id); run(a.S, 1, 0.25); const rep = DI.replaceSprinklers(a.S, a.v.id); run(a.S, 1, 0.25);
+    const rst = DI.resetValve(a.S, a.v.id), drainOpen = a.v.p.sdrain === 1; run(a.S, 1, 0.25); R.drain(a, 0); R.iso(a, 0); const mg = finish(a), sa = R.score(a);
+    ok('A36 El/Pn tripped: drained to zero, and the riser reset is refused until panel reset #1 clears D', z && early.startsWith('Detection is still active') && rep === '' && rst === '' && drainOpen);
+    ok('A36 El/Pn tripped: 13 of 13 in order, the riser reset with the drain still open and before the air', mg === '' && sa.done === 13 && sa.complete && sa.inOrder && sa.closed && sa.tripped && sa.det && sa.steps.every((q) => !q.na) && R.step(a, 'reset-valve').t <= R.step(a, 'drain-close').t && R.step(a, 'drain-close').t <= R.step(a, 'restore-air').t && a.s.set && !a.v.p.pLatch && a.g.p.open > 0.99, R.show(sa));
+    const b = trip(); safe(b); DI.panelReset(b.S, b.pn.id); run(b.S, 1, 0.25); DI.replaceSprinklers(b.S, b.v.id); run(b.S, 1, 0.25); DI.resetValve(b.S, b.v.id); run(b.S, 1, 0.25); R.drain(b, 0); R.iso(b, 0); const mb = finish(b), sb = R.score(b);
+    ok('A36 El/El tripped: 13 of 13 in order, with step 11 (trim) not applicable', mb === '' && sb.done === 13 && sb.complete && sb.inOrder && sb.steps.filter((q) => q.na).map((q) => q.kind).join() === 'reset-trim', R.show(sb));
+    // air before the riser reset: the code does not block it, the model cannot hold the air, and it scores out of order
+    const c = trip(); safe(c); DI.panelReset(c.S, c.pn.id); run(c.S, 1, 0.25); DI.replaceSprinklers(c.S, c.v.id); R.iso(c, 0); run(c.S, 120, 1); const held = c.s.P;
+    DI.resetValve(c.S, c.v.id); run(c.S, 1, 0.25); R.drain(c, 0); const mc = finish(c), scc = R.score(c);
+    ok('A36 restoring the air before the riser reset is not blocked, holds no air, and is scored out of order', held < 2 && mc === '' && scc.complete && !scc.inOrder && R.step(c, 'restore-air').t < R.step(c, 'reset-valve').t, R.show(scc));
+    const d = trip(); safe(d); DI.panelReset(d.S, d.pn.id); run(d.S, 1, 0.25); DI.replaceSprinklers(d.S, d.v.id); R.drain(d, 0); DI.resetValve(d.S, d.v.id); run(d.S, 1, 0.25); R.iso(d, 0); const md = finish(d), sd = R.score(d);
+    ok('A36 closing the drain before the riser reset is scored out of order', md === '' && sd.complete && !sd.inOrder && R.step(d, 'drain-close').t < R.step(d, 'reset-valve').t, R.show(sd));
+    const e = trip(); safe(e); DI.panelReset(e.S, e.pn.id); run(e.S, 1, 0.25); DI.replaceSprinklers(e.S, e.v.id); run(e.S, 1, 0.25); DI.resetValve(e.S, e.v.id); run(e.S, 1, 0.25); R.drain(e, 0); R.iso(e, 0);
+    run(e.S, 60, 1); DI.panelReset(e.S, e.pn.id); run(e.S, 2, 0.25);
+    ok('A36 a panel reset before the air is back scores nothing for step 12', e.v.p.pLatch === true && !R.step(e, 'reset-panel').done && R.step(e, 'reset-panel-1').done);
+    R.air(e); DI.panelReset(e.S, e.pn.id); run(e.S, 2, 0.25);
+    ok('A36 leaving the control valve shut leaves the recovery incomplete: 12 of 13', R.score(e).closed && R.score(e).done === 12 && !R.score(e).complete && R.score(e).steps.filter((q) => !q.done).map((q) => q.kind).join() === 'open-valve' && e.g.p.open < 0.02);
+    e.W.power = false; e.pn.p.battH = 0; run(e.S, 1, 0.25); const dead = R.score(e).steps.filter((q) => q.na).map((q) => q.kind).join();
+    e.W.power = true; run(e.S, 1, 0.25);
+    ok('A36 steps that need a live panel are not applicable while the panel is dead now, and apply again when it is back', dead === 'silence,reset-panel-1,reset-trim,reset-panel' && R.score(e).steps.filter((q) => q.na).map((q) => q.kind).join() === 'reset-trim');
+    const u = R.start(); smoke(u.S, 0.04, 5); u.S.smoke[1] = 0;
+    ok('A36 an untripped El/El incident marks step 8 not applicable, and step 6 too when D was never latched', R.step(u, 'reset-valve').na && R.step(u, 'reset-panel-1').na && !R.score(u).tripped && !R.score(u).det && u.s.state === 'dry');
+    const c5g = DI.SCEN.find((q) => q.id === 'c5').goals;
+    ok('A36 contract 5 has six goals and none gates on a recovery', c5g.length === 6 && c5g.every((q) => !/Recovery done in order/.test(q.t)));
+  }
+  // A37 loss of supply air; the water-filled zone
+  {
+    const r = rig(), comp = r.W.byType('comp')[0]; r.s.holes = 400; r.W.power = false; run(r.S, 600, 1);
+    const sa = r.S.sig.get('sa' + r.v.id), la = r.S.sig.get('la' + r.v.id);
+    ok('A37 the only compressor unpowered: LOSS OF SUPPLY AIR is a trouble of its own, beside the LOW AIR supervisory', !!sa && sa.type === 'TRBL' && sa.mon && sa.text.startsWith('LOSS OF SUPPLY AIR - Preaction system #') && sa.text.endsWith('(compressor / N2 source unavailable)') && !!la && la.type === 'SUPV' && r.s.state === 'dry' && comp.p.on === false, 'P ' + r.s.P.toFixed(1));
+    const f = rig(), fc = f.W.byType('comp')[0]; fc.p.fault = true; f.s.holes = 400; run(f.S, 600, 1);
+    ok('A37 a faulted compressor raises it with the power on, and does not run', f.W.power === true && f.S.sig.has('sa' + f.v.id) && fc.p.on === false && fc.p.runSec === 0 && f.s.P < 38 && DI.PARTS.comp.props.fault === false && DI.PARTS.n2.props.fault === false);
+    fc.p.fault = false; run(f.S, 2, 0.25); ok('A37 it clears when the source is back', !f.S.sig.has('sa' + f.v.id) && fc.p.on === true);
+    const i = rig(); i.v.p.airValve = 0; i.s.holes = 400; run(i.S, 600, 1);
+    ok('A37 shutting the zone\'s own supply valve is a deliberate isolation: low air, no loss-of-supply trouble', !i.S.sig.has('sa' + i.v.id) && i.S.sig.has('la' + i.v.id));
+    const t = rig(); t.W.power = false; DI.startTest(t.S, 'leak', t.v.id); run(t.S, 10, 0.25);
+    ok('A37 it is not raised while a 24 h air test runs on the zone', t.S.procs.length === 1 && !t.S.sig.has('sa' + t.v.id));
+    // P latched by a slow leak, then Fire 1 with every head closed: the pipe fills and nothing discharges
+    const z = rig(); z.v.p.airValve = 0; z.s.holes = 400; let n = 0; while (!z.v.p.pLatch && n++ < 40000) z.S.step(1);
+    const g0 = z.S.stats.gallons, loss0 = z.S.stats.waterLoss; z.S.drill = { g0: 123, done: true }; smoke(z.S, 0.2, 5); z.S.smoke[1] = 0; run(z.S, 120, 0.25);
+    const zf = z.S.acts.filter((a) => a.kind === 'zone-filled');
+    ok('A37 latched P from a slow leak plus Fire 1, heads closed: the valve trips, the pipe fills, and it is logged as a water-filled zone (low-air)', z.s.state !== 'dry' && z.s.wat > DI.dryLim(z.s.vol) && zf.length === 1 && zf[0].why === 'low-air' && zf[0].id === z.v.id && z.v.p.pT < z.s.dT && DI.recoveryScore(z.S, z.v.id).why === 'fill');
+    ok('A37 nothing discharges: no gallons, no water loss, the drill mark untouched', z.S.stats.gallons === g0 && z.S.stats.waterLoss === loss0 && z.S.outFlow === 0 && z.S.drill.g0 === 123 && z.s.openK.length === 0);
+    ok('A37 the log says water-filled, an unattended low-air failure, not a discharge', z.S.log.some((l) => l.cls === 'bad' && l.text.includes('is water-filled: no head is open, so nothing discharges. This is an unattended low-air failure, not a discharge. Drain it, reset it, check for freeze and corrosion exposure, and fix the air supply.')));
+    const h = rig(); breakHead(h); const hg = h.S.stats.gallons; smoke(h.S, 0.2, 5); run(h.S, 120, 0.25);
+    ok('A37 the same trip with one head broken discharges and is not a water-filled zone', h.s.state !== 'dry' && h.S.stats.gallons > hg + 5 && !h.S.acts.some((a) => a.kind === 'zone-filled'));
+    const p = rig(); DI.startTest(p.S, 'trip', p.v.id); p.S.warp(420);
+    ok('A37 a trip test never logs a water-filled zone', DI.lastResult(p.S, 'trip', p.v.id) !== null && p.s.state !== 'dry' && !p.S.acts.some((a) => a.kind === 'zone-filled'));
+    const fa = rig(); smoke(fa.S, 0.2, 5); fa.S.smoke[1] = 0; fa.v.p.airValve = 0; fa.s.holes = 400; n = 0; while (fa.s.state === 'dry' && n++ < 40000) fa.S.step(1); run(fa.S, 120, 0.25);
+    ok('A37 D left latched first, then the air lost: also a water-filled zone, tagged false-alarm', fa.S.acts.filter((a) => a.kind === 'zone-filled').map((a) => a.why).join() === 'false-alarm');
+    // the drill report line
+    const D2 = rig(); D2.S.drill = { t0: 0 }; D2.S.acts.push({ t: 5, kind: 'incident', id: D2.v.id, why: 'fill' }, { t: 6, kind: 'zone-filled', id: D2.v.id, why: 'low-air' });
+    const lines = DI.drillRecovery(D2.S, 'the broken sprinkler');
+    ok('A37 the drill report adds one informational water-filled line for a low-air fill, and none otherwise', lines.length === 3 && lines[2][0] === false && lines[2][2] === true && lines[2][1] === 'Water-filled zone: ' + DI.sysName(D2.S, D2.v.id) + ' filled because P was left latched (unattended low-air failure), no discharge' && (D2.S.acts[D2.S.acts.length - 1].why = 'false-alarm', DI.drillRecovery(D2.S, 'x').length === 2));
+  }
+  // A39 bundle: the operator log cap, DI.juris isolation, package.json, tones
+  {
+    const r = rig(); DI.breakSprinkler(r.S, r.head); run(r.S, 30, 0.25); fixHead(r); run(r.S, 1, 0.25); r.s.inc = false;            // incident 1, closed by hand for the test
+    for (let i = 0; i < 250; i++) r.S.act('find-head', r.v.id, { k: i });
+    DI.breakSprinkler(r.S, r.head); run(r.S, 30, 0.25); fixHead(r); run(r.S, 1, 0.25); r.s.inc = false; for (let i = 0; i < 250; i++) r.S.act('find-head', r.v.id, { k: i });      // incident 2, closed
+    DI.breakSprinkler(r.S, r.head); run(r.S, 30, 0.25); const open = r.S.acts.filter((a) => a.kind === 'incident').pop();   // incident 3, still open
+    for (let i = 0; i < 700; i++) r.S.act('find-head', r.v.id, { k: i });
+    ok('A39 three incidents were logged, 700 entries after the last', r.S.acts.filter((a) => a.kind === 'incident').length >= 1 && open.t > 60 && r.s.inc === true);
+    ok('A39 the operator log is capped at 600, in memory and in a save', DI.ACTS_MAX === 600 && r.S.acts.length === 600 && r.S.dump().acts.length === r.S.acts.length);
+    ok('A39 trimming drops closed history first and never the opening entry of an open incident', r.s.inc === true && r.S.acts.includes(open) && r.S.acts[0] === open && r.S.acts.filter((a) => a.kind === 'incident').length === 1 && DI.recoveryScore(r.S, r.v.id).t0 === open.t);
+    // DI.juris is one global: two worlds in one process must each cite their own edition
+    const a = rig(), b = rig(); a.W.cfg.edition = 'US-2019';
+    const cites = (rv, yr) => rv.some((f) => f.ref.includes('NFPA 13-' + yr)) && !rv.some((f) => /NFPA 13-\d{4}/.test(f.ref) && !f.ref.includes('NFPA 13-' + yr));
+    DI.setJuris(a.W); const rb = DI.review(b.S), j1 = DI.juris.nfpa13; DI.setJuris(a.W); const la = DI.deliveryLimits(a.S, a.v.id), lb = DI.deliveryLimits(b.S, b.v.id), j2 = DI.juris.nfpa13;
+    const ra = DI.review(a.S); DI.setJuris(a.W); DI.startTest(b.S, 'leak', b.v.id); DI.setJuris(a.W); b.S.warp(86500); DI.startTest(a.S, 'leak', a.v.id); DI.setJuris(b.W); a.S.warp(86500);
+    ok('A39 DI.juris isolation: review and delivery limits cite their own world, whatever setJuris ran last', cites(ra, 2019) && cites(rb, 2025) && j1 === 2025 && j2 === 2025 && la.nfpa.ref === 'NFPA 13-2019 §8.3.2.3.1.1' && lb.nfpa.ref === 'NFPA 13-2025 §8.3.2.3.1.1');
+    ok('A39 DI.juris isolation: a test report cites the edition of the world it ran in', DI.lastResult(a.S, 'leak', a.v.id).lines[2].includes('NFPA 13-2019 §28.2.2.1') && DI.lastResult(b.S, 'leak', b.v.id).lines[2].includes('NFPA 13-2025 §29.2.2.1'));
+    DI.setJuris(a.W); DI.review(b.S); ok('A39 DI.juris after DI.review(2025 world) is the 2025 row although the last setJuris was for 2019', DI.juris.nfpa13 === 2025 && DI.juris === DI.JURIS['US-2025']);
+    DI.setJuris(new DI.World(4, 4));
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    ok('A39 package.json: private, test and test:ui scripts, playwright as the only devDependency, no runtime dependencies', pkg.private === true && Object.keys(pkg.devDependencies).join() === 'playwright' && !('dependencies' in pkg) && pkg.scripts.test.includes('test/campaign.test.js') && pkg.scripts['test:ui'].includes('test/ui.c3.js'));
+    const au = fs.readFileSync(path.join(__dirname, '..', 'src', 'audio.js'), 'utf8');
+    ok('A39 tones: audio.js has its own branch for ALARM, OPEN, TRBL and SUPV', ['ALARM', 'OPEN', 'TRBL', 'SUPV'].every((c) => new RegExp("=== '" + c + "'").test(au)) && /o\.lost|o\.dark/.test(au));
+  }
+  // A40 aspirating detector: per-model listed ranges, no clamp, NFPA 76 flags
+  {
+    const rng = (k) => DI.ASD_STAGES.map(([s]) => DI.ASD_MODELS[k].range[s].join('-')).join(' ');
+    ok('A40 the range table is the datasheet table: VEP and VEU, four stages each', Object.keys(DI.ASD_MODELS).join() === 'VEP,VEU' && rng('VEP') === '0.0015-0.614 0.0015-0.614 0.003-0.614 0.0061-6.575' && rng('VEU') === '0.0003-0.614 0.0003-0.614 0.0003-0.614 0.0003-6.575' && DI.ASD_DEFAULT === 'VEP');
+    ok('A40 each model carries its document number and the source label', DI.ASD_MODELS.VEP.doc === 'Xtralis Doc. 36106_07, Part AD36106-007, July 2025, p. 2' && DI.ASD_MODELS.VEU.doc === 'Xtralis Doc. 36107_05, Part AD36107-005, November 2024, p. 2' && DI.ASD_SRC === '[HB, datasheet; UL Product iQ not checked]' && DI.ASD_MODELS.VEP.label === 'VESDA-E VEP');
+    const r = rig(), W = r.W, set = (t, m) => { W.cfg.detThr = t; if (m) W.cfg.asdModel = m; else delete W.cfg.asdModel; }, F = () => DI.asdFindings(W), bad = (t, m) => (set(t, m), F().map((f) => f.stage).join());
+    const old = DI.World.fromJSON(JSON.parse(JSON.stringify(W.toJSON())));
+    ok('A40 a new world and an old save without the key read VEP; an unknown value reads VEP', DI.asdModel(W) === 'VEP' && !('asdModel' in old.cfg) && DI.asdModel(old) === 'VEP' && (W.cfg.asdModel = 'XYZ', DI.asdModel(W)) === 'VEP' && (W.cfg.asdModel = 'toString', DI.asdModel(W)) === 'VEP' && (W.cfg.asdModel = 'VEU', DI.asdModel(W)) === 'VEU' && DI.asdRange(W)[0][0] === 0.0003);
+    const D0 = [0.03, 0.06, 0.12, 1.2];
+    ok('A40 the example defaults sit inside the range on VEP and on VEU', bad(D0) === '' && bad(D0, 'VEU') === '' && fails(r.S, 'outside the listed range').length === 0);
+    ok('A40 Alert 0.0010 fails on VEP (min 0.0015) and passes on VEU', bad([0.001, 0.06, 0.12, 1.2]) === '0' && bad([0.001, 0.06, 0.12, 1.2], 'VEU') === '');
+    ok('A40 Fire 1 0.0020 fails on VEP (min 0.0030) and passes on VEU', bad([0.0005, 0.001, 0.002, 1.2], 'VEU') === '' && bad([0.0016, 0.0018, 0.002, 1.2]) === '2');
+    ok('A40 Action 0.7, Fire 1 0.7 and Alert 0.7 fail on both models (max 0.614)', ['VEP', 'VEU'].every((m) => bad([0.03, 0.7, 0.12, 1.2], m) === '1' && bad([0.03, 0.06, 0.7, 1.2], m) === '2' && bad([0.7, 0.06, 0.12, 1.2], m) === '0'));
+    ok('A40 Fire 2 7.0 fails on both; 6.0 and 0.5 pass on both; 0.005 fails on VEP (min 0.0061) and passes on VEU', ['VEP', 'VEU'].every((m) => bad([0.03, 0.06, 0.12, 7], m) === '3' && bad([0.03, 0.06, 0.12, 6], m) === '' && bad([0.03, 0.06, 0.12, 0.5], m) === '') && bad([0.001, 0.002, 0.003, 0.005], 'VEU') === '' && bad([0.0015, 0.002, 0.003, 0.005]) === '3');
+    set([0.03, 0.06, 0.7, 1.2]); const f1 = fails(r.S, 'outside the listed range')[0];
+    ok('A40 a failure names the stage, the model and its range, with the source label, and cites the datasheet', f1.text === 'Aspirating Fire 1 threshold 0.7 %/ft is outside the listed range of the VESDA-E VEP (0.0030 to 0.614 %/ft) [HB, datasheet; UL Product iQ not checked].' && f1.ref === 'Xtralis Doc. 36106_07, Part AD36106-007, July 2025, p. 2; NFPA 72 Ch. 14 (ITM)');
+    set([0.03, 0.12, 0.12, 1.2]); const eq = fails(r.S, 'strictly increasing').length === 1 && F().length === 0; set([0.07, 0.06, 0.12, 1.2]);
+    ok('A40 strict order inside the bounds: Action equal to Fire 1 fails the order check with both in range, and Alert above Action fails', eq && fails(r.S, 'strictly increasing').length === 1 && F().length === 0);
+    set([0.0005, 0.06, 0.12, 1.2], 'VEU'); const veu = F().length; W.cfg.asdModel = 'VEP';
+    ok('A40 no clamp: switching VEU to VEP leaves Alert 0.0005 as typed and adds the VEP range fail', veu === 0 && W.cfg.detThr[0] === 0.0005 && F().length === 1 && F()[0].text.includes('Alert threshold 0.0005 %/ft is outside the listed range of the VESDA-E VEP (0.0015 to 0.614 %/ft)'));
+    // NFPA 76 flags
+    set(D0); const codes = () => DI.n76Flags(W).map((f) => f.code + ':' + f.sev).join(), flag = (c) => DI.n76Flags(W).find((f) => f.code === c);
+    ok('A40 NFPA 76 not adopted: no flags', DI.n76Flags(W).length === 0 && DI.n76Stage(W) === null);
+    W.cfg.nfpa76Adopted = true;
+    ok('A40 adopted, defaults, VEP: STAGE_OPEN and BOUND_CONFLICT, both warnings, no fail', codes() === 'N76_STAGE_OPEN:warn,N76_BOUND_CONFLICT:warn' && fails(r.S, 'NFPA 76').length === 0);
+    ok('A40 the OPEN flag says which stages meet the limit now', flag('N76_STAGE_OPEN').text === 'NFPA 76 limit: alarm threshold 1.0 %/ft. Which stage it applies to (Fire 1 or Fire 2) is not elected: OPEN, NEEDS PE REVIEW. Now: Fire 1 0.12 (meets 1.0: yes), Fire 2 1.2 (meets 1.0: no).');
+    ok('A40 the conflict flag names 1.0 and 0.614 and says NEEDS PE REVIEW', flag('N76_BOUND_CONFLICT').text === 'CONFLICT: the NFPA 76 limit of 1.0 %/ft is above the VESDA-E VEP listed Fire 1 maximum (0.614 %/ft) [HB, datasheet; UL Product iQ not checked]. It cannot be entered as a Fire 1 value. Any Fire 1 at or below 0.614 also meets it as a ceiling. Mapping the limit to Fire 2 (range 0.0061 to 6.575) has no such conflict. NEEDS PE REVIEW.');
+    const rv = DI.review(r.S).filter((f) => f.ref.startsWith('NFPA 76-2024 §8.5.3.1.2.5'));
+    ok('A40 both flags are plan-review warnings', rv.length === 2 && rv.every((f) => f.sev === 'warn') && rv[1].text.startsWith('CONFLICT:'));
+    W.cfg.asdModel = 'VEU'; ok('A40 VEU gives the same two flags', codes() === 'N76_STAGE_OPEN:warn,N76_BOUND_CONFLICT:warn' && flag('N76_BOUND_CONFLICT').text.includes('VESDA-E VEU listed Fire 1 maximum (0.614 %/ft)') && flag('N76_BOUND_CONFLICT').text.includes('range 0.0003 to 6.575'));
+    delete W.cfg.asdModel; const pre = JSON.stringify(W.cfg.detThr), m0 = DI.applyDetPreset(W, 'nfpa76');
+    ok('A40 preset with the stage OPEN changes nothing and says why', m0 !== '' && JSON.stringify(W.cfg.detThr) === pre && m0.includes('no alarm stage is elected'));
+    W.cfg.n76AlarmStage = 'fire2';
+    ok('A40 Fire 2 elected: the defaults (Fire 2 = 1.2) fail STAGE_OVER; the conflict flag stays', codes() === 'N76_BOUND_CONFLICT:warn,N76_STAGE_OVER:fail' && flag('N76_STAGE_OVER').text === 'NFPA 76 is adopted on this site: Fire 2, the elected alarm stage, must be 1.0 %/ft or less (it is 1.2).' && fails(r.S, 'NFPA 76 is adopted').length === 1);
+    ok('A40 the preset then sets Fire 2 to 1.0, touches no other stage, and clears the fail; the conflict flag stays', DI.applyDetPreset(W, 'nfpa76') === '' && W.cfg.detThr.join() === '0.03,0.06,0.12,1' && codes() === 'N76_BOUND_CONFLICT:warn');
+    set(D0); W.cfg.n76AlarmStage = 'fire1';
+    ok('A40 Fire 1 elected: the defaults pass', codes() === 'N76_BOUND_CONFLICT:warn' && fails(r.S, 'NFPA 76 is adopted').length === 0);
+    set([0.03, 0.06, 0.7, 1.2]);
+    ok('A40 Fire 1 = 0.7 fails the VEP range and not the NFPA 76 ceiling', F().map((f) => f.stage).join() === '2' && codes() === 'N76_BOUND_CONFLICT:warn');
+    set(D0); const m1 = DI.applyDetPreset(W, 'nfpa76');
+    ok('A40 the preset refuses to write 1.0 into Fire 1 and says why', m1.includes('not written to Fire 1: it is above the VESDA-E VEP listed Fire 1 maximum (0.614 %/ft)') && W.cfg.detThr.join() === '0.03,0.06,0.12,1.2');
+    set([0.3, 0.6, 0.61, 1.2]); ok('A40 Alert 0.3 fails', DI.n76Flags(W).some((f) => f.code === 'N76_ALERT_OVER' && f.sev === 'fail' && f.text === 'NFPA 76 is adopted on this site: Alert must be 0.2 %/ft or less (it is 0.3).'));
+    W.cfg.n76AlarmStage = 'fire2'; const m2 = DI.applyDetPreset(W, 'nfpa76');
+    ok('A40 where the values fit, the preset writes them: Alert 0.2 and Fire 2 1.0, the other stages untouched', m2 === '' && W.cfg.detThr.join() === '0.2,0.6,0.61,1');
+    set([0.3, 0.25, 0.61, 1.2]); const m3 = DI.applyDetPreset(W, 'nfpa76'), t3 = W.cfg.detThr.join();
+    set([0.3, 0.15, 0.61, 1.2]); const m4 = DI.applyDetPreset(W, 'nfpa76');
+    ok('A40 the Action example is written only together with Alert, and only where the current Action does not fit above it', m3 === '' && t3 === '0.2,0.25,0.61,1' && m4 === '' && W.cfg.detThr.join() === '0.2,0.6,0.61,1');
+    set([0.3, 0.15, 0.4, 1.2]); const m5 = DI.applyDetPreset(W, 'nfpa76');
+    ok('A40 where neither fits, Alert is left as typed, the reason is given, and nothing is moved to make room', m5.includes('Alert 0.2 %/ft not written: it would break the order against Action 0.15, and the Action example 0.6 does not fit below Fire 1 0.4') && W.cfg.detThr.join() === '0.3,0.15,0.4,1');
+    W.cfg.n76AlarmStage = 'both'; ok('A40 any other stage value reads as not elected', DI.n76Stage(W) === null && codes().startsWith('N76_STAGE_OPEN:warn'));
+    DI.setJuris(new DI.World(4, 4));
+  }
+  // A41 reopening the control valve: refused during a recovery until the zone will hold, warned outside one
+  {
+    const tripped = (o) => { const r = R.start(o); smoke(r.S, 0.2, 10); r.S.smoke[1] = 0; run(r.S, 30, 0.25); DI.silence(r.S, r.pn.id); DI.findHead(r.S, r.head); R.shut(r); return r; };
+    const refused = (r, want) => { const n = r.S.acts.length, m = DI.setGate(r.S, r.g.id, 1); run(r.S, 6, 0.25); return m === want && r.g.p.target === 0 && r.g.p.open < 0.02 && !r.S.acts.slice(n).some((a) => a.kind === 'open-valve'); };
+    for (const trim of ['el-pn', 'el-el']) {
+      const r = tripped({ props: { trim } }), T = trim === 'el-pn' ? 'El/Pn' : 'El/El';
+      ok('A41 ' + T + ' (i) D still latched: refused, the valve stays shut, nothing logged', DI.incidentOpen(r.S, r.v.id, r.g.id) && refused(r, 'Reset the panel first: D / the solenoid is still latched.'));
+      R.iso(r, 1); R.drain(r, 1); R.zero(r); DI.panelReset(r.S, r.pn.id); run(r.S, 1, 0.25);
+      ok('A41 ' + T + ' (ii) riser not reset: refused', refused(r, 'Reset the riser valve first: it is still tripped.'));
+      DI.replaceSprinklers(r.S, r.v.id); run(r.S, 1, 0.25); DI.resetValve(r.S, r.v.id); run(r.S, 1, 0.25); R.drain(r, 0);
+      ok('A41 ' + T + ' (iii) riser reset, air below low air: refused', refused(r, 'Restore air first: ' + DI.fmt(r.s.P, 1) + ' psi is below low air (30 psi).') && r.s.P < r.v.p.loAir);
+      R.iso(r, 0); R.air(r);
+      ok('A41 ' + T + ' (iv) air back, P still latched: refused', r.s.P >= r.v.p.loAir && r.v.p.pLatch === true && refused(r, trim === 'el-pn' ? 'Reset the actuator at the trim: P is still latched.' : 'Reset the panel: P is still latched.'));
+      if (trim === 'el-pn') { DI.resetTrimP(r.S, r.v.id); run(r.S, 1, 0.25); } DI.panelReset(r.S, r.pn.id); run(r.S, 2, 0.25);
+      const m = DI.setGate(r.S, r.g.id, 1); run(r.S, 6, 0.25); const sc = R.score(r);
+      ok('A41 ' + T + ': it opens only with the solenoid de-energized, the valve reset, P clear and the air above low air', m === '' && r.g.p.open > 0.99 && !r.v.p.solOut && !r.v.p.pLatch && r.s.state === 'dry' && r.s.P >= r.v.p.loAir && DI.reopenGate(r.S, r.g.id) === '' && r.S.acts.filter((a) => a.kind === 'open-valve' && a.id === r.g.id).length === 1 && !DI.incidentOpen(r.S, r.v.id, r.g.id) && R.step(r, 'open-valve').done && sc.complete, R.show(sc));
+    }
+    const c = tripped({ props: { trim: 'el-pn' } }); R.drain(c, 1); let n = 0; while (c.s.wat > 0 && n++ < 20000) c.S.step(0.25); const w0 = c.s.wat;
+    c.g.p.target = 1; run(c.S, 30, 0.25);
+    ok('A41 control: forcing the control valve open at stage (i), D and P both true, puts water straight back through the tripped valve', w0 === 0 && c.v.p.sol === true && c.v.p.pLatch === true && c.s.state !== 'dry' && c.S.stats.gallons > 0 && c.s.flow > 1 && !c.S.acts.some((a) => a.kind === 'open-valve'), 'flow ' + c.s.flow.toFixed(0) + ' gpm');
+    const h = rig({ gate: true }); R.shut(h); const l0 = h.S.log.length, mh = R.reopen(h);
+    ok('A41 outside an incident a healthy zone reopens with no warning', mh === '' && h.g.p.open > 0.99 && !h.S.log.slice(l0).some((l) => l.cls === 'bad') && !DI.incidentOpen(h.S, h.v.id, h.g.id));
+    R.shut(h); h.v.p.airValve = 0; h.s.G = (25 + DI.ATM) * h.S.sysd.info.get(h.v.id).vol; run(h.S, 1, 0.25); const l1 = h.S.log.length, mw = R.reopen(h);
+    ok('A41 outside an incident a zone below low air is warned and allowed', mw === '' && h.g.p.open > 0.99 && h.v.p.pLatch === false && h.S.log.slice(l1).some((l) => l.cls === 'bad' && l.text.includes('reopened on a zone that is not ready. Restore air first: 25.0 psi is below low air (30 psi).')));
+    const w = new DI.World(40, 14); w.addRoom('office', 20, 2, 12, 8); w.addPart('city', 1, 6, 0); hline(w, 2, 9, 6, 6); const wg = w.addPart('gate', 10, 6, 0); hline(w, 11, 13, 6, 6); w.addPart('wetv', 14, 6, 0); hline(w, 15, 19, 6, 6); for (let y = 2; y <= 9; y++) w.setPipe(20, y, 4, 0, true); grid(w, 21, 2, 31, 9);
+    const wS = new DI.Sim(w); wS.commission(); DI.breakSprinkler(wS, w.k(28, 5)); run(wS, 10, 0.25); DI.setGate(wS, wg.id, 0); run(wS, 6, 0.25);
+    ok('A41 a zone with no dry or preaction valve behind the control valve is not gated', DI.gateValves(wS, wg.id).length === 0 && DI.setGate(wS, wg.id, 1) === '' && wg.p.target === 1);
+    const dp = tripped(); R.iso(dp, 1); R.drain(dp, 1); R.zero(dp); DI.panelReset(dp.S, dp.pn.id); run(dp.S, 1, 0.25); DI.replaceSprinklers(dp.S, dp.v.id); run(dp.S, 1, 0.25); DI.resetValve(dp.S, dp.v.id); run(dp.S, 1, 0.25); R.drain(dp, 0); R.iso(dp, 0); R.air(dp);
+    dp.W.power = false; dp.pn.p.battH = 0; run(dp.S, 1, 0.25); const l2 = dp.S.log.length, md = R.reopen(dp);
+    ok('A41 a dead panel cannot release anything, so it is a warning and never a refusal; the panel steps do not apply and the recovery completes', md === '' && dp.g.p.open > 0.99 && dp.S.log.slice(l2).some((l) => l.cls === 'bad' && l.text.includes('The releasing panel is dead')) && R.score(dp).complete);
+  }
   // static checks on the sources
   {
     const dir = path.join(__dirname, '..', 'src'), src = fs.readdirSync(dir).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
@@ -566,8 +919,21 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     none('deluge / water mist / clean agent under README "Ideas not built"', ideas, /clean agent|water mist|deluge/i);
     none('role-based pipe policy in src (only the save migration may name it)', src.replace('delete W.cfg.pipePolicy', ''), /pipePolicy|PIPE_POLICY/);
     none('fixed spot threshold table in src', src, /SPOT_T\b/);
+    // Cycle 3
+    const man = DI.MANUAL ? '' : fs.readFileSync(path.join(dir, 'manual.js'), 'utf8'), claude = fs.readFileSync(path.join(__dirname, '..', 'CLAUDE.md'), 'utf8');
+    none('assumed window or placeholder for the aspirating detector in src', src, /assumed: true|ASSUMED placeholder|placeholder until the maker|0\.01 to 5\.0/);
+    none('placeholder window for the aspirating detector in README', readme, /ASSUMED placeholder|0\.01 to 5\.0|placeholder for the maker/);
+    none('NFPA 76 limit mapped to a stage without the owner\'s election (PRESETS.nfpa76.fire1, thr[2] > limit)', src, /nfpa76\.fire1|pr\.fire1|P76\.fire1|thr\[2\] > P/);
+    ok('static: the NFPA 76 alarm limit reaches a stage only through W.cfg.n76AlarmStage', /n76AlarmStage/.test(DI.n76Stage.toString()) && /n76Stage\(W\)/.test(DI.applyDetPreset.toString()) && /n76Stage\(W\)/.test(DI.n76Flags.toString()) && !('fire1' in DI.PRESETS.nfpa76) && DI.PRESETS.nfpa76.alarm === 1);
+    // "flood" is right only where a head or a pipe is open: allowed for a pipe break (it discharges) and in the comments about the graph flood-fill
+    const floods = src.split('\n').filter((l) => /flood/i.test(l)).map((l) => l.match(/[^.>]*flood[^.<]*/i)[0].trim());
+    ok('static: no user-visible text says a closed-head trip floods anything', floods.every((t) => /^\/\/ (Flood-fills|air \/ nitrogen tubing: flood each)/.test(t) || /A pipe break plus a detection event floods the room/.test(t)) && floods.length === 3 && !/flood/i.test(claude) && !/floods the hall/.test(readme), floods.join(' | '));
+    ok('static: manual and README carry the datasheet numbers and the source label', man.includes('DI.MAN.asd') && readme.includes('36106_07') && readme.includes('36107_05') && readme.includes('[HB, datasheet; UL Product iQ not checked]'));
+    ok('static: CLAUDE.md states the fixture rule', /copied verbatim from the Lead who owns them and are never edited or reformatted here/.test(claude.replace(/\s+/g, ' ')) && claude.replace(/\s+/g, ' ').includes('stop and ask: do not change the file'));
+    ok('static: a dead-panel path never writes sol, pull, mech or mrzL true', !/alive[^;]*\{[^}]*(sol|pull|mech|mrzL) = true/.test(DI.alarmStep.toString()) && /v\.p\.sol = false; v\.p\.pull = false; v\.p\.mrzL = false/.test(DI.alarmStep.toString()));
+    ok('static: the riser reset no longer shuts the drain', !/sdrain\s*=/.test(DI.resetValve.toString()));
     ok('static: the riser reset never writes pLatch', !/pLatch\s*=/.test(DI.resetValve.toString()) && /mech = false/.test(DI.resetValve.toString()));
-    ok('static: pLatch is cleared only by the panel reset (El/El), the trim reset (El/Pn), commissioning and save migration', (src.match(/pLatch = false/g) || []).length === 4 && /trim === 'el-el'\) d\.p\.pLatch = false/.test(DI.panelReset.toString()) && /pLatch = false/.test(DI.resetTrimP.toString()));
+    ok('static: pLatch is cleared only by the panel reset (El/El), the trim reset (El/Pn), a dead El/El panel (the latch lives in panel memory), commissioning and save migration', (src.match(/pLatch = false/g) || []).length === 5 && /dark\) \{ v\.p\.pLatch = false/.test(DI.gasPre.toString()) && /trim === 'el-el'\) d\.p\.pLatch = false/.test(DI.panelReset.toString()) && /pLatch = false/.test(DI.resetTrimP.toString()));
     ok('static: supervisory is not an allowed class for a latched P', !DI.SIG_CLASS.pLatch.includes('SUPV') && DI.SIG_DEFAULT.pLatch === 'OPEN');
   }
 }

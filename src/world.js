@@ -13,6 +13,9 @@ DI.migratePart = function (p) {
     if (q.pLatch === undefined) q.pLatch = false;
     if (q.mech === undefined) q.mech = false;
     if (q.solOut === undefined) q.solOut = false;
+    if (q.mrzL === undefined) q.mrzL = false;
+  } else if (p.type === 'comp' || p.type === 'n2') {
+    if (q.fault === undefined) q.fault = false;
   } else if (p.type === 'dryv') {
     const win = 10;                       // the supervisory window older saves used on either side of normal
     if (q.hiAir === undefined) q.hiAir = q.airSet + win;
@@ -40,8 +43,8 @@ DI.World = class {
     this.money = 0;
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
-    // site / project settings: edition, nfpa76Adopted, pipeCut, detThr, spotThr, sigClass, fitPct, trimGal,
-    // insurer, manualReleaseBypassP. Read them through the DI helpers, which supply the defaults.
+    // site / project settings: edition, nfpa76Adopted, n76AlarmStage, pipeCut, detThr, spotThr, asdModel, sigClass,
+    // fitPct, trimGal, insurer, manualReleaseBypassP. Read them through the DI helpers, which supply the defaults.
     this.cfg = {};
   }
   k(x, y) { return y * this.w + x; }

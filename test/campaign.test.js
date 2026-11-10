@@ -20,12 +20,28 @@ for (const sc of DI.SCEN) {
   ok.forEach((v, i) => { if (!v) { fail++; console.log('   UNMET:', sc.goals[i].t); } });
   for (const f of S.rv) if (f.sev !== 'ok') console.log('   ' + f.sev + ': ' + f.text.slice(0, 110));
   for (const [id, c] of S.calc) console.log('   calc #' + id, c.ok ? c.verdict + ' minQ ' + c.minQ.toFixed(1) + '/' + c.need + ' total ' + c.total.toFixed(0) + ' gpm @ ' + c.pRiser.toFixed(0) + ' psi' : c.err);
-  for (const r of S.results) console.log('   ' + (r.pass ? 'PASS ' : 'FAIL ') + r.title + ': ' + r.lines.join(' | '));
-  for (const id of S.sysd.info.keys()) { const r = DI.recoveryScore(S, id); if (r) console.log('   recovery #' + id + ': ' + r.done + '/' + r.total + (r.inOrder ? ' in order' : ' OUT OF ORDER') + (r.time !== null ? ' in ' + DI.dur(r.time) : '')); }
+  // Contract 6 opens on a leaking zone: its first 24 h air test is the baseline and is expected to fail. It is
+  // labelled as such and asserted, so a real failure cannot hide behind it: an unexpected PASS, or a failed
+  // re-test after the repair, fails the campaign.
+  const leaks = S.results.filter((r) => r.kind === 'leak'), baseline = sc.id === 'c6' ? leaks[0] : null;
+  if (sc.id === 'c6') {
+    const again = leaks[leaks.length - 1];
+    if (!baseline || baseline.pass || !(baseline.end < DI.AIR_TEST.endMin)) { fail++; console.log('   UNEXPECTED: the c6 baseline air test should FAIL with an end reading below ' + DI.AIR_TEST.endMin + ' psi'); }
+    if (leaks.length < 2 || !again.pass) { fail++; console.log('   UNEXPECTED: the c6 air test after the repair should PASS'); }
+  }
+  if (sc.id === 'c5' && sc.goals.length !== 6) { fail++; console.log('   UNEXPECTED: contract 5 should have six goals'); }
+  for (const r of S.results) console.log('   ' + (r === baseline ? 'EXPECTED baseline FAIL (leaking zone, before the repair) ' : r.pass ? 'PASS ' : 'FAIL ') + r.title + ': ' + r.lines.join(' | '));
+  // recoveries after the commissioning tests are practice: printed, never counted. Only the c5 drill incident is scored.
+  for (const id of S.sysd.info.keys()) { const r = DI.recoveryScore(S, id); if (r) console.log('   recovery #' + id + (sc.id === 'c6' ? ' (not scored in c6): ' : ' (practice): ') + r.done + '/' + r.total + (r.inOrder ? ' in order' : ' OUT OF ORDER') + (r.time !== null ? ' in ' + DI.dur(r.time) : '')); }
   if (sc.drill) {
     DI.startDrill(S, sc.drill); let guard = 0;
     while (!S.drill.done && guard++ < 400000) { S.step(S.fires.length || S.outFlow > 1 ? 0.25 : 1); DI.drillStep(S); if (sol.ops) sol.ops(S); }
     const r = S.drill.result; if (!r || !r.pass) fail++;
+    if (sc.id === 'c5') {      // the one scored recovery: the drill's broken-sprinkler incident, 13 of 13 in order by the reference operator
+      const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), q = a && DI.recoveryScore(S, a.id, S.drill.t0);
+      if (!q || !q.complete || !q.inOrder || q.total !== 13) { fail++; console.log('   UNEXPECTED: the c5 drill recovery should be 13 of 13 in order'); }
+      else console.log('   drill recovery #' + a.id + ' (scored): ' + q.done + '/' + q.total + ' in order in ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s; informational target ' + DI.RECOVERY_TARGET + ' s' + (q.time > DI.RECOVERY_TARGET ? ', MISSED by the reference operator' : ', met') + ')');
+    }
     console.log('   DRILL', r && r.pass ? 'PASS' : 'FAIL', r ? r.lines.join(' | ') : 'timeout', '| fire', DI.money(S.stats.fireLoss), 'water', DI.money(S.stats.waterLoss), 'smoke', DI.money(S.stats.smokeLoss), '| spent', DI.money(sc.money - W.money));
   }
 }

@@ -50,10 +50,14 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if (p.type === 'prev') {
       // every reset path named here has a control on screen: the panel for El/El, the actuator at the trim for El/Pn
       const el = q.trim !== 'el-pn', mr = DI.stationType(W, p) === 'MANUAL RELEASE', how = el ? 'reset the panel' : 'reset the actuator at the trim';
+      // A dead panel displays nothing: the rows it feeds (D, the release path, the solenoid, and P on an electric /
+      // electric trim) go dark. Gauges, the valve state and the pneumatic actuator's P are read at the valve and stay.
+      const dark = () => { const x = W.panelOf(p.id); return !!x && x.p.alive === false; }, ND = ['not displayed: panel dead', 'warn'];
       B.sec('INTERLOCKS: D AND P');
-      B.row('D: detection (Fire 1 or manual station)', () => DI.relState(W, p).D ? [q.sol ? 'ACTIVE - latched by the panel' : 'ACTIVE - manual station', 'bad'] : ['normal', 'good']);
-      B.row('P: pipe pressure below ' + q.pTrip + ' psi', () => q.pLatch ? ['LATCHED - ' + how, 'bad'] : ['normal', 'good']);
-      B.row('Solenoid (' + (el ? 'D AND P' : 'D alone') + ')', () => q.solOut ? ['ENERGIZED', 'bad'] : ['de-energized', 'good']);
+      B.row('D: detection (Fire 1 or manual station)', () => dark() ? ND : DI.relState(W, p).D ? [q.sol ? 'ACTIVE - latched by the panel' : 'ACTIVE - manual station', 'bad'] : ['normal', 'good']);
+      B.row('P: pipe pressure below ' + q.pTrip + ' psi', () => el && dark() ? ND : q.pLatch ? ['LATCHED - ' + how, 'bad'] : ['normal', 'good']);
+      B.row('Release path', () => dark() ? ND : DI.relPath(W, p));       // names the Manual Release zone when it, not D AND P, is letting water in
+      B.row('Solenoid (' + (el ? 'D AND P' : 'D alone') + ')', () => dark() ? ND : q.solOut ? ['ENERGIZED', 'bad'] : ['de-energized', 'good']);
       B.row('P sensor', () => DI.trimOf(p).sensor + (el ? ' switch (panel latch)' : ' actuator (at the valve)'));
       B.row('Manual station type', () => mr ? ['MANUAL RELEASE - bypasses P', 'warn'] : 'DETECTION - inside D');
       if (mr && S.contract) B.row('IMPAIRMENT TAG', () => ['Manual Release zone bypasses P', 'warn']);
@@ -62,9 +66,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const pn = W.panelOf(p.id);
       B.btns([el ? (q.pLatch && pn ? ['Go to the releasing panel', () => DI.ui.focus(pn.x, pn.y, { kind: 'part', id: pn.id }), 'go', false, 'P is latched in panel #' + pn.id + '. The Panel reset button is there.'] : null)
         : ['Reset actuator at the trim', () => say(DI.resetTrimP(S, p.id)), q.pLatch ? 'go' : '', !q.pLatch, 'Clears P at the pneumatic actuator. Restore the air first, or it latches again.']]);
+      // The thirteen recovery steps for the latest incident on this valve. Practice everywhere: only the drill's
+      // broken-sprinkler incident in contract 5 is scored, and nothing gates on this list.
+      if (DI.recoveryScore(S, p.id)) {
+        let memo = null, mt = -1, mn = -1; const rc = () => { if (mt !== S.t || mn !== S.acts.length) { memo = DI.recoveryScore(S, p.id); mt = S.t; mn = S.acts.length; } return memo; };
+        B.sec('RECOVERY CHECKLIST (PRACTICE)');
+        B.row('Latest incident', () => { const r = rc(); return r ? [r.done + ' of ' + r.total + (r.inOrder ? ', in order' : ', OUT OF ORDER'), r.complete && r.inOrder ? 'good' : r.inOrder ? 'warn' : 'bad'] : '-'; });
+        DI.RECOVERY.forEach(([, label], i) => B.row((i + 1) + '. ' + label, () => { const r = rc(), st = r && r.steps[i]; return !st ? '-' : st.na ? 'not applicable' : st.done ? ['done', 'good'] : ['pending', 'warn']; }));
+        B.p('Generic practice; the valve maker’s IOM governs the specifics. After a trip the clapper is reset before the air is restored, with the drain still open. Reopening the control valve is the last step: until it is open the zone is unprotected.');
+      }
     }
     if (dry) {
       B.sec('SUPERVISORY GAS'); B.row('Source', () => inf.src.length ? inf.src.map((id) => W.parts.get(id).type === 'n2' ? 'N₂ gen #' + id : 'Compressor #' + id).join(', ') : ['NONE - run tubing', 'bad']);
+      B.row('Air / N₂ supply', () => q.airValve ? ['OPEN', 'good'] : s.state === 'dry' && s.P < q.loAir ? ['ISOLATED - restore the supply to refill', 'bad'] : ['ISOLATED', 'warn']);
       const A = p.type === 'prev' ? ' (ASSUMED)' : '';
       B.step('High-air supervisory' + A, () => q.hiAir, (v) => { q.hiAir = v; }, 5, 10, 90, ' psi');
       B.step('Normal pressure' + A, () => q.airSet, (v) => { q.airSet = v; }, 5, 10, 60, ' psi');
@@ -74,16 +88,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.row('Fill time (0 to set)', () => s.fillTime > 0 ? [DI.dur(s.fillTime), s.fillTime <= 1800 ? 'good' : 'bad'] : '-'); B.row('Corrosion / pinholes', () => [DI.fmt(100 * s.corr) + '% / ' + (s.holes || 0), s.holes ? 'warn' : '']);
       B.btns([p.type === 'dryv' ? ['Accelerator ' + (q.qod ? 'ON' : 'off'), () => reprice(p, () => { q.qod = !q.qod; }), q.qod ? 'on' : '', false, 'Quick-opening device: trips the valve on the first few psi of loss. +$2,800'] : null,
         ['N₂ purge vent ' + (q.vent ? 'ON' : 'off'), () => { if (q.vent) { q.vent = false; g().W.money += 3200; } else if (spend(3200)) q.vent = true; }, q.vent ? 'on' : '', false, 'Bleeds gas at the far end until an analyzer reads 98% nitrogen. $3,200'],
-        ['Air supply ' + (q.airValve ? 'open' : 'SHUT'), () => { q.airValve = q.airValve ? 0 : 1; }, q.airValve ? '' : 'hot'], s.holes ? ['Repair ' + s.holes + ' leak(s) ' + DI.money(s.holes * 1800), () => { if (spend(s.holes * 1800)) { s.holes = 0; s.corr = Math.min(s.corr, 0.25); S.say('Leaking pipe sections replaced.', 'good'); } }] : null]);
+        [q.airValve ? 'Isolate air / N₂ supply' : 'Restore air / N₂ supply', () => { q.airValve = q.airValve ? 0 : 1; }, q.airValve ? '' : 'hot', false, 'Shuts the supply to this zone only. The compressor is not affected.'], s.holes ? ['Repair ' + s.holes + ' leak(s) ' + DI.money(s.holes * 1800), () => { if (spend(s.holes * 1800)) { s.holes = 0; s.corr = Math.min(s.corr, 0.25); S.say('Leaking pipe sections replaced.', 'good'); } }] : null]);
     }
     B.sec('OPERATE');
     B.btns([[(dry ? 'Main drain ' : 'Main drain ') + (q.drain ? 'OPEN' : 'closed'), () => { q.drain = q.drain ? 0 : 1; S.touch(); }, q.drain ? 'hot' : ''], dry ? ['System drain ' + (q.sdrain ? 'OPEN' : 'closed'), () => { q.sdrain = q.sdrain ? 0 : 1; S.touch(); }, q.sdrain ? 'hot' : ''] : null,
       ['Inspector’s test ' + (q.itc ? 'OPEN' : 'closed'), () => { q.itc = q.itc ? 0 : 1; S.touch(); }, q.itc ? 'hot' : ''],
       // sandbox shortcut: in a contract the manual input is the wired Manual Release Station device
-      p.type === 'prev' && g().sc.sandbox ? ['Manual station (shortcut, typed ' + DI.stationType(W, p) + ')', () => { const pn = W.panelOf(p.id); if (!pn || pn.p.alive === false) say('No live releasing panel, so the manual station does nothing. Use the mechanical emergency release at the trim.'); else q.pull = true; }, 'hot', q.pull, DI.stationType(W, p) === 'MANUAL RELEASE' ? 'Manual Release zone: releases without P (project flag, NEEDS PE REVIEW).' : 'Counts as detection. Water still needs P. Same as operating a wired Manual Release Station.'] : null,
+      p.type === 'prev' && g().sc.sandbox ? ['Manual station (shortcut, typed ' + DI.stationType(W, p) + ')', () => { const pn = W.panelOf(p.id); if (!pn || pn.p.alive === false) say('No live releasing panel, so the manual station does nothing. Use the mechanical emergency release at the trim.'); else if (DI.stationType(W, p) === 'MANUAL RELEASE') q.mrzL = true; else q.pull = true; }, 'hot', q.pull || q.mrzL, DI.stationType(W, p) === 'MANUAL RELEASE' ? 'Manual Release zone: releases without P (project flag, NEEDS PE REVIEW).' : 'Counts as detection. Water still needs P. Same as operating a wired Manual Release Station.'] : null,
       p.type === 'prev' ? ['Mechanical emergency release (at the trim)', () => { q.mech = true; }, 'hot', false, 'Opens the valve by hand at the trim, outside the panel logic. Works with a dead panel. Water flows only where a sprinkler is open.'] : null,
-      dry && s.state !== 'dry' ? ['Reset valve at the riser', () => say(DI.resetValve(S, p.id)), 'go', false, p.type === 'prev' ? 'Closes the clapper and the emergency release once the system is drained. It does not clear P.' : 'Closes the clapper once the system is drained.'] : null,
-      s.openK && s.openK.length ? ['Replace ' + s.openK.length + ' sprinkler(s)', () => say(DI.replaceSprinklers(S, p.id)), 'go'] : null]);
+      dry && s.state !== 'dry' ? ['Reset valve at the riser', () => say(DI.resetValve(S, p.id)), 'go', false, p.type === 'prev' ? 'Closes the clapper and the emergency release once the system is drained. The drain may stay open: close it afterwards, then restore the air. It does not clear P.' : 'Closes the clapper once the system is drained. The drain may stay open: close it afterwards, then restore the air.'] : null,
+      s.openK && s.openK.length ? ['Replace ' + s.openK.length + ' sprinkler(s)', () => say(DI.replaceSprinklers(S, p.id)), 'go', false, dry ? 'Same type, K-factor, temperature and response. First: control valve closed, air / N₂ supply isolated, pipe drained to 0 psi with no water.' : 'Same type, K-factor, temperature and response.'] : null]);
     B.sec('TESTS'); const busy = S.procs.some((x) => x.id === p.id);
     B.btns([dry ? ['Full-flow trip test', () => test('trip', p.id), '', busy] : ['Inspector’s test (timed)', () => test('itc', p.id), '', busy], ['Main drain test', () => test('drain', p.id), '', busy], dry ? ['24 h air test', () => test('leak', p.id), '', busy] : null]);
     if (busy) B.p('Test running… speed up time if you like.');
@@ -95,7 +109,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     B.title(q.label || d.name, '#' + p.id); B.p(d.desc);
     const pn = W.panelOf(p.id); if (['gate', 'wetv', 'dryv', 'prev', 'epump', 'dpump', 'vesda', 'smoke', 'mstn'].includes(p.type)) B.row('Wired to', () => { const x = W.panelOf(p.id); return x ? ['Panel #' + x.id, 'good'] : ['NOT WIRED', 'warn']; });
     if (p.type === 'gate') { B.row('Position', () => [DI.fmt(q.open * 100) + '% open', q.open > 0.98 ? 'good' : 'bad']); B.row('Flow', () => gpm(Math.abs(S.flowOf(p.id)))); B.row('Upstream / downstream', () => DI.fmt(S.pin(p.id)) + ' / ' + DI.fmt(S.pout(p.id)) + ' psi');
-      B.btns([[q.target > 0.5 ? 'Close valve' : 'Open valve', () => { q.target = q.target > 0.5 ? 0 : 1; DI.audio.play('valve'); }, q.target > 0.5 ? 'hot' : 'go']]); }
+      B.row('Zone behind it', () => { if (q.target > 0.5) return q.open > 0.98 ? ['in service', 'good'] : 'opening'; const m = DI.reopenGate(S, p.id); return m ? [m, 'warn'] : ['ready to reopen', 'good']; });
+      B.btns([[q.target > 0.5 ? 'Close valve' : 'Open valve', () => { const m = DI.setGate(S, p.id, q.target > 0.5 ? 0 : 1); if (m) say(m); else DI.audio.play('valve'); }, q.target > 0.5 ? 'hot' : 'go', false, 'During a recovery the valve reopens only when the zone behind it will hold: panel reset, clapper reset, P clear, air above low air.']]); }
     else if (p.type === 'city') { B.row('Flow test', () => q.stat + ' static, ' + q.resid + ' @ ' + q.flow + ' gpm'); B.row('Flowing now', () => gpm(S.flowOf(p.id))); B.row('Pressure at tap', () => psi(S.pout(p.id))); }
     else if (p.type === 'tank') { B.pick('Capacity (gal)', [60000, 120000, 240000, 360000, 500000], () => q.cap, (v) => reprice(p, () => { q.cap = v; q.gal = v; }), (v) => v / 1000 + 'k'); B.row('Level', () => DI.fmt(100 * q.gal / q.cap, 1) + '%  (' + Math.round(q.gal).toLocaleString() + ' gal)'); B.row('Draw', () => gpm(S.flowOf(p.id))); B.row('Lasts at this rate', () => S.flowOf(p.id) > 5 ? DI.dur(q.gal / S.flowOf(p.id) * 60) : '-'); }
     else if (p.type === 'epump' || p.type === 'dpump') {
@@ -117,15 +132,28 @@ var DI = globalThis.DI || (globalThis.DI = {});
     else if (p.type === 'fdc') B.row('Fire department', () => q.active ? ['PUMPING 150 psi', 'bad'] : 'not connected');
     else if (p.type === 'testhdr') { B.step('Hose valves open', () => Math.round(q.open * 10) / 10, (v) => { q.open = v; }, 0.5, 0, 12, ''); B.row('Flowing', () => gpm(S.G ? S.G.emit.filter((e) => e.pid === p.id).reduce((a, e) => a + e.link.q, 0) : 0)); }
     else if (DI.SYSV[p.type]) sysPanel(S, W, p);
-    else if (p.type === 'comp' || p.type === 'n2') { B.pick('Capacity (SCFM)', p.type === 'comp' ? DI.COMP_SCFM : DI.N2_SCFM, () => q.scfm, (v) => reprice(p, () => { q.scfm = v; })); B.row('Status', () => q.on ? ['RUNNING', 'good'] : 'idle'); B.row('Starts', () => String(q.starts)); B.row('Run time', () => DI.dur(q.runSec) + ' (' + DI.fmt(100 * q.runSec / Math.max(S.t, 1), 1) + '% duty)');
-      B.row('Feeds', () => { const o = []; for (const [id, i] of S.sysd.info) if (i.src.includes(p.id)) o.push('#' + id); return o.length ? 'valve ' + o.join(', ') : ['nothing - run tubing', 'bad']; }); }
-    else if (p.type === 'panel') { B.row('Power', () => W.power ? ['AC normal', 'good'] : q.alive ? ['BATTERY ' + DI.fmt(q.battH, 1) + ' h', 'warn'] : ['DEAD', 'bad']); B.row('Devices wired', () => String(W.wires.filter((w) => w[0] === p.id).length)); B.row('Audible', () => q.silenced ? ['SILENCED', 'warn'] : 'normal');
-      B.btns([['Silence', () => say(DI.silence(S, p.id)), q.silenced ? 'on' : '', false, 'Acknowledges the signals. Nothing is reset and nothing clears. A new signal sounds again.'], ['Panel reset', () => DI.panelReset(S, p.id), 'go']]);
-      B.p('Reset clears the panel’s latches and then reads every input again, so a live input comes straight back: a detector or manual station still in alarm, or pipe still below P trip. P is a panel latch on an electric / electric trim and clears here. On an electric / pneumatic trim P sits at the actuator: reset it at the trim. A panel reset never closes a tripped valve.'); B.p('A dead panel leaves every preaction valve shut: the solenoid is energize-to-release. Recovery is the mechanical emergency release at the trim, by a person. The 24 h standby battery (standby plus alarm) is a simplification.'); }
+    else if (p.type === 'comp' || p.type === 'n2') { B.pick('Capacity (SCFM)', p.type === 'comp' ? DI.COMP_SCFM : DI.N2_SCFM, () => q.scfm, (v) => reprice(p, () => { q.scfm = v; })); B.row('Status', () => q.fault ? ['FAULT - not making gas', 'bad'] : q.on ? ['RUNNING', 'good'] : !S.powered(p) ? ['NO POWER', 'bad'] : 'idle'); B.row('Starts', () => String(q.starts)); B.row('Run time', () => DI.dur(q.runSec) + ' (' + DI.fmt(100 * q.runSec / Math.max(S.t, 1), 1) + '% duty)');
+      B.row('Feeds', () => { const o = []; for (const [id, i] of S.sysd.info) if (i.src.includes(p.id)) o.push('#' + id); return o.length ? 'valve ' + o.join(', ') : ['nothing - run tubing', 'bad']; });
+      if (g().sc.sandbox) B.btns([[q.fault ? 'Restore source (sandbox)' : 'Fail source (sandbox)', () => { q.fault = !q.fault; }, q.fault ? 'hot' : '', false, 'Sandbox only: the unit stops making gas, as with a tripped breaker or a failed compressor. Every zone it feeds reports LOSS OF SUPPLY AIR (trouble) once no other source is left.']]); }
+    else if (p.type === 'panel') { B.row('Power', () => q.alive === false ? ['DEAD - display dark', 'bad'] : W.power ? (q.battH <= DI.PANEL_LOWBATT_H ? ['AC normal, battery low (charging)', 'warn'] : ['AC normal', 'good']) : [(q.battH <= DI.PANEL_LOWBATT_H ? 'LOW BATTERY ' : 'BATTERY ') + DI.fmt(q.battH, 1) + ' h', 'warn']); B.row('Devices wired', () => String(W.wires.filter((w) => w[0] === p.id).length)); B.row('Audible', () => q.silenced ? ['SILENCED', 'warn'] : 'normal');
+      const deadP = q.alive === false;          // a dead panel cannot be silenced or reset: both buttons are disabled and say why
+      B.btns([['Silence', () => say(DI.silence(S, p.id)), q.silenced ? 'on' : '', deadP, deadP ? DI.PANEL_DEAD_MSG : 'Acknowledges the signals. Nothing is reset and nothing clears. A new signal sounds again.'], ['Panel reset', () => say(DI.panelReset(S, p.id)), 'go', deadP, deadP ? DI.PANEL_DEAD_MSG : 'Clears the panel’s latches (D, the Manual Release zone, and P on an electric / electric trim), then every input is read again.']]);
+      if (deadP) B.p(DI.PANEL_DEAD_MSG);
+      B.p('Reset clears the panel’s latches and then reads every input again, so a live input comes straight back: a detector or manual station still in alarm, or pipe still below P trip. P is a panel latch on an electric / electric trim and clears here. On an electric / pneumatic trim P sits at the actuator: reset it at the trim. A panel reset never closes a tripped valve.'); B.p('On AC failure the panel reports trouble and runs on its standby battery (24 h here, a simplification), then reports LOW BATTERY with ' + DI.PANEL_LOWBATT_H + ' h left (ASSUMED). A dead panel is dark: no display, no reset, no silence, and the supervising station reports loss of communication. It leaves every preaction valve shut: the solenoid is energize-to-release. Recovery is the mechanical emergency release at the trim, by a person. On an electric / electric trim the P latch lives in the panel: when power returns the panel reads its inputs again, so P comes back if the pipe is still low. Power coming back is not a release; the inputs are.'); }
     else if (p.type === 'vesda' || p.type === 'smoke') { const room = W.room(p.x, p.y);
       B.row('Room', () => room ? room.name : ['outdoors - move it', 'bad']); B.row('Smoke reading', () => DI.fmt(q.obs || 0, 3)); B.row('Level', () => p.type === 'vesda' ? [DI.VESDA_N[q.lvl] || 'normal', q.lvl >= DI.FIRE1 ? 'bad' : q.lvl ? 'warn' : 'good'] : [q.lvl ? 'ALARM' : 'normal', q.lvl ? 'bad' : 'good']);
-      B.row(p.type === 'vesda' ? 'Alert / Action / Fire 1 / Fire 2' : 'Alarm threshold', () => (p.type === 'vesda' ? DI.detThr(W) : [DI.spotThr(W)]).join(' / ') + ' (example)');
-      B.row('Listed window', () => { const L = DI.LISTED[p.type]; return L.min + ' to ' + L.max + ' %/ft' + (L.assumed ? ' (ASSUMED)' : ' (example)'); });
+      if (p.type === 'vesda') {
+        // thresholds are owner-set inside the listed range of the model; the range is the maker's datasheet
+        const M = () => DI.ASD_MODELS[DI.asdModel(W)];
+        B.row('Alert / Action / Fire 1 / Fire 2', () => [DI.detThr(W).join(' / ') + ' %/ft (owner-set: ASSUMED, NEEDS PE REVIEW)', DI.asdFindings(W).length ? 'bad' : '']);
+        B.row('Model', () => M().label);
+        B.row('Listed range per stage', () => DI.asdRange(W).map((r) => DI.asdFmt(r[0]) + ' to ' + DI.asdFmt(r[1])).join(' / ') + ' %/ft');
+        B.row('Range source', () => M().doc + ' ' + DI.ASD_SRC);
+        if (DI.n76Flags(W).length) B.row('NFPA 76', () => { const fl = DI.n76Flags(W), has = (c) => fl.some((x) => x.code === c), o = []; if (has('N76_STAGE_OPEN')) o.push('alarm stage OPEN'); if (has('N76_BOUND_CONFLICT')) o.push('CONFLICT with model max'); if (fl.some((x) => x.sev === 'fail')) o.push('limit exceeded'); return [o.join(' / '), fl.some((x) => x.sev === 'fail') ? 'bad' : 'warn']; });
+      } else {
+        B.row('Alarm threshold', () => DI.spotThr(W) + ' (example)');
+        B.row('Listed window', () => { const L = DI.LISTED.smoke; return L.min + ' to ' + L.max + ' %/ft (example)'; });
+      }
       B.row('Release role', () => p.type === 'vesda' ? 'Fire 1 is the detection leg' : DI.canRelease(W, p) ? 'alarm is the detection leg' : ['alarm only here', 'warn']);
       if (p.type === 'vesda') B.p('Alert and Action are pre-alarm (supervisory unless the site elects alarm). At or above Fire 1 the detection leg D is true, and water still needs P. Fire 2 is escalation and releases nothing by itself. Thresholds and signal classes are site settings.');
       else B.p('One listed spot detector in alarm is the detection leg in an electrical / UPS room. In white space it raises the alarm only: use aspirating detection there.'); if (room) B.btns([['Send technician', () => say(DI.sendTech(S, room.id)), 'go', false, 'Someone walks to the room. If the fire is still smouldering they can stop it by hand.']]); }
@@ -156,7 +184,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }
     const S = G.S, W = G.W, sel = G.sel, p = sel && sel.kind === 'part' ? W.parts.get(sel.id) : null; if (sel && sel.kind === 'part' && !p) G.sel = null;
     const s = p && S.ss.get(p.id);
-    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0)], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
+    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0), p && p.type === 'prev' ? !!DI.recoveryScore(S, p.id) : 0, p && p.type === 'vesda' ? DI.n76Flags(W).length : 0], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
     if (force || sig !== lastSig) { lastSig = sig; acts = []; upd = []; B.h = ''; if (p) partPanel(S, W, p); else if (sel && sel.kind === 'tile') tilePanel(S, W, sel.k); else homePanel(G); el.innerHTML = B.h; }
     for (let i = 0; i < upd.length; i++) { const v = upd[i](); if (v === null) continue; const e = document.getElementById('iv' + i); if (!e) continue; const t = Array.isArray(v) ? v[0] : v, c = Array.isArray(v) ? v[1] : ''; if (e.textContent !== t) e.textContent = t; if (e.className !== c) e.className = c; }
   } };

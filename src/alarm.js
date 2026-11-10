@@ -2,8 +2,9 @@
 // A device only reaches the panel (and the outside world) if the player wired it there.
 var DI = globalThis.DI || (globalThis.DI = {});
 
-// Aspirating detection stages. Thresholds are example values (smoke units ~ %/ft obscuration) and are a
-// site setting (W.cfg.detThr); these are the defaults.
+// Aspirating detection stages. The four thresholds (%/ft obscuration) are a site setting (W.cfg.detThr); these
+// defaults are owner-set example values inside the listed range of the detector model (DI.asdRange), ASSUMED and
+// NEEDS PE REVIEW: the datasheets print setting ranges, not defaults.
 //   Alert  = pre-alarm, never arms a release. Signal class is a site setting (DI.sigClass), supervisory by default.
 //   Action = pre-alarm annunciation: no release. Signal class is a site setting, supervisory by default.
 //   Fire 1 = alarm, and the detection leg (D) of the double interlock. D is a level check: level >= Fire 1.
@@ -22,16 +23,65 @@ DI.canRelease = function (W, d) {
   const room = d.type === 'smoke' ? W.room(d.x, d.y) : null;
   return !!(room && DI.ROOMS[room.type].spotRelease);
 };
-// Apply a detection preset to the site thresholds. Returns '' or the reason it was refused.
+// a listed bound as the datasheet prints it (0.0030, not 0.003)
+DI.asdFmt = (x) => (typeof x === 'number' && x > 0 && x < 0.01 ? x.toFixed(4) : String(x));
+// One range finding per aspirating stage that sits outside the listed range of the site's detector model.
+DI.asdFindings = function (W) {
+  const t = DI.detThr(W), R = DI.asdRange(W), M = DI.ASD_MODELS[DI.asdModel(W)], f = DI.asdFmt, out = [];
+  DI.ASD_STAGES.forEach(([, name], i) => { if (!(t[i] >= R[i][0] && t[i] <= R[i][1])) out.push({ stage: i, text: 'Aspirating ' + name + ' threshold ' + t[i] + ' %/ft is outside the listed range of the ' + M.label + ' (' + f(R[i][0]) + ' to ' + f(R[i][1]) + ' %/ft) ' + DI.ASD_SRC + '.', ref: M.doc + '; NFPA 72 Ch. 14 (ITM)' }); });
+  return out;
+};
+// NFPA 76 (where adopted): Alert <= 0.2 %/ft and an alarm threshold <= 1.0 %/ft, both ceilings. Which stage is
+// "the alarm" is the owner's election (W.cfg.n76AlarmStage): 'fire1', 'fire2', or null while it is OPEN.
+// Nothing in the game maps the limit to a stage without that election. NEEDS PE REVIEW.
+DI.N76_REF = 'NFPA 76-2024 §8.5.3.1.2.5';
+DI.n76Stage = (W) => { const s = W && W.cfg ? W.cfg.n76AlarmStage : undefined; return s === 'fire1' || s === 'fire2' ? s : null; };
+// The visible NFPA 76 flags for this site: [{ code, sev, text }], empty unless NFPA 76 is adopted. Pure.
+DI.n76Flags = function (W) {
+  if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return [];
+  const P = DI.PRESETS.nfpa76, t = DI.detThr(W), M = DI.ASD_MODELS[DI.asdModel(W)], R = M.range, f = DI.asdFmt, st = DI.n76Stage(W), out = [];
+  const lim = P.alarm.toFixed(1), meets = (x) => (x <= P.alarm ? 'yes' : 'no');
+  if (!st) out.push({ code: 'N76_STAGE_OPEN', sev: 'warn', text: 'NFPA 76 limit: alarm threshold ' + lim + ' %/ft. Which stage it applies to (Fire 1 or Fire 2) is not elected: OPEN, NEEDS PE REVIEW. Now: Fire 1 ' + t[2] + ' (meets ' + lim + ': ' + meets(t[2]) + '), Fire 2 ' + t[3] + ' (meets ' + lim + ': ' + meets(t[3]) + ').' });
+  if (R.fire1[1] < P.alarm) out.push({ code: 'N76_BOUND_CONFLICT', sev: 'warn', text: 'CONFLICT: the NFPA 76 limit of ' + lim + ' %/ft is above the ' + M.label + ' listed Fire 1 maximum (' + f(R.fire1[1]) + ' %/ft) ' + DI.ASD_SRC + '. It cannot be entered as a Fire 1 value. Any Fire 1 at or below ' + f(R.fire1[1]) + ' also meets it as a ceiling. Mapping the limit to Fire 2 (range ' + f(R.fire2[0]) + ' to ' + f(R.fire2[1]) + ') has no such conflict. NEEDS PE REVIEW.' });
+  if (t[0] > P.alert) out.push({ code: 'N76_ALERT_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Alert must be ' + P.alert + ' %/ft or less (it is ' + t[0] + ').' });
+  if (st) { const i = st === 'fire1' ? 2 : 3; if (t[i] > P.alarm) out.push({ code: 'N76_STAGE_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: ' + DI.ASD_STAGES[i][1] + ', the elected alarm stage, must be ' + lim + ' %/ft or less (it is ' + t[i] + ').' }); }
+  return out;
+};
+// Apply a detection preset to the site thresholds. The NFPA 76 limits are ceilings: a value is written only
+// where it fits the listed range of that stage, keeps Alert < Action < Fire 1 < Fire 2 against its neighbours,
+// and (for the alarm limit) only into the stage the owner elected. Nothing is clamped, rounded, mapped to an
+// unelected stage or moved to make room. Action takes its ASSUMED example only together with Alert, when the
+// current Action does not fit above the preset Alert.
+// Returns '' when every part is written or its ceiling is already met with the alarm limit in its elected
+// stage; otherwise one message naming each part that was not written, and why.
 DI.applyDetPreset = function (W, key) {
   const pr = DI.PRESETS[key]; if (!pr) return 'Unknown preset.';
   if (key === 'nfpa76' && !DI.setJuris(W).nfpa76Adopted) return 'NFPA 76 is not adopted on this site.';
-  const t = DI.detThr(W).slice();
-  t[0] = pr.alert; t[2] = pr.fire1;
-  if (!(t[1] > t[0] && t[1] < t[2])) t[1] = pr.action;        // ASSUMED example; Action otherwise stays at the site value
-  W.cfg.detThr = t; W.ver++;                                  // Fire 2 stays at the site value
-  return '';
+  const t = DI.detThr(W).slice(), R = DI.asdRange(W), M = DI.ASD_MODELS[DI.asdModel(W)], N = DI.ASD_STAGES.map((q) => q[1]), f = DI.asdFmt, st = DI.n76Stage(W), msg = [];
+  const fits = (i, x) => x >= R[i][0] && x <= R[i][1], okAt = (a, i) => (i === 0 || a[i] > a[i - 1]) && (i === 3 || a[i] < a[i + 1]);
+  const bound = (i, x) => (x > R[i][1] ? 'it is above the ' + M.label + ' listed ' + N[i] + ' maximum (' + f(R[i][1]) : 'it is below the ' + M.label + ' listed ' + N[i] + ' minimum (' + f(R[i][0])) + ' %/ft) ' + DI.ASD_SRC;
+  const lim = pr.alarm.toFixed(1); let hard = false, wrote = false;
+  // the alarm limit, only into the elected stage
+  if (!st) { hard = true; msg.push('Alarm limit ' + lim + ' %/ft not written: no alarm stage is elected (OPEN, NEEDS PE REVIEW).'); }
+  else {
+    const i = st === 'fire1' ? 2 : 3, c = t.slice(); c[i] = pr.alarm; let why = '';
+    if (t[i] !== pr.alarm) { if (!fits(i, pr.alarm)) why = bound(i, pr.alarm); else if (!okAt(c, i)) why = 'it would break the order ' + N.join(' < ') + ' (' + c.join(' / ') + ')'; else { t[i] = pr.alarm; wrote = true; } }
+    if (why) { hard = true; msg.push('Alarm limit ' + lim + ' %/ft not written to ' + N[i] + ': ' + why + '. ' + N[i] + ' stays ' + t[i] + (t[i] <= pr.alarm ? ', which meets the ' + lim + ' ceiling.' : '.')); }
+  }
+  // Alert, with the Action example where the current Action does not fit above it
+  if (t[0] !== pr.alert) {
+    const a = t.slice(); a[0] = pr.alert; const b = a.slice(); b[1] = pr.action; let why = '';
+    if (!fits(0, pr.alert)) why = bound(0, pr.alert);
+    else if (okAt(a, 0)) { t[0] = pr.alert; wrote = true; }
+    else if (fits(1, pr.action) && okAt(b, 0) && okAt(b, 1)) { t[0] = pr.alert; t[1] = pr.action; wrote = true; }
+    else why = 'it would break the order against Action ' + t[1] + ', and the Action example ' + pr.action + ' does not fit below Fire 1 ' + t[2];
+    if (why) { if (t[0] > pr.alert) hard = true; msg.push('Alert ' + pr.alert + ' %/ft not written: ' + why + '. Alert stays ' + t[0] + (t[0] <= pr.alert ? ', which meets the ' + pr.alert + ' ceiling.' : '.')); }
+  }
+  if (wrote) { W.cfg.detThr = t; W.ver++; }
+  return hard ? 'NFPA 76 preset: ' + msg.join(' ') + (wrote ? '' : ' No threshold was changed.') : '';
 };
+DI.PANEL_LOWBATT_H = 2;                   // ASSUMED: hours of standby left when the panel reports LOW BATTERY
+DI.PANEL_DEAD_MSG = 'The panel is dead: no power, no display. Nothing can be reset or silenced. Restore power, or use the mechanical emergency release at the trim.';
 DI.FD_TRAVEL = 420;                       // seconds from dispatch to water on the FDC
 
 DI.alarmStep = function (S, dt) {
@@ -42,14 +92,15 @@ DI.alarmStep = function (S, dt) {
     if (W.power) p.p.battH = Math.min(24, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
     p.p.alive = W.power || p.p.battH > 0;
   }
-  // lost = the supervising station reports the loss of the panel itself (the panel can no longer send anything)
+  // lost = the supervising station reports the loss of the panel itself (the panel can no longer send anything).
+  // dark = the signal belongs to a dead panel: nothing is displayed, sounded or transmitted.
   const add = (key, type, text, part, lost) => {
     const pn = part ? (part.type === 'panel' ? part : W.panelOf(part.id)) : null;
-    const prev = old.get(key);
-    const o = { key, type, text, part: part ? part.id : 0, mon: !!lost || !!(pn && pn.p.alive), lost: !!lost, t0: prev ? prev.t0 : S.t, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
+    const prev = old.get(key), dark = !lost && !!pn && !pn.p.alive;
+    const o = { key, type, text, part: part ? part.id : 0, mon: !!lost || !!(pn && pn.p.alive), lost: !!lost, dark, t0: prev ? prev.t0 : S.t, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
     sig.set(key, o);
-    if (!prev && pn) pn.p.silenced = false;          // a new signal resounds a silenced panel
-    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : o.mon ? '' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
+    if (!prev && pn && !dark) pn.p.silenced = false;          // a new signal resounds a silenced panel
+    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
   };
   // detection
   for (const p of W.parts.values()) {
@@ -82,6 +133,11 @@ DI.alarmStep = function (S, dt) {
     if (v.type !== 'wetv') {
       if (s.lowAir && s.state === 'dry') add('la' + id, 'SUPV', 'LOW AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
       if (s.state === 'dry' && s.P > v.p.hiAir) add('ha' + id, 'SUPV', 'HIGH AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
+      // Loss of supply air: every air / N2 source on the zone's tubing is unpowered or faulted. A trouble of its
+      // own beside the pressure supervisory (class fixed here, NEEDS PE REVIEW). Shutting the zone's own supply
+      // valve is a deliberate isolation and does not raise it; nor does a 24 h air test.
+      if (inf.src.length && !S.procs.some((q) => q.kind === 'leak' && q.id === id) && inf.src.every((sid) => { const c = W.parts.get(sid); return !c || c.p.fault || !S.powered(c); }))
+        add('sa' + id, 'TRBL', 'LOSS OF SUPPLY AIR - ' + nm + ' (compressor / N2 source unavailable)', v);
     }
     if (v.type === 'prev') {
       const pn = W.panelOf(id);
@@ -89,16 +145,23 @@ DI.alarmStep = function (S, dt) {
       // panel that has exhausted its standby battery, the detection leg drops out and stays out.
       // Recovery is the mechanical emergency release at the trim, by a person.
       // v.p.sol is D latched by the panel (not the solenoid output: that is v.p.solOut, see DI.relState).
-      if (!pn || !pn.p.alive) { v.p.sol = false; v.p.pull = false; }
-      else for (const w of W.wires) {      // any one releasing-capable detector in the zone is the D leg
-        if (w[0] !== pn.id) continue; const d = W.parts.get(w[1]); if (!d) continue;
-        const r = W.roomAt[W.k(d.x, d.y)]; if (!r || !inf.rooms.has(r)) continue;
-        if (d.p.rel) { if (!v.p.sol) S.say('Releasing panel latched detection (D) for ' + nm + '. Water still needs P.', 'bad'); v.p.sol = true; }
-        if (d.type === 'mstn' && d.p.on) v.p.pull = true;
+      // The Manual Release zone (v.p.mrzL) exists only where the 9(c) flag is ON on an electric / electric trim:
+      // anywhere else it is forced off every tick. It is a panel latch too, so a dead panel holds none.
+      const mr = DI.stationType(W, v) === 'MANUAL RELEASE';
+      if (!pn || !pn.p.alive) { v.p.sol = false; v.p.pull = false; v.p.mrzL = false; }
+      else {
+        if (!mr) v.p.mrzL = false;
+        for (const w of W.wires) {      // any one releasing-capable detector in the zone is the D leg
+          if (w[0] !== pn.id) continue; const d = W.parts.get(w[1]); if (!d) continue;
+          const r = W.roomAt[W.k(d.x, d.y)]; if (!r || !inf.rooms.has(r)) continue;
+          if (d.p.rel) { if (!v.p.sol) S.say('Releasing panel latched detection (D) for ' + nm + '. Water still needs P.', 'bad'); v.p.sol = true; }
+          // a station typed DETECTION latches D; typed MANUAL RELEASE it latches the zone's own release, never D
+          if (d.type === 'mstn' && d.p.on) { if (mr) { if (!v.p.mrzL) S.say('Manual Release zone operated for ' + nm + ': it releases without P (9(c) bypass, NEEDS PE REVIEW).', 'bad'); v.p.mrzL = true; } else v.p.pull = true; }
+        }
       }
       const rs = DI.relState(W, v);
       if (rs.sol) add('rl' + id, 'ALARM', 'RELEASE CIRCUIT ACTIVE - ' + nm, v);
-      if (v.p.pull) add('ms' + id, 'ALARM', (rs.mrz ? 'MANUAL RELEASE ZONE (BYPASSES P)' : 'MANUAL STATION (DETECTION)') + ' - ' + nm, v);
+      if (v.p.pull || rs.mrz) add('ms' + id, 'ALARM', (rs.mrz ? 'MANUAL RELEASE ZONE (BYPASSES P)' : 'MANUAL STATION (DETECTION)') + ' - ' + nm, v);
       // A latched P is a release input whose signal class has not been elected: OPEN by default, alarm or
       // trouble if the engineer elects it, never supervisory. Same signal on both trims (PSL-REL and PA-REL).
       if (v.p.pLatch) { const cls = DI.sigClass(W, 'pLatch'); add('pl' + id, cls, (cls === 'OPEN' ? DI.OPEN_LABEL + ': ' : '') + 'P LATCHED (' + DI.trimOf(v).sensor + ') - ' + nm, v); }
@@ -116,10 +179,15 @@ DI.alarmStep = function (S, dt) {
       if (p.type === 'epump' && !S.powered(p)) add('pp' + p.id, 'SUPV', nm + ' LOSS OF POWER', p);
       if (p.type === 'dpump') { if (q.failed) add('pf' + p.id, 'TRBL', nm + ' FAILED TO START', p); if (q.fuel < 0.667) add('fu' + p.id, 'SUPV', nm + ' LOW FUEL (below 2/3)', p); if (q.batt < 0.5) add('pb' + p.id, 'TRBL', nm + ' BATTERY FAILURE', p); }
     } else if (p.type === 'tank' && q.gal < 0.9 * q.cap) add('tl' + p.id, 'SUPV', 'FIRE WATER TANK LOW LEVEL (' + DI.fmt(100 * q.gal / q.cap) + '%)', p);
-    else if (p.type === 'panel' && !W.power) {       // 24 h standby plus alarm is a simplification
-      if (q.alive) add('ac' + p.id, 'TRBL', 'PANEL AC FAIL - on standby battery (' + DI.fmt(q.battH, 1) + ' h)', p);
-      // ASSUMED simplification: the supervising station sees the loss of a dead panel and reports trouble
-      else add('pd' + p.id, 'TRBL', 'PANEL DEAD - battery exhausted (supervising station reports loss of signal)', p, true);
+    else if (p.type === 'panel') {       // 24 h standby plus alarm is a simplification
+      if (q.alive) {
+        // both are sent while the panel is alive, so the supervising station has them before the panel dies
+        if (!W.power) add('ac' + p.id, 'TRBL', 'PANEL AC FAIL - on standby battery (' + DI.fmt(q.battH, 1) + ' h)', p);
+        if (q.battH <= DI.PANEL_LOWBATT_H) add('lb' + p.id, 'TRBL', 'LOW BATTERY - panel #' + p.id + (W.power ? ' (charging)' : ' (under ' + DI.PANEL_LOWBATT_H + ' h of standby left)'), p);
+      }
+      // ASSUMED, transmitter-dependent: the supervising station sees the loss of communication at once and
+      // reports trouble. The dead panel itself shows and sends nothing.
+      else add('pd' + p.id, 'TRBL', 'LOSS OF COMMUNICATION - panel #' + p.id + ' (no signal, supervising station reports trouble)', p, true);
     }
   }
   if (panels.length) for (const room of W.rooms) if (room.temp < 40 && room.type !== 'gen') add('lt' + room.id, 'SUPV', 'LOW TEMPERATURE - ' + room.name + ' (' + DI.fmt(room.temp) + ' F)', panels[0]);
@@ -156,25 +224,31 @@ DI.sendTech = function (S, roomId) { if (S.tech) return 'A technician is already
 // comes straight back. On an electric / electric trim P is a panel latch (PSL-REL) and clears here; if the
 // pipe is still below P trip it latches again at once. On an electric / pneumatic trim P sits at the
 // actuator and a panel reset cannot clear it (DI.resetTrimP). A panel reset never closes a tripped valve.
+// It also clears the Manual Release zone latch; a station that is still operated latches it again.
+// A dead panel cannot be reset or silenced: the message comes back, nothing changes and nothing is logged.
 DI.panelReset = function (S, panelId) {
   const W = S.W, pn = W.parts.get(panelId); let held = 0, atTrim = 0;
+  if (pn && pn.p.alive === false) return DI.PANEL_DEAD_MSG;
   for (const w of W.wires) {
     if (w[0] !== panelId) continue; const d = W.parts.get(w[1]); if (!d) continue;
     if (d.type === 'vesda' || d.type === 'smoke') { if ((d.p.live || 0) >= (d.type === 'vesda' ? DI.FIRE1 : 1)) held++; d.p.lvl = d.p.live || 0; d.p.rel = false; }
     if (d.type === 'mstn' && d.p.on) held++;
     if (d.type === 'prev') {
-      d.p.sol = false; d.p.pull = false;
+      const det = !!(d.p.sol || d.p.pull || d.p.mrzL);            // reset #1 of a recovery: D or the zone was latched
+      d.p.sol = false; d.p.pull = false; d.p.mrzL = false;
       if (d.p.trim === 'el-el') d.p.pLatch = false; else if (d.p.pLatch) atTrim++;
-      S.act('reset-panel', d.id);
+      S.act('reset-panel', d.id, det ? { det: true } : null);
     }
   }
   if (pn) pn.p.silenced = false;
   S.say((held ? 'Panel reset, but ' + held + ' detector(s) or manual station(s) are still in alarm.' : 'Panel reset.' + (atTrim ? '' : ' Normal.')) +
     (atTrim ? ' P is still latched at the actuator of ' + atTrim + ' electric / pneumatic valve(s): reset it at the trim.' : ''), held || atTrim ? 'warn' : 'good');
+  return '';
 };
 // Silence: acknowledges the signals at the panel. Nothing is reset and nothing clears; a new signal resounds.
 DI.silence = function (S, panelId) {
   const pn = S.W.parts.get(panelId); if (!pn || pn.type !== 'panel') return 'No panel.';
+  if (pn.p.alive === false) return DI.PANEL_DEAD_MSG;
   pn.p.silenced = true; S.act('silence', panelId); S.say('Panel silenced. Signals stay on the annunciator until they clear.', '');
   return '';
 };
@@ -191,12 +265,23 @@ DI.findHead = function (S, k) {
   return true;
 };
 
-// ---------- recovery score (Fire Tutor): the eight steps after an incident on a preaction system, in order.
-// A step that does not apply counts as done: no operated head, no panel, no control valve, or an electric /
-// electric trim (P is reset at the panel there, so there is no actuator to reset at the trim).
-// A panel or trim reset counts only once the air is back: an earlier one relatches P and scores nothing.
-DI.RECOVERY = [['silence', 'Silence the panel'], ['find-head', 'Find the operated head'], ['close-valve', 'Close the control valve'], ['drain', 'Open the system drain'],
-  ['replace-head', 'Replace the head with a matching one'], ['restore-air', 'Restore air / nitrogen'], ['reset-trim', 'Reset the actuator at the trim'], ['reset-panel', 'Reset the panel']];
+// ---------- recovery score: the thirteen steps after an incident on a preaction system, in the physical order
+// the FP Lead confirmed as generic practice (the maker's IOM governs specifics), with the Fire Tutor's visible
+// first panel reset. A step that does not apply counts as done. Each row: [kind, label].
+//   6  panel reset #1 is a reset made while D or the Manual Release zone was latched (the riser reset is
+//      refused until it drops out). Not applicable when nothing was latched in this incident.
+//   8  the riser reset applies only when the valve tripped, and comes while the drain is still open.
+//   9  the scored drain close is the one after the confirmed drain (step 5).
+//   10 air is restored when the gauge is back at normal with the supply open and every opening shut; the
+//      step is timed from the moment the supply was reopened, so reopening it too early scores out of order.
+//   11, 12 count only once the air is back: an earlier reset latches P again and scores nothing.
+//   13 the control valve is reopened through the reopen gate (DI.setGate), with the valve back in service.
+// A panel step is not applicable with no panel, or while the panel is dead now.
+DI.RECOVERY = [['silence', 'Silence the panel'], ['find-head', 'Find the operated head'], ['close-valve', 'Close the zone control valve (supervisory)'],
+  ['isolate-air', 'Isolate the air / N₂ supply'], ['drain-zero', 'Open the drain; confirm 0 psi and no water'], ['reset-panel-1', 'Panel reset #1: clear D, solenoid off'],
+  ['replace-head', 'Replace the head: same type, K, temperature, response'], ['reset-valve', 'Reset the DI valve (clapper) at the riser, drain still open'], ['drain-close', 'Close the drain(s)'],
+  ['restore-air', 'Restore air / N₂ and confirm it holds above low air'], ['reset-trim', 'Reset the trim (electric / pneumatic only)'], ['reset-panel', 'Panel reset #2: clear P and troubles'],
+  ['open-valve', 'Slowly open the control valve fully; confirm no flow, all normal']];
 DI.RECOVERY_TARGET = 660;      // ASSUMED: time bonus target for contract 5, seconds from the incident to the last step
 // Score the latest incident on system `id`, or the first one at or after sim time `from`.
 DI.recoveryScore = function (S, id, from) {
@@ -205,22 +290,35 @@ DI.recoveryScore = function (S, id, from) {
   if (from !== undefined) i0 = A.findIndex((a) => isInc(a) && a.t >= from); else for (let i = A.length - 1; i >= 0; i--) if (isInc(A[i])) { i0 = i; break; }
   if (i0 < 0) return null;
   let i1 = A.length; for (let i = i0 + 1; i < A.length; i++) if (isInc(A[i])) { i1 = i; break; }
-  const win = A.slice(i0, i1), t0 = A[i0].t, pn = W.panelOf(id), gate = DI.ctrlValve(W, id);
-  const first = (kind, pid, after) => win.find((a) => a.kind === kind && a.id === pid && (after === undefined || a.t >= after));
-  const heads = win.some((a) => a.kind === 'head-open' && a.id === id), air = first('restore-air', id);
+  const win = A.slice(i0, i1), t0 = A[i0].t, pn = W.panelOf(id), live = !!pn && pn.p.alive !== false, gate = DI.ctrlValve(W, id), inf = S.sysd.info.get(id);
+  // The incident proper runs from its opening entry to "in service". What it involved (a head, a trip, a
+  // latched D) and steps 1 to 10 are read from that part only, so a later false alarm on a zone that is already
+  // back does not rewrite the score. The closing steps (trim, panel reset #2, control valve) may follow it.
+  const iSvc = win.findIndex((a) => a.kind === 'in-service' && a.id === id), core = iSvc >= 0 ? win.slice(0, iSvc + 1) : win, svc = iSvc >= 0 ? win[iSvc] : null;
+  const find = (list, kind, pid, after, test) => list.find((a) => a.kind === kind && a.id === pid && (after === undefined || a.t >= after) && (!test || test(a)));
+  const first = (kind, pid, after, test) => find(core, kind, pid, after, test), late = (kind, pid, after, test) => find(win, kind, pid, after, test);
+  const has = (kind) => core.some((a) => a.kind === kind && a.id === id);
+  const heads = has('head-open'), tripped = has('trip'), det = !!A[i0].det || has('det-latch');
+  const iso = first('isolate-air', id), dz = first('drain-zero', id), air = first('restore-air', id);
   const steps = DI.RECOVERY.map(([kind, label]) => {
-    let na = false, a = null;
-    if (kind === 'silence') { na = !pn; a = pn && first(kind, pn.id); }
+    let na = false, a = null, t;
+    if (kind === 'silence') { na = !live; a = pn && first(kind, pn.id); }
     else if (kind === 'find-head' || kind === 'replace-head') { na = !heads; a = first(kind, id); }
     else if (kind === 'close-valve') { na = !gate; a = gate && first(kind, gate.id); }
-    else if (kind === 'reset-trim') { na = v.p.trim !== 'el-pn'; a = air && first(kind, id, air.t); }
-    else if (kind === 'reset-panel') { na = !pn; a = air && first(kind, id, air.t); }
-    else a = first(kind, id);
-    return { kind, label, na, done: na || !!a, t: !na && a ? a.t : null };
+    else if (kind === 'isolate-air') { na = !inf || !inf.src.length; a = iso; }
+    else if (kind === 'drain-zero') a = dz;
+    else if (kind === 'reset-panel-1') { na = !det || !live; a = first('reset-panel', id, undefined, (q) => q.det); }
+    else if (kind === 'reset-valve') { na = !tripped; a = first(kind, id); }
+    else if (kind === 'drain-close') a = dz && first(kind, id, dz.t);
+    else if (kind === 'restore-air') { a = air; const so = air && iso && first('supply-open', id, iso.t); if (so) t = Math.min(so.t, air.t); }
+    else if (kind === 'reset-trim') { na = v.p.trim !== 'el-pn'; a = air && late(kind, id, air.t); }
+    else if (kind === 'reset-panel') { na = !live; a = air && late(kind, id, air.t); }
+    else if (kind === 'open-valve') { na = !gate; a = gate && svc && late(kind, gate.id, svc.t, (q) => !(q.flow > 1)); }
+    return { kind, label, na, done: na || !!a, t: !na && a ? (t !== undefined ? t : a.t) : null };
   });
   let inOrder = true, last = -Infinity;
   for (const st of steps) if (st.t !== null) { if (st.t < last) inOrder = false; last = Math.max(last, st.t); }
   const done = steps.filter((st) => st.done).length, complete = done === steps.length;
-  return { id, t0, why: A[i0].why, steps, done, total: steps.length, complete, inOrder, closed: win.some((a) => a.kind === 'in-service' && a.id === id),
+  return { id, t0, why: A[i0].why, steps, done, total: steps.length, complete, inOrder, tripped, det, closed: !!svc,
     time: complete ? Math.max(t0, last) - t0 : null };
 };
