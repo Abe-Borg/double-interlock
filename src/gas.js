@@ -71,25 +71,37 @@ DI.gasPre = function (S, dt) {
     s.gasOut = out; s.gasIn = inAir + inN2;
     if (big > 0 && s.openT < 0) s.openT = S.t;
     if (v.type === 'wetv') continue;
-    s.lowAir = s.set && s.P < v.p.airSet - 10;
+    s.lowAir = s.set && s.P < v.p.loAir;         // supervisory only: follows live pressure, never a release input
     if (s.state !== 'dry') continue;
-    if (!s.set) {
-      if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
-      if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)', 'good'); }
-      continue;
-    }
-    // trip logic
-    const ps = S.pin(id); let why = '';
-    s.ref = s.P > s.ref ? s.P : s.ref + (s.P - s.ref) * Math.min(1, dt / 120);
-    if (v.type === 'dryv') {
-      if (s.P < ps / DI.DRY_RATIO) why = 'air fell below the trip point (' + DI.fmt(ps / DI.DRY_RATIO, 1) + ' psi)';
-      else if (v.p.qod && s.ref - s.P > 2.5) why = 'accelerator sensed the pressure drop';
-    } else {
-      const low = s.P < Math.max(5, 0.45 * v.p.airSet), sol = !!v.p.sol;
-      if (v.p.pull) why = 'manual emergency release';
-      else if (v.p.mode === 'single' && sol) why = 'detection released the solenoid';
-      else if (v.p.mode === 'non' && (sol || low)) why = sol ? 'detection released the solenoid' : 'loss of air';
-      else if (v.p.mode === 'double' && sol && low) why = 'detection AND loss of air: both interlocks satisfied';
+    // Mechanical emergency release at the trim: a person opens the valve directly, outside the panel
+    // logic. No detection and no P involved, and it works with a dead panel. Water then flows only
+    // where a sprinkler is open. Simplification: with every head closed the trapped air is not vented.
+    let why = v.type === 'prev' && v.p.mech ? 'mechanical emergency release at the trim' : '';
+    if (!why) {
+      if (!s.set) {
+        if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
+        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)', 'good'); }
+        continue;
+      }
+      // trip logic, evaluated only while the valve is set and pressurized
+      const ps = S.pin(id);
+      s.ref = s.P > s.ref ? s.P : s.ref + (s.P - s.ref) * Math.min(1, dt / 120);
+      if (v.type === 'dryv') {
+        if (s.P < ps / DI.DRY_RATIO) why = 'air fell below the trip point (' + DI.fmt(ps / DI.DRY_RATIO, 1) + ' psi)';
+        else if (v.p.qod && s.ref - s.P > 2.5) why = 'accelerator sensed the pressure drop';
+      } else {
+        // Preaction is double interlock only:  trip := (Fire 1 detection OR manual station typed DETECTION) AND P.
+        // P is a pure threshold on pipe pressure (no outlet-type test, no rate term): a sprinkler, an open
+        // inspector's test and a broken pipe all look the same to the sensor, and a slow leak the compressor
+        // holds never reaches the setpoint. P latches until a manual reset (panel reset or valve reset).
+        if (!v.p.pLatch && s.P < v.p.pTrip) {
+          v.p.pLatch = true;
+          S.say(DI.sysName(S, id) + ': P latched (' + DI.fmt(s.P, 1) + ' psi, ' + DI.trimOf(v).sensor + '). It stays latched until the panel is reset.', 'warn');
+        }
+        const det = !!v.p.sol || !!v.p.pull;       // Fire 1 through the panel solenoid, or the manual station typed DETECTION
+        if (v.p.pull && v.p.trim === 'el-el' && W.cfg && W.cfg.manualReleaseBypassP) why = 'Manual Release zone (bypasses P)';   // per-project flag, default OFF, NEEDS PE REVIEW
+        else if (det && v.p.pLatch) why = 'detection (or manual detection station) AND P (pipe pressure below ' + v.p.pTrip + ' psi)';
+      }
     }
     if (why) {
       s.state = 'filling'; s.tripT = S.t; s.set = false; v.p.tripped = true; S.dirty = true;
@@ -143,10 +155,11 @@ DI.resetValve = function (S, id) {
   if (s.state === 'dry') return 'Valve is already set.';
   if (s.wat > 0.01 * inf.vol + 0.2) return 'System still holds ' + DI.fmt(s.wat) + ' gal. Close the control valve and open the system drain first.';
   if (Math.abs(s.flow) > 1) return 'Water is still flowing through the valve. Close the control valve first.';
-  if (v.type === 'prev' && (v.p.sol || v.p.pull)) return 'Release is still active. Reset the releasing panel / manual pull first.';
+  if (v.type === 'prev' && (v.p.sol || v.p.pull)) return 'Detection is still active (solenoid or manual station). Reset the releasing panel first.';
   if (s.openK && s.openK.length) return 'Replace the ' + s.openK.length + ' operated sprinkler(s) first.';
   s.state = 'dry'; s.wat = 0; s.G = DI.ATM * inf.vol; s.o2g = 0.209 * s.G; s.P = 0; s.set = false; s.fillT0 = -1; s.fillTime = -1;
   s.tripT = -1; s.openT = -1; s.waterT = -1; s.moist = 1; v.p.tripped = false; v.p.sdrain = 0; v.p.itc = 0; S.dirty = true;
+  if (v.type === 'prev') { v.p.pLatch = false; v.p.mech = false; }      // manual reset at the valve: P unlatched, emergency release closed
   S.say(DI.sysName(S, id) + ' clapper reset. Re-pressurizing.', 'good');
   return '';
 };

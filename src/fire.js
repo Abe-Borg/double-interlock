@@ -22,6 +22,14 @@ DI.ignite = function (S, k, incip, alphaMul) {
   DI.bus.emit('fire', k);
 };
 DI.breakSprinkler = function (S, k) { if (S.W.spk[k] === 1) { S.W.spk[k] = 3; S.spkVer++; S.dirty = true; DI.bus.emit('spk', k); } };
+// A broken pipe: an orifice K = 9 for water once the pipe is wet, and a 0.6 in2 opening for the supervisory
+// gas (`a`, used in gasPre). To the P sensor it is the same pressure drop as an open sprinkler.
+DI.breakPipe = function (S, k) {
+  const W = S.W; if (!W.pd[k] || S.leaks.some((l) => l.k === k)) return false;
+  S.leaks.push({ k, K: 9, a: 0.6, sys: S.sysd.tileSys[k] || 0 }); S.dirty = true;
+  S.say('PIPE BREAK at (' + (k % W.w) + ',' + ((k / W.w) | 0) + ')', 'bad'); DI.bus.emit('spk', k);
+  return true;
+};
 DI.fuse = function (S, k) { S.W.spk[k] = 2; S.spkVer++; S.dirty = true; S.say('Sprinkler operated (' + (k % S.W.w) + ',' + ((k / S.W.w) | 0) + ')', 'warn'); DI.bus.emit('spk', k); };
 
 DI.fireStep = function (S, dt) {

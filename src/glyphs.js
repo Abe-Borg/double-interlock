@@ -51,7 +51,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     prev(c, st) { stub(c); arrow(c); c.fillStyle = C.wat; c.globalAlpha = 0.8; c.fillRect(-0.36, -0.3, 0.3, 0.6); c.fillStyle = st.tripped ? C.wat : st.n2 ? C.n2 : C.air; c.fillRect(-0.06, -0.3, 0.42, 0.6); c.globalAlpha = 1;
       c.strokeStyle = C.red; c.lineWidth = 0.06; c.strokeRect(-0.36, -0.3, 0.72, 0.6); c.fillStyle = '#10161c'; c.fillRect(-0.2, -0.46, 0.22, 0.16); c.strokeStyle = C.ink; c.lineWidth = 0.035; c.strokeRect(-0.2, -0.46, 0.22, 0.16);
       c.strokeStyle = '#10161c'; c.lineWidth = 0.07; if (st.tripped) P(c, [-0.06, -0.28, 0.2, -0.1], false); else P(c, [-0.06, -0.28, -0.06, 0.28], false); c.stroke();
-      led(c, 0.14, -0.42, C.red, st.sol); led(c, 0.32, -0.42, C.amb, st.low); if (st.mode !== 'double') { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); } },
+      led(c, 0.14, -0.42, C.red, st.sol); led(c, 0.32, -0.42, C.amb, st.low); if (st.pl) { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); } },     // amber bar: P is latched
     comp(c, st) { c.fillStyle = C.body; c.strokeStyle = C.air; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, 0, 0.76, 0.34, 0.16); c.fill(); c.stroke(); circ(c, -0.1, -0.16, 0.19); c.fill(); c.stroke();
       c.save(); c.translate(-0.1, -0.16); c.rotate((st.t || 0) * 14 * (st.on ? 1 : 0)); P(c, [-0.13, 0, 0.13, 0], false); c.stroke(); P(c, [0, -0.13, 0, 0.13], false); c.stroke(); c.restore(); led(c, 0.28, -0.2, C.grn, st.on); },
     n2(c, st) { c.fillStyle = C.body; c.strokeStyle = C.n2; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, -0.38, 0.76, 0.76, 0.08); c.fill(); c.stroke(); txt(c, 'N₂', -0.02, 0.02, 0.36, C.n2, -(st.rot || 0) * Math.PI / 2); led(c, 0.26, -0.26, C.grn, st.on); },

@@ -7,7 +7,11 @@ DI.startTest = function (S, kind, id) {
   const pr = { kind, id, t0: S.t, stage: 0, ts: S.t, pts: [] };
   if (kind === 'trip') {
     if (!s || s.state !== 'dry' || !s.set) return 'Valve must be set and pressurized before a trip test.';
-    v.p.itc = 1; if (v.type === 'prev') { v.p.sol = true; pr.rel = true; }
+    if (v.type === 'prev') {       // the test operates detection through the panel; P comes from the open inspector's test
+      const pn = W.panelOf(id); if (!pn || pn.p.alive === false) return 'Wire the valve to a live releasing panel first. The trip test operates detection through it.';
+      v.p.sol = true; pr.rel = true;
+    }
+    v.p.itc = 1;
     s.openT = S.t; s.waterT = -1; s.tripT = -1; S.say('Full-flow trip test started on ' + DI.sysName(S, id) + ': inspector’s test open' + (pr.rel ? ', detection operated' : ''), '');
   } else if (kind === 'itc') {
     if (!s || s.state !== 'wet') return 'System must be full of water.';

@@ -1,6 +1,25 @@
 // World: the tile map the player builds on. Pure data + edit operations (no sim, no DOM).
 var DI = globalThis.DI || (globalThis.DI = {});
 
+// Bring a part from an older save up to the current props. Preaction is double interlock only: the
+// release mode is dropped and missing setpoints come from the el-el maker preset (the old 20 psi
+// supervisory setting sat on the P trip point). Dry valves get the old +/-10 psi window as setpoints.
+DI.migratePart = function (p) {
+  const q = p.p; if (!q) return p;
+  if (p.type === 'prev') {
+    delete q.mode;
+    if (q.loAir === undefined || q.hiAir === undefined || q.pTrip === undefined) { DI.loadTrim(p, 'el-el'); q.repress = true; }
+    if (!DI.TRIMS[q.trim]) q.trim = 'el-el';
+    if (q.pLatch === undefined) q.pLatch = false;
+    if (q.mech === undefined) q.mech = false;
+  } else if (p.type === 'dryv') {
+    const win = 10;                       // the supervisory window older saves used on either side of normal
+    if (q.hiAir === undefined) q.hiAir = q.airSet + win;
+    if (q.loAir === undefined) q.loAir = q.airSet - win;
+  }
+  return p;
+};
+
 DI.World = class {
   constructor(w, h) {
     this.w = w; this.h = h;
@@ -20,6 +39,7 @@ DI.World = class {
     this.money = 0;
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
+    this.cfg = {};                        // site / project settings: edition, nfpa76Adopted, pipePolicy, detThr, manualReleaseBypassP
   }
   k(x, y) { return y * this.w + x; }
   inb(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
@@ -93,7 +113,7 @@ DI.World = class {
   // cost of whatever pipe is on a tile (for refunds)
   pipeCost(x, y) {
     const k = this.k(x, y); if (!this.pd[k]) return 0;
-    return DI.PIPES[this.pd[k] - 1].cost + (this.spk[k] ? DI.SPK_COST : 0);
+    return DI.pipeAt(this, k).cost + (this.spk[k] ? DI.SPK_COST : 0);
   }
   wire(a, b) {
     const pa = this.parts.get(a), pb = this.parts.get(b);
@@ -113,14 +133,15 @@ DI.World = class {
   toJSON() {
     const rle = (a) => { const o = []; let i = 0; while (i < a.length) { let j = i; while (j < a.length && a[j] === a[i]) j++; o.push(a[i], j - i); i = j; } return o; };
     return { w: this.w, h: this.h, rooms: this.rooms, pd: rle(this.pd), pk: rle(this.pk), spk: rle(this.spk), air: rle(this.air), cut: rle(this.cut),
-      parts: [...this.parts.values()], wires: this.wires, nextId: this.nextId, money: this.money, outTemp: this.outTemp };
+      parts: [...this.parts.values()], wires: this.wires, nextId: this.nextId, money: this.money, outTemp: this.outTemp, cfg: this.cfg };
   }
   static fromJSON(j) {
     const W = new DI.World(j.w, j.h);
     const un = (r, a) => { let k = 0; for (let i = 0; i < r.length; i += 2) { a.fill(r[i], k, k + r[i + 1]); k += r[i + 1]; } };
     for (const r of j.rooms) W.addRoom(r.type, r.x, r.y, r.w, r.h, r.name);
     un(j.pd, W.pd); un(j.pk, W.pk); un(j.spk, W.spk); un(j.air, W.air); if (j.cut) un(j.cut, W.cut);
-    for (const p of j.parts) { W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
+    for (const p of j.parts) { DI.migratePart(p); W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
+    W.cfg = Object.assign({}, j.cfg || {});
     W.wires = j.wires || []; W.nextId = j.nextId; W.money = j.money; W.outTemp = j.outTemp === undefined ? 70 : j.outTemp;
     return W;
   }

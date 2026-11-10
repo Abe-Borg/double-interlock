@@ -34,10 +34,10 @@ DI.PARTS = {
     props: { drain: 0, itc: 0 } },
   dryv: { name: 'Dry Pipe Valve', cat: 'system', cost: 14500, ports: 2, key: '2',
     desc: 'Pipe holds air; a differential clapper holds water back. Sprinkler opens, air drops, valve trips. For spaces that freeze.',
-    props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, airValve: 1 } },
+    props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1 } },
   prev: { name: 'Preaction Valve', cat: 'system', cost: 24000, ports: 2, key: '3',
-    desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection AND loss of air must both happen before water enters.',
-    props: { drain: 0, itc: 0, sdrain: 0, mode: 'double', tripped: false, airSet: 20, airValve: 1, pull: false, sol: false } },
+    desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or manual) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
+    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false } },
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
     props: { scfm: 5, on: false, runSec: 0, starts: 0 } },
@@ -47,10 +47,23 @@ DI.PARTS = {
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
     desc: 'Listed releasing fire alarm panel. Wire detection, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
-    desc: 'Air-sampling very-early-warning detection (Alert / Action / Fire 1 / Fire 2). Sees smoke minutes before a spot detector.',
+    desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
   smoke: { name: 'Spot Smoke Detection', cat: 'alarm', cost: 4200, ports: 0, key: 'O',
-    desc: 'Ceiling spot detectors, cross-zoned: two must agree before release. Cheaper, slower.', props: { lvl: 0, obs: 0 } },
+    desc: 'Listed ceiling spot detector. In an electrical / UPS room one detector in alarm is the detection leg of a release. In white space it only raises the alarm.', props: { lvl: 0, obs: 0 } },
+};
+
+// Maker trim presets for the double-interlock preaction valve. All values ASSUMED, tunable per valve.
+// Order is always high-air supervisory > normal > low-air supervisory > P trip.
+DI.TRIMS = {
+  'el-el': { name: 'Electric / electric', sensor: 'PSL-REL', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20 },   // P sensed by a pressure switch
+  'el-pn': { name: 'Electric / pneumatic', sensor: 'PA-REL', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20 },    // P sensed by a pneumatic actuator
+};
+DI.P_MARGIN = 5;                    // ASSUMED: minimum psi between the low-air setpoint and P trip
+DI.trimOf = (v) => DI.TRIMS[v.p.trim] || DI.TRIMS['el-el'];
+DI.loadTrim = function (v, key) {   // load a maker preset onto a preaction valve
+  const t = DI.TRIMS[key]; if (!t) return;
+  v.p.trim = key; v.p.airSet = t.airSet; v.p.hiAir = t.hiAir; v.p.loAir = t.loAir; v.p.pTrip = t.pTrip;
 };
 
 DI.CATS = [

@@ -43,14 +43,25 @@ var DI = globalThis.DI || (globalThis.DI = {});
     B.sec('GAUGES'); B.row('Water supply', () => psi(S.pin(p.id)));
     B.row(dry ? 'System (gas)' : 'System', () => { const v = dry && s.state !== 'wet' ? s.P : S.pout(p.id); return [psi(v), dry && s.lowAir ? 'warn' : '']; });
     if (p.type === 'dryv') B.row('Trip point (supply ÷ 5.5)', () => psi(S.pin(p.id) / DI.DRY_RATIO));
-    B.row('Status', () => s.state === 'wet' ? (dry ? ['TRIPPED - full of water', 'bad'] : ['Normal', 'good']) : s.state === 'filling' ? ['Filling ' + DI.fmt(100 * s.wat / Math.max(inf.vol, 1)) + '%', 'warn'] : s.set ? ['Set - in service', 'good'] : ['Charging with air', 'warn']);
+    B.row('Status', () => s.state === 'wet' ? (dry ? ['TRIPPED - full of water', 'bad'] : ['Normal', 'good']) : s.state === 'filling' ? ['Filling ' + DI.fmt(100 * s.wat / Math.max(inf.vol, 1)) + '%', 'warn'] : s.set ? (q.pLatch ? ['Set, but P is LATCHED', 'warn'] : ['Set - in service', 'good']) : ['Charging with air', 'warn']);
     B.row('Flow through valve', () => gpm(s.flow || 0));
     B.row('Piping', () => DI.fmt(inf.vol) + ' gal · ' + inf.nSpk + ' heads · ' + inf.area.toLocaleString() + ' ft²');
-    if (p.type === 'prev') { B.sec('INTERLOCKS'); B.row('1. Detection (solenoid)', () => q.sol ? ['RELEASED', 'bad'] : ['holding', 'good']); B.row('2. Supervisory air', () => s.state !== 'dry' || s.P < Math.max(5, 0.45 * q.airSet) ? ['LOST', 'bad'] : ['holding', 'good']);
-      B.pick('Release mode', ['double', 'single', 'non'], () => q.mode, (v) => { q.mode = v; W.ver++; }, (v) => ({ double: 'Double interlock', single: 'Single', non: 'Non-interlock' }[v])); }
+    if (p.type === 'prev') {
+      B.sec('INTERLOCKS: D AND P');
+      B.row('D: detection (Fire 1 or manual station)', () => q.sol ? ['ACTIVE - solenoid energized', 'bad'] : q.pull ? ['ACTIVE - manual station', 'bad'] : ['normal', 'good']);
+      B.row('P: pipe pressure below ' + q.pTrip + ' psi', () => q.pLatch ? ['LATCHED - reset the panel', 'bad'] : ['normal', 'good']);
+      B.row('P sensor', () => DI.trimOf(p).sensor + (q.trim === 'el-pn' ? ' pneumatic actuator' : ' pressure switch'));
+      B.pick('Maker trim (loads its ASSUMED setpoints)', Object.keys(DI.TRIMS), () => q.trim, (v) => { DI.loadTrim(p, v); W.ver++; }, (v) => DI.TRIMS[v].name);
+      B.p('Water enters only when D and P are both true. P latches until the panel or the valve is reset. Low and high air are supervisory only and follow live pressure.');
+    }
     if (dry) {
       B.sec('SUPERVISORY GAS'); B.row('Source', () => inf.src.length ? inf.src.map((id) => W.parts.get(id).type === 'n2' ? 'N₂ gen #' + id : 'Compressor #' + id).join(', ') : ['NONE - run tubing', 'bad']);
-      B.step('Set pressure', () => q.airSet, (v) => { q.airSet = v; }, 5, 10, 60, ' psi'); B.row('Oxygen', () => s.state === 'wet' ? '-' : [DI.fmt(100 * s.o2g / Math.max(s.G, 1e-9), 1) + ' %', s.o2g / Math.max(s.G, 1e-9) <= 0.02 ? 'good' : '']);
+      const A = p.type === 'prev' ? ' (ASSUMED)' : '';
+      B.step('High-air supervisory' + A, () => q.hiAir, (v) => { q.hiAir = v; }, 5, 10, 90, ' psi');
+      B.step('Normal pressure' + A, () => q.airSet, (v) => { q.airSet = v; }, 5, 10, 60, ' psi');
+      B.step('Low-air supervisory' + A, () => q.loAir, (v) => { q.loAir = v; }, 5, 5, 55, ' psi');
+      if (p.type === 'prev') B.step('P trip' + A, () => q.pTrip, (v) => { q.pTrip = v; }, 5, 5, 50, ' psi');
+      B.row('Oxygen', () => s.state === 'wet' ? '-' : [DI.fmt(100 * s.o2g / Math.max(s.G, 1e-9), 1) + ' %', s.o2g / Math.max(s.G, 1e-9) <= 0.02 ? 'good' : '']);
       B.row('Fill time (0 to set)', () => s.fillTime > 0 ? [DI.dur(s.fillTime), s.fillTime <= 1800 ? 'good' : 'bad'] : '-'); B.row('Corrosion / pinholes', () => [DI.fmt(100 * s.corr) + '% / ' + (s.holes || 0), s.holes ? 'warn' : '']);
       B.btns([p.type === 'dryv' ? ['Accelerator ' + (q.qod ? 'ON' : 'off'), () => reprice(p, () => { q.qod = !q.qod; }), q.qod ? 'on' : '', false, 'Quick-opening device: trips the valve on the first few psi of loss. +$2,800'] : null,
         ['N₂ purge vent ' + (q.vent ? 'ON' : 'off'), () => { if (q.vent) { q.vent = false; g().W.money += 3200; } else if (spend(3200)) q.vent = true; }, q.vent ? 'on' : '', false, 'Bleeds gas at the far end until an analyzer reads 98% nitrogen. $3,200'],
@@ -59,7 +70,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     B.sec('OPERATE');
     B.btns([[(dry ? 'Main drain ' : 'Main drain ') + (q.drain ? 'OPEN' : 'closed'), () => { q.drain = q.drain ? 0 : 1; S.touch(); }, q.drain ? 'hot' : ''], dry ? ['System drain ' + (q.sdrain ? 'OPEN' : 'closed'), () => { q.sdrain = q.sdrain ? 0 : 1; S.touch(); }, q.sdrain ? 'hot' : ''] : null,
       ['Inspector’s test ' + (q.itc ? 'OPEN' : 'closed'), () => { q.itc = q.itc ? 0 : 1; S.touch(); }, q.itc ? 'hot' : ''],
-      p.type === 'prev' ? ['Manual release', () => { q.pull = true; }, 'hot', q.pull, 'Emergency pull station: trips the valve regardless of interlocks'] : null,
+      p.type === 'prev' ? ['Panel manual station (typed DETECTION)', () => { const pn = W.panelOf(p.id); if (!pn || pn.p.alive === false) say('No live releasing panel, so the manual station does nothing. Use the mechanical emergency release at the trim.'); else q.pull = true; }, 'hot', q.pull, 'Counts as detection. Water still needs P.'] : null,
+      p.type === 'prev' ? ['Mechanical emergency release (at the trim)', () => { q.mech = true; }, 'hot', false, 'Opens the valve by hand at the trim, outside the panel logic. Works with a dead panel. Water flows only where a sprinkler is open.'] : null,
       dry && s.state !== 'dry' ? ['Reset valve', () => say(DI.resetValve(S, p.id)), 'go'] : null,
       s.openK && s.openK.length ? ['Replace ' + s.openK.length + ' sprinkler(s)', () => say(DI.replaceSprinklers(S, p.id)), 'go'] : null]);
     B.sec('TESTS'); const busy = S.procs.some((x) => x.id === p.id);
@@ -97,17 +109,21 @@ var DI = globalThis.DI || (globalThis.DI = {});
     else if (DI.SYSV[p.type]) sysPanel(S, W, p);
     else if (p.type === 'comp' || p.type === 'n2') { B.pick('Capacity (SCFM)', p.type === 'comp' ? DI.COMP_SCFM : DI.N2_SCFM, () => q.scfm, (v) => reprice(p, () => { q.scfm = v; })); B.row('Status', () => q.on ? ['RUNNING', 'good'] : 'idle'); B.row('Starts', () => String(q.starts)); B.row('Run time', () => DI.dur(q.runSec) + ' (' + DI.fmt(100 * q.runSec / Math.max(S.t, 1), 1) + '% duty)');
       B.row('Feeds', () => { const o = []; for (const [id, i] of S.sysd.info) if (i.src.includes(p.id)) o.push('#' + id); return o.length ? 'valve ' + o.join(', ') : ['nothing - run tubing', 'bad']; }); }
-    else if (p.type === 'panel') { B.row('Power', () => W.power ? ['AC normal', 'good'] : q.alive ? ['BATTERY ' + DI.fmt(q.battH, 1) + ' h', 'warn'] : ['DEAD', 'bad']); B.row('Devices wired', () => String(W.wires.filter((w) => w[0] === p.id).length)); B.btns([['Panel reset', () => DI.panelReset(S, p.id), 'go']]); B.p('Reset clears latched detection and drops out the release solenoids. If a detector is still in alarm it latches right back.'); }
-    else if (p.type === 'vesda' || p.type === 'smoke') { const room = W.room(p.x, p.y), T = p.type === 'vesda' ? DI.VESDA_T : DI.SPOT_T;
-      B.row('Room', () => room ? room.name : ['outdoors - move it', 'bad']); B.row('Smoke reading', () => DI.fmt(q.obs || 0, 3)); B.row('Level', () => p.type === 'vesda' ? [DI.VESDA_N[q.lvl] || 'normal', q.lvl >= 3 ? 'bad' : q.lvl ? 'warn' : 'good'] : [q.lvl >= 2 ? 'CONFIRMED' : q.lvl ? 'FIRST ZONE' : 'normal', q.lvl ? 'bad' : 'good']);
-      B.row('Thresholds', () => T.join(' / ')); if (room) B.btns([['Send technician', () => say(DI.sendTech(S, room.id)), 'go', false, 'Someone walks to the room. If the fire is still smouldering they can stop it by hand.']]); }
+    else if (p.type === 'panel') { B.row('Power', () => W.power ? ['AC normal', 'good'] : q.alive ? ['BATTERY ' + DI.fmt(q.battH, 1) + ' h', 'warn'] : ['DEAD', 'bad']); B.row('Devices wired', () => String(W.wires.filter((w) => w[0] === p.id).length)); B.btns([['Panel reset', () => DI.panelReset(S, p.id), 'go']]); B.p('Reset clears latched detection, drops out the release solenoids and unlatches P. A detector still in alarm, or pipe still below the P trip setpoint, latches right back.'); B.p('A dead panel leaves every preaction valve shut: the solenoid is energize-to-release. Recovery is the mechanical emergency release at the trim, by a person. The 24 h standby battery (standby plus alarm) is a simplification.'); }
+    else if (p.type === 'vesda' || p.type === 'smoke') { const room = W.room(p.x, p.y);
+      B.row('Room', () => room ? room.name : ['outdoors - move it', 'bad']); B.row('Smoke reading', () => DI.fmt(q.obs || 0, 3)); B.row('Level', () => p.type === 'vesda' ? [DI.VESDA_N[q.lvl] || 'normal', q.lvl >= DI.FIRE1 ? 'bad' : q.lvl ? 'warn' : 'good'] : [q.lvl ? 'ALARM' : 'normal', q.lvl ? 'bad' : 'good']);
+      B.row(p.type === 'vesda' ? 'Alert / Action / Fire 1 / Fire 2' : 'Alarm threshold', () => (p.type === 'vesda' ? DI.detThr(W) : DI.SPOT_T).join(' / ') + ' (example)');
+      B.row('Release role', () => p.type === 'vesda' ? 'Fire 1 is the detection leg' : DI.canRelease(W, p) ? 'alarm is the detection leg' : ['alarm only here', 'warn']);
+      if (p.type === 'vesda') B.p('Alert is supervisory. Action is a pre-alarm. Fire 1 energizes the solenoid, and water still needs P. Fire 2 is escalation and releases nothing by itself. Thresholds are a site setting.');
+      else B.p('One listed spot detector in alarm is the detection leg in an electrical / UPS room. In white space it raises the alarm only: use aspirating detection there.'); if (room) B.btns([['Send technician', () => say(DI.sendTech(S, room.id)), 'go', false, 'Someone walks to the room. If the fire is still smouldering they can stop it by hand.']]); }
     if (!q.fixed) B.btns([['Remove (refund ' + DI.money(DI.partCost(p.type, q)) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.partCost(p.type, q) + (q.vent ? 3200 : 0); W.removePart(p.id); G.sel = null; DI.edited(); }]]);
   }
   function tilePanel(S, W, k) {
     const x = k % W.w, y = (k / W.w) | 0, room = W.room(x, y), G = g();
-    if (W.pd[k]) { const pi = DI.PIPES[W.pd[k] - 1], sid = S.sysd.tileSys[k]; B.title(pi.n + (W.pk[k] ? ' branch line' : ' main'), x + ',' + y); B.row('Pressure', () => { const s = sid && S.ss.get(sid); return s && s.state === 'dry' ? psi(s.P) + ' gas' : psi(S.pT[k]); });
+    if (W.pd[k]) { const pi = DI.pipeAt(W, k), sid = S.sysd.tileSys[k], brk = S.leaks.find((l) => l.k === k && l.a); B.title(pi.n + ' Sch ' + pi.sch + (W.pk[k] ? ' branch line' : ' main'), x + ',' + y); B.row('Inside diameter', () => pi.id.toFixed(3) + ' in · C = ' + DI.pipeC(W, k));
+      if (brk) { B.row('Condition', () => ['BROKEN PIPE', 'bad']); B.btns([['Repair this pipe ' + DI.money(1800), () => { if (spend(1800)) { S.leaks = S.leaks.filter((l) => l !== brk); S.touch(); S.say('Broken pipe section replaced.', 'good'); } }, 'go']]); } B.row('Pressure', () => { const s = sid && S.ss.get(sid); return s && s.state === 'dry' ? psi(s.P) + ' gas' : psi(S.pT[k]); });
       B.row('System', () => sid ? DI.sysName(S, sid) : 'supply side'); if (W.spk[k]) B.row('Sprinkler', () => W.spk[k] === 1 ? 'K5.6, 155 °F quick response (link ' + DI.fmt(S.lt[k] * 9 / 5 + 32) + ' °F)' : [W.spk[k] === 2 ? 'OPERATED' : 'BROKEN', 'bad']);
-      if (G.sc.sandbox && W.spk[k] === 1) B.btns([['Break this sprinkler', () => DI.breakSprinkler(S, k), 'hot']]); }
+      if (G.sc.sandbox) B.btns([W.spk[k] === 1 ? ['Break this sprinkler', () => DI.breakSprinkler(S, k), 'hot'] : null, !brk ? ['Break this pipe', () => DI.breakPipe(S, k), 'hot', false, 'To the P sensor a broken pipe is the same pressure drop as an open sprinkler.'] : null]); }
     if (room) { const rt = DI.ROOMS[room.type], hz = DI.HAZ[rt.haz]; B.title(room.name, rt.cond ? 'heated' : 'UNHEATED'); B.row('Hazard', () => hz.name); B.row('Design', () => hz.dens.toFixed(2) + ' gpm/ft² over ' + hz.area + ' ft² + ' + hz.hose + ' gpm hose');
       B.row('Coverage', () => room.exempt ? 'by others' : [DI.fmt(100 * (room.cov || 0)) + '%', room.cov >= 0.999 ? 'good' : 'bad']); B.row('Temperature', () => [DI.fmt(room.temp) + ' °F', room.temp < 40 ? 'bad' : '']); B.row('Smoke', () => DI.fmt(S.smoke[room.id], 3)); B.row('Contents', () => DI.money(rt.val * room.w * room.h));
       B.btns([['Send technician', () => say(DI.sendTech(S, room.id))], G.sc.sandbox ? ['Start a fire here', () => DI.ignite(S, k, 0, 1), 'hot'] : null, G.sc.sandbox ? ['Smouldering fault here', () => DI.ignite(S, k, 240, 1), 'hot'] : null]); }
@@ -121,7 +137,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }
     const S = G.S, W = G.W, sel = G.sel, p = sel && sel.kind === 'part' ? W.parts.get(sel.id) : null; if (sel && sel.kind === 'part' && !p) G.sel = null;
     const s = p && S.ss.get(p.id);
-    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length] : 0, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0)], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
+    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0)], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
     if (force || sig !== lastSig) { lastSig = sig; acts = []; upd = []; B.h = ''; if (p) partPanel(S, W, p); else if (sel && sel.kind === 'tile') tilePanel(S, W, sel.k); else homePanel(G); el.innerHTML = B.h; }
     for (let i = 0; i < upd.length; i++) { const v = upd[i](); if (v === null) continue; const e = document.getElementById('iv' + i); if (!e) continue; const t = Array.isArray(v) ? v[0] : v, c = Array.isArray(v) ? v[1] : ''; if (e.textContent !== t) e.textContent = t; if (e.className !== c) e.className = c; }
   } };

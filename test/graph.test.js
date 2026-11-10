@@ -1,5 +1,5 @@
 // node test/graph.test.js  - tile map -> network -> solve, checked against hand calcs
-for (const f of ['core', 'data', 'world', 'solver', 'systems', 'graph', 'links']) require('../src/' + f + '.js');
+for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links']) require('../src/' + f + '.js');
 const DI = globalThis.DI; let fail = 0;
 const near = (name, got, want, tol) => { const ok = Math.abs(got - want) <= tol; if (!ok) fail++; console.log((ok ? 'ok   ' : 'FAIL ') + name + ': ' + (+got).toFixed(3) + ' (want ' + want + ' +/- ' + tol + ')'); };
 const mkS = (W) => { const S = { ss: new Map(), pT: new Float32Array(W.w * W.h), pP: new Map(), leaks: [] }; S.sysd = DI.findSystems(W); for (const [id, i] of S.sysd.info) S.ss.set(id, { state: i.type === 'wetv' ? 'wet' : 'dry', wat: 0, P: 0 }); return S; };
@@ -26,7 +26,7 @@ near('open sprinkler Q = 5.6 sqrt(P)', q, 5.6 * Math.sqrt(pEnd), 0.05);
 // hand calc of the path: city curve + 4" + riser + 4" + 1" branch
 const f = (C, d, L) => DI.hw(C, d) * L * DI.FIT * Math.pow(q, 1.85);
 // 4" main: pipe-pipe edges tile 2..21 (19 full tiles) + half tile at each end = 200 ft; city->pipe half counted
-const loss = (20 / Math.pow(800, 1.85)) * Math.pow(q, 1.85) + f(140, 4.26, 200) + 3e-6 * q * q + f(120, 4.26, 30) + f(120, 1.049, 75);
+const loss = (20 / Math.pow(800, 1.85)) * Math.pow(q, 1.85) + f(100, 4.26, 200) + 3e-6 * q * q + f(100, 4.26, 30) + f(100, 1.049, 75);   // C = 100 on every segment
 near('end pressure matches hand calc', pEnd, 60 - loss, 0.15);
 near('edge flow readable for animation', Math.abs(DI.edgeFlow(G, W.k(10, 5), false)), q, 0.05);
 console.log(fail ? fail + ' FAILED' : 'all graph tests passed'); process.exit(fail ? 1 : 0);

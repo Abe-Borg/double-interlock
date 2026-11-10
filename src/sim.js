@@ -23,6 +23,7 @@ DI.Sim = class {
   // re-discover systems after any map edit; keep state of valves that still exist
   sync() {
     const W = this.W;
+    DI.setJuris(W);                       // site settings travel with the world
     this.sysd = DI.findSystems(W);
     for (const [id, inf] of this.sysd.info) {
       let s = this.ss.get(id);
@@ -41,6 +42,7 @@ DI.Sim = class {
     }
     for (const id of [...this.ss.keys()]) if (!this.sysd.info.has(id)) this.ss.delete(id);
     this.leaks = this.leaks.filter((l) => W.pd[l.k]);
+    for (const l of this.leaks) l.sys = this.sysd.tileSys[l.k] || 0;      // a break belongs to whichever system its tile is on now
     // NFPA 20: the pressure sensing line connects downstream of the pump discharge check valve.
     // If the player put a check valve on the pipe run leaving a pump, sense on its outlet.
     for (const p of W.parts.values()) {
@@ -144,6 +146,7 @@ DI.Sim.prototype.commission = function (keep) {
     if (v.type === 'wetv') { s.state = 'wet'; s.wat = inf.vol; s.G = 0; }
     else if (!v.p.tripped && inf.src.length) {
       s.state = 'dry'; s.wat = 0; s.G = (v.p.airSet + DI.ATM) * V; s.o2g = (inf.hasN2 ? DI.N2_O2 : 0.209) * s.G; s.P = v.p.airSet; s.set = true; s.ref = s.P; s.fillTime = -1;
+      if (v.type === 'prev') v.p.pLatch = false;
     }
   }
   this.dirty = true;
@@ -186,6 +189,13 @@ DI.Sim.prototype.dump = function () {
 };
 DI.Sim.prototype.restore = function (j) {
   for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) Object.assign(s, o); }
+  // a save from before the maker-trim setpoints: bring a set system up to its new normal pressure so the
+  // migrated valve does not come back sitting on its P trip point
+  for (const [id, s] of this.ss) {
+    const v = this.W.parts.get(id); if (!v || !v.p.repress) continue; delete v.p.repress;
+    if (s.state !== 'dry' || !s.set || s.P >= v.p.airSet) continue;
+    const x = s.G > 0 ? s.o2g / s.G : 0.209; s.G = (v.p.airSet + DI.ATM) * Math.max(this.sysd.info.get(id).vol, 1); s.o2g = x * s.G; s.P = v.p.airSet; s.ref = s.P;
+  }
   this.results = j.results || []; this.leaks = j.leaks || []; this.dirty = true;
   this.commission(j.t || 0.001); this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
 };

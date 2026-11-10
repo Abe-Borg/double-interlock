@@ -1,4 +1,4 @@
-// Hydraulic calculation (density / area method, NFPA 13-2025 Ch. 19 + 28) run on the live map:
+// Hydraulic calculation (density / area method, NFPA 13 Ch. 19 + 28; edition per the site setting) run on the live map:
 // opens the hydraulically remote design area, adds the hose stream allowance, assumes the fire
 // pumps are running and solves steady state. Answers "does every sprinkler get its density?"
 var DI = globalThis.DI || (globalThis.DI = {});
@@ -10,7 +10,7 @@ DI.designArea = function (S, id, rm) {
   let remote = -1; for (const k of inf.tiles) if (W.spk[k] && W.roomAt[k] === rm && (remote < 0 || td[k] > td[remote])) remote = k;
   if (remote < 0) return null;
   const hz = rm ? DI.HAZ[DI.ROOMS[W.rooms[rm - 1].type].haz] : DI.HAZ.OH1;
-  const dryLike = v.type === 'dryv' || (v.type === 'prev' && v.p.mode === 'double');
+  const dryLike = v.type === 'dryv' || v.type === 'prev';
   const area = hz.area * (dryLike ? 1.3 : 1), rx = remote % W.w, ry = (remote / W.w) | 0, horiz = W.pk[remote] !== 2;
   const cand = inf.tiles.filter((k) => W.spk[k] && W.roomAt[k] === rm).map((k) => {
     const dx = Math.abs((k % W.w) - rx), dy = Math.abs(((k / W.w) | 0) - ry);
