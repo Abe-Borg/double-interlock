@@ -1,12 +1,17 @@
 // Commissioning / ITM test procedures. Each one drives the real simulation and reads the real gauges.
 var DI = globalThis.DI || (globalThis.DI = {});
 
+// 24 h dry air leakage test: about 40 psi test pressure, allowed drop 1.5 psi in 24 h.
+// VERIFY the section and the values against the enforced edition before citing them in game text.
+DI.AIR_TEST = { psi: 40, drop: 1.5 };
+
 DI.startTest = function (S, kind, id) {
   const W = S.W, v = W.parts.get(id), s = S.ss.get(id);
   if (S.procs.some((p) => p.id === id)) return 'A test is already running on this equipment.';
   const pr = { kind, id, t0: S.t, stage: 0, ts: S.t, pts: [] };
   if (kind === 'trip') {
     if (!s || s.state !== 'dry' || !s.set) return 'Valve must be set and pressurized before a trip test.';
+    if (v.type === 'prev' && v.p.pLatch) return 'P is latched. The timed test starts from normal air with P clear: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + ' first.';
     if (v.type === 'prev') {       // the test operates detection through the panel; P comes from the open inspector's test
       const pn = W.panelOf(id); if (!pn || pn.p.alive === false) return 'Wire the valve to a live releasing panel first. The trip test operates detection through it.';
       v.p.sol = true; pr.rel = true;
@@ -39,14 +44,17 @@ DI.testStep = function (S, dt) {
     let res = null;
     if (!v) { S.procs.splice(i, 1); continue; }
     if (pr.kind === 'trip') {
-      const inf = S.sysd.info.get(pr.id), lim = v.type === 'dryv' && v.p.qod ? 750 : 500, exempt = inf.vol <= lim;
       if (s.waterT > 0 || el > 240) {
-        const tw = s.waterT > 0 ? s.waterT - pr.t0 : -1, tt = s.tripT > 0 ? s.tripT - pr.t0 : -1;
-        res = { pass: tw > 0 && (exempt || tw <= 60), title: 'Full-flow trip test', lines: [
-          'System volume: ' + DI.fmt(inf.vol) + ' gal',
+        // measured delivery against every limit that applies on this site; the most stringent one governs
+        const tw = s.waterT > 0 ? s.waterT - pr.t0 : -1, tt = s.tripT > 0 ? s.tripT - pr.t0 : -1, dl = DI.deliveryLimits(S, pr.id, tw);
+        const lines = ['Zone volume: ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')',
           tt > 0 ? 'Valve tripped: ' + DI.fmt(tt, 1) + ' s' : 'Valve DID NOT TRIP in 240 s',
           tw > 0 ? 'Water at inspector’s test: ' + DI.fmt(tw, 1) + ' s' : 'No water at the inspector’s test',
-          exempt ? 'Limit: none (' + lim + ' gal or less)' : 'Limit: 60 s (system over ' + lim + ' gal)'], val: tw, trip: tt };
+          dl.nfpa.rule, dl.fm.rule,
+          dl.governing === null ? 'Governing: no time limit applies' : 'Governing: ' + dl.by + ' ' + dl.governing + ' s' + (dl.margin !== null ? ', margin ' + (dl.margin >= 0 ? '+' : '−') + DI.fmt(Math.abs(dl.margin), 1) + ' s' : '')];
+        if (dl.nfpa.limit !== null) { const hz = DI.sysHazard(W, S.sysd.info.get(pr.id)); lines.push('Calc / table alternative: ' + DI.HAZ[hz].name + ' ' + DI.DELIVERY.table[hz] + ' s, not modelled [' + DI.juris.ref.table + ']'); }
+        res = { pass: tw > 0 && (dl.governing === null || tw <= dl.governing), title: 'Full-flow trip test', lines, gov: 5, val: tw, trip: tt,
+          zone: dl.zone, pipe: dl.pipe, governing: dl.governing, by: dl.by, margin: dl.margin, nfpa: dl.nfpa.limit, fm: dl.fm.limit };
         v.p.itc = 0; S.touch();
       }
     } else if (pr.kind === 'itc') {
@@ -89,7 +97,9 @@ DI.testStep = function (S, dt) {
     } else if (pr.kind === 'leak') {
       if (el >= 86400 || s.state !== 'dry') {
         const loss = pr.p0 - s.P; v.p.airValve = 1;
-        res = { pass: s.state === 'dry' && loss <= 1.5, title: '24-hour air leakage test', val: loss, lines: ['Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi', 'Loss: ' + DI.fmt(loss, 2) + ' psi in 24 h (limit 1.5 psi)'] };
+        // the report is about air only: start, end and the drop against the allowed loss. A latched release
+        // input is a panel matter and goes to the panel event log, not here.
+        res = { pass: s.state === 'dry' && loss <= DI.AIR_TEST.drop, title: '24-hour air leakage test', val: loss, lines: ['Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi', 'Drop: ' + DI.fmt(loss, 2) + ' psi in 24 h, allowed ' + DI.AIR_TEST.drop + ' psi'] };
       }
     } else if (pr.kind === 'run') {
       if (v.p.failed || (el > 40 && v.p.spd < 0.5)) res = { pass: false, title: 'Weekly churn run', lines: ['Pump failed to start.'] };

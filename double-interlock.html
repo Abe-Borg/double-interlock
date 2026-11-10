@@ -35,6 +35,9 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .sig { display:flex; gap:6px; padding:4px 8px; border-bottom:1px solid #18232e; font:11.5px var(--mono); cursor:pointer; }
 .sig b { flex:none; width:46px; } .sig.ALARM b { color:var(--red); } .sig.SUPV b { color:var(--amb); } .sig.TRBL b { color:var(--yel); }
 .sig.loc { opacity:.55; } .sig:hover { background:#17222d; }
+.sig.OPEN b { color:#c59bff; } .sig.sup { opacity:.5; } .sig.sup b { text-decoration:line-through; }
+#annState.op { color:#c59bff; } #annState.sil { animation:none; }
+.res .gov { color:#fff; font-weight:700; border-bottom:1px solid var(--amb); }
 #log { overflow:auto; flex:1; min-height:60px; max-height:220px; padding:3px 0; font:11px var(--mono); }
 #log div { padding:1px 8px; color:var(--dim); } #log .bad { color:#ff9488; } #log .warn { color:#ffcf73; } #log .good { color:#8ff0c1; } #log i { color:#4d6272; font-style:normal; margin-right:5px; }
 #side { position:fixed; right:10px; top:52px; width:318px; max-height:calc(100% - 150px); overflow:auto; background:rgba(13,20,27,.95); border:1px solid var(--line); border-radius:6px; z-index:4; padding:0 0 8px; }
@@ -74,7 +77,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .card { text-align:left; padding:11px 12px; border-radius:6px; background:var(--pan2); border:1px solid var(--line); } .card b { display:block; font-size:14px; letter-spacing:.05em; text-transform:uppercase; } .card small { color:var(--dim); display:block; margin-top:2px; } .card i { float:right; font-style:normal; color:var(--amb); letter-spacing:2px; }
 .card.lock { opacity:.42; } .card em { font:700 10px var(--mono); color:var(--dim); font-style:normal; letter-spacing:.12em; }
 .goal { display:flex; gap:8px; padding:6px 0; border-bottom:1px solid #1b2733; font-size:13.5px; } .goal i { flex:none; width:18px; font-style:normal; color:var(--dim); } .goal.ok i { color:var(--grn); } .goal.ok { color:#9fb3c1; } .goal small { display:block; color:var(--dim); margin-top:2px; }
-.find { padding:6px 8px; margin:5px 0; border-left:3px solid var(--amb); background:#0f1820; cursor:pointer; font-size:13px; } .find.fail { border-color:var(--red); } .find.ok { border-color:var(--grn); } .find small { display:block; color:var(--dim); font:11px var(--mono); margin-top:2px; }
+.find { padding:6px 8px; margin:5px 0; border-left:3px solid var(--amb); background:#0f1820; cursor:pointer; font-size:13px; } .find.fail { border-color:var(--red); } .find.ok { border-color:var(--grn); } .find.info { border-color:var(--wat); } .find small { display:block; color:var(--dim); font:11px var(--mono); margin-top:2px; }
 .mrow { display:flex; gap:8px; margin-top:16px; justify-content:flex-end; align-items:center; } .mrow button { padding:7px 16px; font-size:14px; }
 .man { display:grid; grid-template-columns:190px 1fr; gap:18px; } .man nav button { display:block; width:100%; text-align:left; margin-bottom:3px; border:0; background:none; color:#a9bac7; } .man nav button.on { background:#1c2a37; color:#fff; }
 .man table { border-collapse:collapse; margin:8px 0; font-size:13px; } .man td, .man th { border:1px solid var(--line); padding:4px 8px; text-align:left; color:#b6c6d2; } .man th { color:#fff; background:#0f1820; }
@@ -91,7 +94,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
     <button id="bSkip" title="Skip ahead">Skip &#9662;</button>
     <div id="wx"></div>
   </div>
-  <div class="tr"><div id="money"></div><button id="bSite" title="Site settings: enforced edition, pipe schedule, detection thresholds, company rules">Site</button><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
+  <div class="tr"><div id="money"></div><button id="bSite" title="Site settings: enforced edition, pipe size cut, water delivery, detection thresholds, signal classes, company rules. Read-only in a contract">Site</button><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
 </div>
 <div id="ann"><div class="hd">FIRE ALARM ANNUNCIATOR <span id="annState">NORMAL</span></div><div id="sigs"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
 <div id="side"></div>
@@ -144,8 +147,8 @@ DI.bus = {
 // Pipe table, split by schedule. id40 / id10 = inside diameter (in) of Schedule 40 / Schedule 10 steel pipe
 // (steel pipe dimensions table in the NFPA 13 annex / ASME B36.10M), cost = $ per 10-ft tile installed.
 // ASSUMED: cost is the same for both schedules of a size.
-// (verify) 12 in. "Sch 10" is the 0.180 in. wall value the game has always used; NFPA 13 names a thicker
-// minimum wall for 12 in. pipe. Kept so the default policy changes no existing number.
+// 12 in. Sch 10 is OD 12.750, wall 0.180, ID 12.390 (FP Lead): above-ground headers only. Underground and
+// yard pipe would be its own material (ductile iron, PVC / HDPE), still C = 100, and is not modelled.
 DI.PIPES = [
   { n: '1"', id40: 1.049, id10: 1.097, cost: 90 },
   { n: '1¼"', id40: 1.38, id10: 1.442, cost: 110 },
@@ -159,23 +162,20 @@ DI.PIPES = [
   { n: '10"', id40: 10.02, id10: 10.37, cost: 1250 },
   { n: '12"', id40: 11.938, id10: 12.39, cost: 1600 },
 ];
-// Pipe schedule policy (project setting W.cfg.pipePolicy):
-//   'assumed' (default, ASSUMED): 2 in. and smaller threaded Sch 40; 2½ in. and larger roll-grooved Sch 10.
-//   'lock'    (company lock text): mains and cross-mains 2 in. and larger Sch 10; branch lines Sch 40 at every size.
-DI.PIPE_POLICY = {
-  assumed: 'ASSUMED default: 2 in. and smaller threaded Sch 40; 2½ in. and larger roll-grooved Sch 10',
-  lock: 'Company lock text: mains and cross-mains 2 in. and larger Sch 10; branch lines Sch 40 at every size',
-};
+// Pipe size cut (project setting W.cfg.pipeCut, ASSUMED default 2 in.): the largest size on threaded Sch 40.
+// That size and smaller are threaded Sch 40; every larger size is roll-grooved Sch 10, main or branch alike.
+DI.PIPE_CUT_DEFAULT = 3;               // index into DI.PIPES: 2 in.
+DI.PIPE_CUTS = [2, 3, 4, 5, 6];        // sizes the Site menu offers as the cut: 1½ in. to 4 in.
 DI.PIPES.forEach((p, i) => {
   const mk = (id, sch) => ({ n: p.n, id, gal: 0.0408 * id * id, cost: p.cost, sch });   // gal/ft = 0.0408 d^2
   p.s40 = mk(p.id40, 40); p.s10 = mk(p.id10, 10);
-  const d = i <= 3 ? p.s40 : p.s10; p.id = d.id; p.gal = d.gal;                          // default-policy values
+  const d = i <= DI.PIPE_CUT_DEFAULT ? p.s40 : p.s10; p.id = d.id; p.gal = d.gal;       // default-cut values
 });
-DI.pipePolicy = (W) => (W && W.cfg && DI.PIPE_POLICY[W.cfg.pipePolicy] ? W.cfg.pipePolicy : 'assumed');
-// schedule of size index i; branch = the tile is a branch line (W.pk != 0)
-DI.pipeSch = (policy, i, branch) => (policy === 'lock' ? (branch || i < 3 ? 40 : 10) : i <= 3 ? 40 : 10);
+DI.pipeCut = (W) => { const c = W && W.cfg ? W.cfg.pipeCut : undefined; return DI.PIPE_CUTS.includes(c) ? c : DI.PIPE_CUT_DEFAULT; };
+// schedule of size index i for a given cut
+DI.pipeSch = (cut, i) => (i <= cut ? 40 : 10);
 // the pipe on tile k: { n, id, gal, cost, sch }. Every engine and UI reader goes through this.
-DI.pipeAt = (W, k) => { const i = W.pd[k] - 1, p = DI.PIPES[i]; return DI.pipeSch(DI.pipePolicy(W), i, W.pk[k] !== 0) === 40 ? p.s40 : p.s10; };
+DI.pipeAt = (W, k) => { const i = W.pd[k] - 1, p = DI.PIPES[i]; return DI.pipeSch(DI.pipeCut(W), i) === 40 ? p.s40 : p.s10; };
 
 // Hazen-Williams: friction loss in psi per foot at 1 gpm (multiply by Q^1.85).
 // p = 4.52 Q^1.85 / (C^1.85 d^4.87)   (NFPA 13)
@@ -215,25 +215,40 @@ DI.ROOMS = {
 </script>
 <script>
 // Jurisdiction / enforced edition table. The US edition of NFPA 13 is a site setting (W.cfg.edition).
-// In this cycle the edition changes citations and the delta note only; pass/fail does not differ.
+// The edition changes citations and the delta note only; pass/fail does not differ.
 // Section numbers are the ones held in the DC FP training. Do not add others without verifying them.
 var DI = globalThis.DI || (globalThis.DI = {});
 
-DI.JURIS = {
-  'US-2025': { country: 'US', nfpa13: 2025, area: 52000, nfpa76Adopted: false,
-    ref: { area: 'NFPA 13-2025 §4.4.1', delivery: 'NFPA 13-2025 §8.2.4', di: 'NFPA 13-2025 §8.3.2.3.1.1' }, delta: [] },
-  'US-2022': { country: 'US', nfpa13: 2022, area: 52000, nfpa76Adopted: false,
-    ref: { area: 'NFPA 13-2022 §4.4', delivery: 'NFPA 13-2022 §8.2.3.4', di: 'NFPA 13-2022 §8.3.2.3' },
-    delta: ['Dry water delivery is §8.2.3.4 / Table 8.2.3.6.1 (2025: §8.2.4).'] },
-  'US-2019': { country: 'US', nfpa13: 2019, area: 52000, nfpa76Adopted: false,
-    ref: { area: 'NFPA 13-2019 §4.5', delivery: 'NFPA 13-2019 §8.2.3', di: 'NFPA 13-2019 §8.3.2.3.1.1' },
-    delta: ['Dry water delivery is §8.2.3 / Table 8.2.3.6.1 (2025: §8.2.4).', 'System area limit is §4.5 (2025: §4.4).'] },
-  // Canada: data row only, never offered in the menu. Same references as US-2019.
-  'CA-2019': { country: 'CA', nfpa13: 2019, area: 52000, nfpa76Adopted: false, hidden: true,
-    ref: { area: 'NFPA 13-2019 §4.5', delivery: 'NFPA 13-2019 §8.2.3', di: 'NFPA 13-2019 §8.3.2.3.1.1' },
-    delta: ['Dry water delivery is §8.2.3 / Table 8.2.3.6.1 (2025: §8.2.4).', 'System area limit is §4.5 (2025: §4.4).'],
-    note: 'ASSUMED: NFPA 13-2019 via NBC 2020 / BCBC 2024; verify before ship' },
-};
+// Water-delivery references per edition (FP Lead): timedTest = the 60 s timed trip test, noQod = the dry
+// exemption without a quick-opening device, qod = the dry exemption with one, table = the calc / table
+// route, di = the double-interlock size exemption, diQod = a QOD may help a double-interlock system meet
+// 60 s (it does not extend the 500 gal). 2019 and 2025 are as given by the Lead; the paragraph numbers
+// inside 2025 §8.2.4 and every 2022 number are not verified, so those stay at section level and the 2022
+// row is marked VERIFY.
+(function () {
+  const r19 = { area: 'NFPA 13-2019 §4.5', delivery: 'NFPA 13-2019 §8.2.3', timedTest: 'NFPA 13-2019 §8.2.3.2', noQod: 'NFPA 13-2019 §8.2.3.3', qod: 'NFPA 13-2019 §8.2.3.4',
+    table: 'NFPA 13-2019 Table 8.2.3.6.1', di: 'NFPA 13-2019 §8.3.2.3.1.1', diQod: 'NFPA 13-2019 §8.3.2.3.2' };
+  const d19 = ['Dry water delivery is §8.2.3.2 to §8.2.3.4 / Table 8.2.3.6.1 (2025: §8.2.4 / Table 8.2.4.3.2).', 'System area limit is §4.5 (2025: §4.4).'];
+  DI.JURIS = {
+    'US-2025': { country: 'US', nfpa13: 2025, area: 52000, nfpa76Adopted: false,
+      ref: { area: 'NFPA 13-2025 §4.4.1', delivery: 'NFPA 13-2025 §8.2.4', timedTest: 'NFPA 13-2025 §8.2.4', noQod: 'NFPA 13-2025 §8.2.4', qod: 'NFPA 13-2025 §8.2.4',
+        table: 'NFPA 13-2025 Table 8.2.4.3.2', di: 'NFPA 13-2025 §8.3.2.3.1.1', diQod: 'NFPA 13-2025 §8.3.2.3.2' }, delta: [] },
+    'US-2022': { country: 'US', nfpa13: 2022, area: 52000, nfpa76Adopted: false, verify: true,
+      ref: { area: 'NFPA 13-2022 §4.4', delivery: 'NFPA 13-2022 §8.2.3.4 (VERIFY)', timedTest: 'NFPA 13-2022 §8.2.3 (VERIFY)', noQod: 'NFPA 13-2022 §8.2.3 (VERIFY)', qod: 'NFPA 13-2022 §8.2.3 (VERIFY)',
+        table: 'NFPA 13-2022 Table 8.2.3.6.1 (VERIFY)', di: 'NFPA 13-2022 §8.3.2.3 (VERIFY)', diQod: 'NFPA 13-2022 §8.3.2.3 (VERIFY)' },
+      delta: ['Dry water delivery is cited as §8.2.3 / Table 8.2.3.6.1 (2025: §8.2.4 / Table 8.2.4.3.2). VERIFY: the 2022 delivery and double-interlock section numbers have not been checked.'] },
+    'US-2019': { country: 'US', nfpa13: 2019, area: 52000, nfpa76Adopted: false, ref: r19, delta: d19 },
+    // Canada: data row only, never offered in the menu. Same references as US-2019.
+    'CA-2019': { country: 'CA', nfpa13: 2019, area: 52000, nfpa76Adopted: false, hidden: true, ref: r19, delta: d19,
+      note: 'ASSUMED: NFPA 13-2019 via NBC 2020 / BCBC 2024; verify before ship' },
+  };
+})();
+// Water-delivery numbers (same values in 2019 and 2025, FP Lead). Volumes are full zone volume in gallons
+// (pipe + fittings % + trim, see DI.zoneVolume). timed = the trip-test clock in seconds. table = the calc /
+// table route by hazard, shown for information only (not modelled). fm = the FM Global limit at any volume
+// for dry and double interlock (FM DS 5-32; NEEDS PE REVIEW), applied only when the site insurer is FM.
+DI.DELIVERY = { timed: 60, dry: 500, dryQod: 750, di: 500, fm: 30, fmRef: 'FM DS 5-32',
+  table: { LH: 60, OH1: 50, OH2: 50, EH1: 45 } };
 DI.EDITION_DEFAULT = 'US-2025';
 DI.juris = DI.JURIS[DI.EDITION_DEFAULT];          // site setting, default 2025
 // editions the site-settings menu offers (hidden rows are never listed)
@@ -292,8 +307,8 @@ DI.PARTS = {
     desc: 'Pipe holds air; a differential clapper holds water back. Sprinkler opens, air drops, valve trips. For spaces that freeze.',
     props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1 } },
   prev: { name: 'Preaction Valve', cat: 'system', cost: 24000, ports: 2, key: '3',
-    desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or manual) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
-    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false } },
+    desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
+    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false, solOut: false } },
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
     props: { scfm: 5, on: false, runSec: 0, starts: 0 } },
@@ -301,13 +316,42 @@ DI.PARTS = {
     desc: 'Membrane generator: 98%+ nitrogen as supervisory gas. Starves the oxygen corrosion that eats dry and preaction pipe.',
     props: { scfm: 2.5, on: false, runSec: 0, starts: 0 } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
-    desc: 'Listed releasing fire alarm panel. Wire detection, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
+    desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
     desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
   smoke: { name: 'Spot Smoke Detection', cat: 'alarm', cost: 4200, ports: 0, key: 'O',
     desc: 'Listed ceiling spot detector. In an electrical / UPS room one detector in alarm is the detection leg of a release. In white space it only raises the alarm.', props: { lvl: 0, obs: 0 } },
+  mstn: { name: 'Manual Release Station', cat: 'alarm', cost: 900, ports: 0, key: 'M',
+    desc: 'Manual station wired to the releasing panel. Typed DETECTION: operating it is the detection leg for every preaction valve that protects the room it is in, and water still needs P.', props: { on: false } },
 };
+
+// Listed sensitivity window of each detector model, %/ft obscuration. Fire 1 and Fire 2 (aspirating) and the
+// spot alarm threshold must sit inside the window of the device (plan review fails anything outside).
+//   smoke: 0.5 to 4.0 is the FA Lead's example window for a spot photoelectric detector (example data, not cited).
+//   vesda: ASSUMED placeholder 0.01 to 5.0 until the maker's listing for the aspirating detector is given.
+DI.LISTED = { vesda: { min: 0.01, max: 5.0, assumed: true }, smoke: { min: 0.5, max: 4.0 } };
+
+// Site / project settings with a default (W.cfg, saved with the world). All ASSUMED and tunable.
+//   spotThr  spot detector alarm threshold, %/ft (example value)
+//   fitPct   fittings allowance on pipe volume, %       trimGal  valve trim volume, gal per system valve
+//   insurer  'none' | 'FM' (FM adds the 30 s delivery limit at any volume; NEEDS PE REVIEW)
+DI.CFG_DEFAULT = { spotThr: 1.3, fitPct: 5, trimGal: 2, insurer: 'none' };
+DI.cfgNum = (W, key, lo) => { const v = W && W.cfg ? W.cfg[key] : undefined; return typeof v === 'number' && isFinite(v) && v >= (lo || 0) ? v : DI.CFG_DEFAULT[key]; };
+DI.spotThr = (W) => { const v = DI.cfgNum(W, 'spotThr'); return v > 0 ? v : DI.CFG_DEFAULT.spotThr; };
+DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
+
+// Signal classes (W.cfg.sigClass). Alert and Action are pre-alarm: supervisory by default, alarm if the
+// engineer elects it. A latched P is a release input whose class has not been elected: OPEN by default,
+// ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
+// Fixed classes, no setting: Fire 1, Fire 2, manual station and waterflow ALARM; low and high air SUPV;
+// panel and battery TRBL.
+DI.SIG_CLASS = { alert: ['SUPV', 'ALARM'], action: ['SUPV', 'ALARM'], pLatch: ['OPEN', 'ALARM', 'TRBL'] };
+DI.SIG_DEFAULT = { alert: 'SUPV', action: 'SUPV', pLatch: 'OPEN' };
+DI.sigClass = (W, key) => { const c = W && W.cfg && W.cfg.sigClass, v = c ? c[key] : undefined; return DI.SIG_CLASS[key].includes(v) ? v : DI.SIG_DEFAULT[key]; };
+// annunciator order and labels
+DI.SIG_ORDER = { ALARM: 0, OPEN: 1, SUPV: 2, TRBL: 3 };
+DI.OPEN_LABEL = 'RELEASE INPUT - CLASS NOT ELECTED';
 
 // Maker trim presets for the double-interlock preaction valve. All values ASSUMED, tunable per valve.
 // Order is always high-air supervisory > normal > low-air supervisory > P trip.
@@ -374,6 +418,7 @@ DI.migratePart = function (p) {
     if (!DI.TRIMS[q.trim]) q.trim = 'el-el';
     if (q.pLatch === undefined) q.pLatch = false;
     if (q.mech === undefined) q.mech = false;
+    if (q.solOut === undefined) q.solOut = false;
   } else if (p.type === 'dryv') {
     const win = 10;                       // the supervisory window older saves used on either side of normal
     if (q.hiAir === undefined) q.hiAir = q.airSet + win;
@@ -401,7 +446,9 @@ DI.World = class {
     this.money = 0;
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
-    this.cfg = {};                        // site / project settings: edition, nfpa76Adopted, pipePolicy, detThr, manualReleaseBypassP
+    // site / project settings: edition, nfpa76Adopted, pipeCut, detThr, spotThr, sigClass, fitPct, trimGal,
+    // insurer, manualReleaseBypassP. Read them through the DI helpers, which supply the defaults.
+    this.cfg = {};
   }
   k(x, y) { return y * this.w + x; }
   inb(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
@@ -503,7 +550,7 @@ DI.World = class {
     for (const r of j.rooms) W.addRoom(r.type, r.x, r.y, r.w, r.h, r.name);
     un(j.pd, W.pd); un(j.pk, W.pk); un(j.spk, W.spk); un(j.air, W.air); if (j.cut) un(j.cut, W.cut);
     for (const p of j.parts) { DI.migratePart(p); W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
-    W.cfg = Object.assign({}, j.cfg || {});
+    W.cfg = Object.assign({}, j.cfg || {}); delete W.cfg.pipePolicy;      // the role-based schedule policy is gone: an old save gets the default size cut
     W.wires = j.wires || []; W.nextId = j.nextId; W.money = j.money; W.outTemp = j.outTemp === undefined ? 70 : j.outTemp;
     return W;
   }
@@ -690,6 +737,64 @@ DI.findSystems = function (W) {
   // fraction of the system that must fill before water reaches tile k (dry / preaction transit)
   const reach = (sid, k) => { const s = info.get(sid); if (!s || s.vol <= 0) return 0; return Math.min(1, (dvol[k] + 0.35 * (s.vol - dvol[k])) / s.vol); };
   return { tileSys, par, dvol, tdist, info, reach };
+};
+
+// Sprinkler coverage of one room: tiles that need a head, tiles that have one, heads on no system.
+DI.roomCoverage = function (W, sd, room) {
+  let need = 0, have = 0, orphan = 0;
+  for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
+    const k = W.k(x, y); if (W.partAt[k]) continue; need++;
+    if (W.spk[k]) { have++; if (!sd.tileSys[k]) orphan++; }
+    else if (W.pd[k] && (W.spk[k - 1] || W.spk[k + 1] || W.spk[k - W.w] || W.spk[k + W.w])) have++;   // a main between branch lines
+  }
+  return { need, have, orphan };
+};
+
+// Nearest control valve upstream of a system valve (walk the supply pipe run back from the riser inlet).
+DI.ctrlValve = function (W, id) {
+  const v = W.parts.get(id); if (!v) return null;
+  const seen = new Set(), q = [[v.x, v.y, W.ports(v).i]];
+  for (let h = 0; h < q.length && h < 400; h++) {
+    const [x, y, d] = q[h]; if (!W.linked(x, y, d)) continue; const nx = x + DI.DX[d], ny = y + DI.DY[d], k = W.k(nx, ny); if (seen.has(k)) continue; seen.add(k);
+    const o = W.at(nx, ny); if (o) { if (o.type === 'gate') return o; continue; }
+    for (let e = 0; e < 4; e++) if (e !== DI.OPP[d]) q.push([nx, ny, e]);
+  }
+  return null;
+};
+
+// ---------- water delivery
+// Full zone volume = pipe + a fittings allowance + the valve trim (project settings, ASSUMED 5 % and 2 gal).
+// inf.vol stays pipe only; every delivery rule is judged on the zone volume.
+DI.zoneVolume = (W, inf) => inf.vol * (1 + DI.cfgNum(W, 'fitPct') / 100) + DI.cfgNum(W, 'trimGal');
+// the most demanding hazard among the rooms a system protects (key into DI.HAZ)
+DI.sysHazard = function (W, inf) {
+  let key = '';
+  for (const r of inf.rooms) { const h = DI.ROOMS[W.rooms[r - 1].type].haz; if (!key || DI.HAZ[h].dens > DI.HAZ[key].dens) key = h; }
+  return key || 'OH1';
+};
+// The limits that apply to a zone of `zone` gallons. Pure: no world needed, so the thresholds can be tested exactly.
+//   NFPA 13: dry needs the 60 s timed test above 500 gal, or above 750 gal with a quick-opening device.
+//            Double interlock needs it above 500 gal and a QOD does not extend that. Wet: nothing.
+//   FM:      30 s at any volume for dry and double interlock, only when the site insurer is FM (NEEDS PE REVIEW).
+//   The most stringent limit governs.
+DI.deliveryRule = function (type, qod, zone, insurer) {
+  const D = DI.DELIVERY, R = DI.juris.ref, o = { type, zone, nfpa: { limit: null, thr: null, rule: '', ref: '' }, fm: { limit: null, rule: 'FM: not applied' }, governing: null, by: '' };
+  if (type !== 'dryv' && type !== 'prev') return o;
+  const thr = type === 'dryv' ? (qod ? D.dryQod : D.dry) : D.di, over = zone > thr;
+  const ref = type === 'prev' ? R.di : over ? R.timedTest : qod ? R.qod : R.noQod;
+  o.nfpa = { limit: over ? D.timed : null, thr, ref, rule: (over ? 'NFPA 13: ' + D.timed + ' s (over ' + thr + ' gal)' : 'NFPA 13: no timed test (' + thr + ' gal or less)') + ' [' + ref + ']' };
+  if (insurer === 'FM') o.fm = { limit: D.fm, rule: 'FM: ' + D.fm + ' s (any volume, ' + D.fmRef.replace('FM ', '') + ', NEEDS PE REVIEW)' };
+  for (const [by, l] of [['NFPA', o.nfpa.limit], ['FM', o.fm.limit]]) if (l !== null && (o.governing === null || l < o.governing)) { o.governing = l; o.by = by; }
+  return o;
+};
+// Limits for system `id` on this site, with the margin against a measured delivery time (seconds) if one is given.
+// margin = governing - measured: negative means it failed. null when no limit applies or nothing was measured.
+DI.deliveryLimits = function (S, id, measured) {
+  const W = S.W, v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v || !inf) return null;
+  DI.setJuris(W);
+  const o = DI.deliveryRule(v.type, !!v.p.qod, DI.zoneVolume(W, inf), DI.insurer(W));
+  o.pipe = inf.vol; o.margin = o.governing !== null && measured > 0 ? o.governing - measured : null;
+  return o;
 };
 
 </script>
@@ -915,6 +1020,30 @@ DI.gasFlow = function (a, pg) {
 DI.N2_O2 = 0.015;                      // oxygen fraction leaving a 98.5% nitrogen generator
 DI.DRY_RATIO = 5.5;                    // differential dry pipe valve: trips near P_water / 5.5
 
+// ---------- preaction release state (FA Lead truth table, fixtures/di-release-truth-table.csv)
+// The panel manual station is typed DETECTION and sits inside D. Only where the project flag is ON and the
+// trim is electric / electric is it typed MANUAL RELEASE (footnote 9(c), NEEDS PE REVIEW) and bypasses P.
+DI.stationType = (W, v) => (v.p.trim === 'el-el' && W.cfg && W.cfg.manualReleaseBypassP ? 'MANUAL RELEASE' : 'DETECTION');
+//   D    = Fire 1 latched by the panel (v.p.sol) OR the manual station typed DETECTION (v.p.pull)
+//   P    = pipe pressure fell below P trip and latched (v.p.pLatch)
+//   sol  = the energized solenoid.  El/El: (D AND P) OR (Manual Release zone AND bypass).  El/Pn: D alone,
+//          because P is the pneumatic actuator at the valve and not a panel input.
+//   open = D AND P on both trims (or the Manual Release zone bypass). The mechanical release is separate.
+DI.relState = function (W, v) {
+  const q = v.p, mrz = !!q.pull && DI.stationType(W, v) === 'MANUAL RELEASE';
+  const D = !!q.sol || (!!q.pull && !mrz), P = !!q.pLatch;
+  return { D, P, mrz, sol: q.trim === 'el-pn' ? D : (D && P) || mrz, open: (D && P) || mrz };
+};
+DI.setSolOut = function (S, id, v) {
+  const on = DI.relState(S.W, v).sol;
+  if (on && !v.p.solOut) S.say('Releasing panel energized the solenoid on ' + DI.sysName(S, id) + (v.p.trim === 'el-pn' ? ' (electric leg). Water still needs P at the pneumatic actuator.' : '.'), 'bad');
+  v.p.solOut = on;
+};
+// An incident on a preaction system starts with an operated head, a latched P or a trip, and stays open
+// until the system is back in service. The recovery score (DI.recoveryScore) reads the log between them.
+DI.incident = function (S, id, s, why) { if (s.inc) return; s.inc = true; s.airLost = true; S.act('incident', id, { why }); };
+
+
 DI.gasPre = function (S, dt) {
   const W = S.W, info = S.sysd.info;
   // 1. who is calling for gas? (pressure switch with 3 psi dead band)
@@ -940,6 +1069,16 @@ DI.gasPre = function (S, dt) {
     const v = W.parts.get(id), inf = info.get(id); if (!v || inf.vol <= 0) continue;
     const V = inf.vol;
     if (s.spkVer !== S.spkVer || s.ver !== S.ver) { s.openK = inf.tiles.filter((k) => W.spk[k] >= 2); s.spkVer = S.spkVer; s.ver = S.ver; }
+    const pre = v.type === 'prev';
+    if (pre) {
+      // recovery log: edge-detect what the operator did, whoever did it (UI, bot or test)
+      const nOpen = s.openK.length; if (nOpen > (s.nOpen || 0)) { DI.incident(S, id, s, 'head'); S.act('head-open', id); } s.nOpen = nOpen;
+      if (!!v.p.sdrain !== !!s.sdr) { s.sdr = !!v.p.sdrain; if (s.sdr) S.act('drain', id); }
+      if (s.state !== 'dry' || s.P < v.p.loAir) s.airLost = true;
+      else if (s.airLost && s.set && s.P >= v.p.airSet - 3.2 && !nOpen && !v.p.sdrain && !v.p.itc) { s.airLost = false; S.act('restore-air', id); }   // normal pressure with every opening shut
+      if (s.inc && s.state === 'dry' && s.set && !v.p.pLatch && !nOpen && !s.airLost) { s.inc = false; S.act('in-service', id); }
+      DI.setSolOut(S, id, v);
+    }
     if (s.state === 'wet') continue;
     const Vg = Math.max(V - s.wat, 0.02 * V), frac = s.wat / V;
     let inAir = 0, inN2 = 0;
@@ -973,14 +1112,28 @@ DI.gasPre = function (S, dt) {
     if (v.type === 'wetv') continue;
     s.lowAir = s.set && s.P < v.p.loAir;         // supervisory only: follows live pressure, never a release input
     if (s.state !== 'dry') continue;
+    // P sensor (PSL-REL switch or PA-REL actuator): a pure threshold on pipe pressure. No outlet-type test and
+    // no rate term: a sprinkler, an open inspector's test and a broken pipe all look the same to it, and a
+    // slow leak the compressor holds never reaches the setpoint. It latches until a manual reset: the panel
+    // on an electric / electric trim, the actuator at the trim on electric / pneumatic. The sensor is live
+    // from the first time the valve is set (commissioning), so after a riser reset the empty pipe reads low
+    // and an early reset latches straight back.
+    if (pre) {
+      if (s.set) s.armed = true;
+      if (s.armed && !v.p.pLatch && s.P < v.p.pTrip) {
+        v.p.pLatch = true; DI.incident(S, id, s, 'P');
+        S.say(DI.sysName(S, id) + ': P latched (' + DI.fmt(s.P, 1) + ' psi, ' + DI.trimOf(v).sensor + '). It stays latched until ' + DI.pResetText(v) + '.', 'warn');
+      }
+      DI.setSolOut(S, id, v);
+    }
     // Mechanical emergency release at the trim: a person opens the valve directly, outside the panel
     // logic. No detection and no P involved, and it works with a dead panel. Water then flows only
     // where a sprinkler is open. Simplification: with every head closed the trapped air is not vented.
-    let why = v.type === 'prev' && v.p.mech ? 'mechanical emergency release at the trim' : '';
+    let why = pre && v.p.mech ? 'mechanical emergency release at the trim' : '';
     if (!why) {
       if (!s.set) {
         if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
-        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)', 'good'); }
+        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)' + (pre && v.p.pLatch ? '. P is still latched: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + '.' : ''), pre && v.p.pLatch ? 'warn' : 'good'); }
         continue;
       }
       // trip logic, evaluated only while the valve is set and pressurized
@@ -991,20 +1144,14 @@ DI.gasPre = function (S, dt) {
         else if (v.p.qod && s.ref - s.P > 2.5) why = 'accelerator sensed the pressure drop';
       } else {
         // Preaction is double interlock only:  trip := (Fire 1 detection OR manual station typed DETECTION) AND P.
-        // P is a pure threshold on pipe pressure (no outlet-type test, no rate term): a sprinkler, an open
-        // inspector's test and a broken pipe all look the same to the sensor, and a slow leak the compressor
-        // holds never reaches the setpoint. P latches until a manual reset (panel reset or valve reset).
-        if (!v.p.pLatch && s.P < v.p.pTrip) {
-          v.p.pLatch = true;
-          S.say(DI.sysName(S, id) + ': P latched (' + DI.fmt(s.P, 1) + ' psi, ' + DI.trimOf(v).sensor + '). It stays latched until the panel is reset.', 'warn');
-        }
-        const det = !!v.p.sol || !!v.p.pull;       // Fire 1 through the panel solenoid, or the manual station typed DETECTION
-        if (v.p.pull && v.p.trim === 'el-el' && W.cfg && W.cfg.manualReleaseBypassP) why = 'Manual Release zone (bypasses P)';   // per-project flag, default OFF, NEEDS PE REVIEW
-        else if (det && v.p.pLatch) why = 'detection (or manual detection station) AND P (pipe pressure below ' + v.p.pTrip + ' psi)';
+        const rs = DI.relState(W, v);
+        if (rs.mrz) why = 'Manual Release zone (bypasses P)';                 // per-project flag, default OFF, NEEDS PE REVIEW
+        else if (rs.open) why = 'detection (or manual detection station) AND P (pipe pressure below ' + v.p.pTrip + ' psi)';
       }
     }
     if (why) {
       s.state = 'filling'; s.tripT = S.t; s.set = false; v.p.tripped = true; S.dirty = true;
+      if (pre) DI.incident(S, id, s, 'trip');
       S.say(DI.sysName(S, id) + ' TRIPPED: ' + why, 'bad'); DI.bus.emit('trip', id);
     }
   }
@@ -1059,8 +1206,24 @@ DI.resetValve = function (S, id) {
   if (s.openK && s.openK.length) return 'Replace the ' + s.openK.length + ' operated sprinkler(s) first.';
   s.state = 'dry'; s.wat = 0; s.G = DI.ATM * inf.vol; s.o2g = 0.209 * s.G; s.P = 0; s.set = false; s.fillT0 = -1; s.fillTime = -1;
   s.tripT = -1; s.openT = -1; s.waterT = -1; s.moist = 1; v.p.tripped = false; v.p.sdrain = 0; v.p.itc = 0; S.dirty = true;
-  if (v.type === 'prev') { v.p.pLatch = false; v.p.mech = false; }      // manual reset at the valve: P unlatched, emergency release closed
-  S.say(DI.sysName(S, id) + ' clapper reset. Re-pressurizing.', 'good');
+  // The riser reset closes the clapper and the mechanical emergency release. It never clears P: that is
+  // the releasing panel on an electric / electric trim and the actuator at the trim on electric / pneumatic.
+  if (v.type === 'prev') v.p.mech = false;
+  S.say(DI.sysName(S, id) + ' clapper reset. Re-pressurizing.' + (v.type === 'prev' ? ' P stays latched until the air is back and ' + DI.pResetText(v) + '.' : ''), 'good');
+  return '';
+};
+
+// How a latched P is cleared on this valve's trim (the only path that exists for it).
+DI.pResetText = (v) => (v.p.trim === 'el-pn' ? 'the actuator is reset at the trim' : 'the releasing panel is reset');
+// Electric / pneumatic trim: P is the pneumatic actuator at the valve. A panel reset cannot clear it.
+// Restore the air, then reset the actuator here. If the pipe is still below P trip it latches again.
+DI.resetTrimP = function (S, id) {
+  const v = S.W.parts.get(id), s = S.ss.get(id);
+  if (!v || v.type !== 'prev') return 'Only a preaction valve has a P sensor to reset.';
+  if (v.p.trim !== 'el-pn') return 'On an electric / electric trim P is latched in the releasing panel. Reset the panel.';
+  const low = s && s.state === 'dry' && s.armed && s.P < v.p.pTrip;
+  v.p.pLatch = false; S.act('reset-trim', id);
+  S.say(DI.sysName(S, id) + ': pneumatic actuator reset at the trim.' + (low ? ' The pipe is still below P trip, so it latches again.' : ''), low ? 'warn' : 'good');
   return '';
 };
 
@@ -1196,7 +1359,7 @@ DI.replaceSprinklers = function (S, id) {
   if (!s.openK || !s.openK.length) return 'No operated sprinklers on this system.';
   if (Math.abs(s.flow) > 1 || (s.qOut || 0) > 1) return 'Water is still flowing. Close the control valve first.';
   const n = s.openK.length; for (const k of s.openK) { S.W.spk[k] = 1; S.lt[k] = 21; }
-  S.spkVer++; S.dirty = true; S.W.money -= n * 180; S.say('Replaced ' + n + ' sprinkler(s) (-' + DI.money(n * 180) + ')', 'good');
+  S.spkVer++; S.dirty = true; S.W.money -= n * 180; S.act('replace-head', id); S.say('Replaced ' + n + ' sprinkler(s) with matching heads (-' + DI.money(n * 180) + ')', 'good');
   return '';
 };
 
@@ -1208,17 +1371,17 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
 // Aspirating detection stages. Thresholds are example values (smoke units ~ %/ft obscuration) and are a
 // site setting (W.cfg.detThr); these are the defaults.
-//   Alert  = supervisory only, never arms a release.
-//   Action = pre-alarm annunciation: no release, no dispatch (signal class NEEDS PE REVIEW; supervisory here).
-//   Fire 1 = alarm, and the detection leg (D) of the double interlock.
-//   Fire 2 = escalation only. It is never read as a release input. Stage levels latch upward, so a
-//            reading that jumps straight to Fire 2 has already crossed Fire 1.
+//   Alert  = pre-alarm, never arms a release. Signal class is a site setting (DI.sigClass), supervisory by default.
+//   Action = pre-alarm annunciation: no release. Signal class is a site setting, supervisory by default.
+//   Fire 1 = alarm, and the detection leg (D) of the double interlock. D is a level check: level >= Fire 1.
+//   Fire 2 = escalation only. It is never read as a release input by itself. A reading that jumps straight
+//            to Fire 2 is at or above Fire 1, so it is D, and every stage it crossed is annunciated in order.
 DI.VESDA_T = [0.03, 0.06, 0.12, 1.2];
 DI.VESDA_N = ['', 'ALERT', 'ACTION', 'FIRE 1', 'FIRE 2'];
 DI.FIRE1 = 3;                             // the stage that releases
-// Spot detector alarm threshold (example value). One listed detector in alarm is enough where the room
-// type allows release (DI.ROOMS[..].spotRelease); no two-detector confirmation is modelled.
-DI.SPOT_T = [1.3];
+// Spot detector alarm threshold: site setting W.cfg.spotThr, read with DI.spotThr(W) (example value 1.3 %/ft,
+// inside the listed window DI.LISTED.smoke). One listed detector in alarm is enough where the room type
+// allows release (DI.ROOMS[..].spotRelease); no two-detector confirmation is modelled.
 DI.detThr = (W) => (W && W.cfg && Array.isArray(W.cfg.detThr) && W.cfg.detThr.length === 4 ? W.cfg.detThr : DI.VESDA_T);
 // can this detector act as the detection leg of a release where it sits?
 DI.canRelease = function (W, d) {
@@ -1246,29 +1409,38 @@ DI.alarmStep = function (S, dt) {
     if (W.power) p.p.battH = Math.min(24, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
     p.p.alive = W.power || p.p.battH > 0;
   }
-  const add = (key, type, text, part) => {
+  // lost = the supervising station reports the loss of the panel itself (the panel can no longer send anything)
+  const add = (key, type, text, part, lost) => {
     const pn = part ? (part.type === 'panel' ? part : W.panelOf(part.id)) : null;
     const prev = old.get(key);
-    const o = { key, type, text, part: part ? part.id : 0, mon: !!(pn && pn.p.alive), t0: prev ? prev.t0 : S.t, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
+    const o = { key, type, text, part: part ? part.id : 0, mon: !!lost || !!(pn && pn.p.alive), lost: !!lost, t0: prev ? prev.t0 : S.t, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
     sig.set(key, o);
+    if (!prev && pn) pn.p.silenced = false;          // a new signal resounds a silenced panel
     if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : o.mon ? '' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
   };
   // detection
   for (const p of W.parts.values()) {
     if (p.type !== 'vesda' && p.type !== 'smoke') continue;
-    const room = W.room(p.x, p.y), L = room ? S.smoke[room.id] : 0, T = p.type === 'vesda' ? DI.detThr(W) : DI.SPOT_T;
+    const room = W.room(p.x, p.y), L = room ? S.smoke[room.id] : 0, T = p.type === 'vesda' ? DI.detThr(W) : [DI.spotThr(W)];
     let lvl = 0; while (lvl < T.length && L >= T[lvl]) lvl++;
     p.p.obs = L; if (lvl > p.p.lvl) p.p.lvl = lvl; p.p.live = lvl;
     const dpn = W.panelOf(p.id); if (dpn && !dpn.p.alive) p.p.lvl = lvl;      // a dead panel holds no latches: only a live reading counts when it comes back
     const rn = room ? room.name : 'outdoors';
     if (p.type === 'vesda') {
-      if (p.p.lvl >= 1) add('v' + p.id, p.p.lvl >= DI.FIRE1 ? 'ALARM' : 'SUPV', 'VESDA ' + DI.VESDA_N[p.p.lvl] + ' - ' + rn, p);
+      // One row per stage reached, raised in order, so a jump past several thresholds in one tick still
+      // records Alert, Action, Fire 1 and Fire 2 one after the other at the same sim time. The detector
+      // reports one status: its highest stage. The rows below it stay on the annunciator as the record of
+      // the crossing (sup = superseded) and are not active signals at the panel or the supervising station.
+      for (let i = 1; i <= p.p.lvl; i++) { add('v' + p.id + '.' + i, i >= DI.FIRE1 ? 'ALARM' : DI.sigClass(W, i === 1 ? 'alert' : 'action'), 'VESDA ' + DI.VESDA_N[i] + ' - ' + rn, p); if (i < p.p.lvl) sig.get('v' + p.id + '.' + i).sup = true; }
       p.p.rel = p.p.lvl >= DI.FIRE1;
     } else {
       if (p.p.lvl >= 1) add('s' + p.id, 'ALARM', 'SMOKE DETECTION - ' + rn, p);
       p.p.rel = p.p.lvl >= 1 && DI.canRelease(W, p);
     }
   }
+  // manual release stations: a wired device on the releasing panel. Operated, it is an alarm and the manual
+  // input of every preaction valve on that panel that protects the room it is in (handled per valve below).
+  for (const p of W.byType('mstn')) if (p.p.on) { const room = W.room(p.x, p.y); add('mn' + p.id, 'ALARM', 'MANUAL STATION OPERATED - ' + (room ? room.name : 'outdoors'), p); }
   // system valves: waterflow, air, release solenoid
   for (const [id, s] of S.ss) {
     const v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v) continue;
@@ -1283,15 +1455,22 @@ DI.alarmStep = function (S, dt) {
       // Panel failure never releases water. The solenoid is energize-to-release: with no panel, or a
       // panel that has exhausted its standby battery, the detection leg drops out and stays out.
       // Recovery is the mechanical emergency release at the trim, by a person.
+      // v.p.sol is D latched by the panel (not the solenoid output: that is v.p.solOut, see DI.relState).
       if (!pn || !pn.p.alive) { v.p.sol = false; v.p.pull = false; }
       else for (const w of W.wires) {      // any one releasing-capable detector in the zone is the D leg
-        if (w[0] !== pn.id) continue; const d = W.parts.get(w[1]);
-        if (d && d.p.rel) { const r = W.roomAt[W.k(d.x, d.y)]; if (r && inf.rooms.has(r)) { if (!v.p.sol) S.say('Releasing panel energized the solenoid on ' + nm + ' (detection leg). Water still needs P.', 'bad'); v.p.sol = true; } }
+        if (w[0] !== pn.id) continue; const d = W.parts.get(w[1]); if (!d) continue;
+        const r = W.roomAt[W.k(d.x, d.y)]; if (!r || !inf.rooms.has(r)) continue;
+        if (d.p.rel) { if (!v.p.sol) S.say('Releasing panel latched detection (D) for ' + nm + '. Water still needs P.', 'bad'); v.p.sol = true; }
+        if (d.type === 'mstn' && d.p.on) v.p.pull = true;
       }
-      if (v.p.sol) add('rl' + id, 'ALARM', 'RELEASE CIRCUIT ACTIVE - ' + nm, v);
-      if (v.p.pull) add('ms' + id, 'ALARM', 'MANUAL STATION (DETECTION) - ' + nm, v);
-      // latched P is annunciated until someone resets it (signal class NEEDS PE REVIEW; supervisory here)
-      if (v.p.pLatch) add('pl' + id, 'SUPV', 'P LATCHED (' + DI.trimOf(v).sensor + ') - ' + nm, v);
+      const rs = DI.relState(W, v);
+      if (rs.sol) add('rl' + id, 'ALARM', 'RELEASE CIRCUIT ACTIVE - ' + nm, v);
+      if (v.p.pull) add('ms' + id, 'ALARM', (rs.mrz ? 'MANUAL RELEASE ZONE (BYPASSES P)' : 'MANUAL STATION (DETECTION)') + ' - ' + nm, v);
+      // A latched P is a release input whose signal class has not been elected: OPEN by default, alarm or
+      // trouble if the engineer elects it, never supervisory. Same signal on both trims (PSL-REL and PA-REL).
+      if (v.p.pLatch) { const cls = DI.sigClass(W, 'pLatch'); add('pl' + id, cls, (cls === 'OPEN' ? DI.OPEN_LABEL + ': ' : '') + 'P LATCHED (' + DI.trimOf(v).sensor + ') - ' + nm, v); }
+      // In a contract the Manual Release zone bypass is never a free setting: it shows as an impairment.
+      if (S.contract && DI.stationType(W, v) === 'MANUAL RELEASE') add('im' + id, 'SUPV', 'IMPAIRMENT - Manual Release zone bypasses P (' + nm + ')', v);
     }
   }
   for (const p of W.parts.values()) {
@@ -1304,13 +1483,17 @@ DI.alarmStep = function (S, dt) {
       if (p.type === 'epump' && !S.powered(p)) add('pp' + p.id, 'SUPV', nm + ' LOSS OF POWER', p);
       if (p.type === 'dpump') { if (q.failed) add('pf' + p.id, 'TRBL', nm + ' FAILED TO START', p); if (q.fuel < 0.667) add('fu' + p.id, 'SUPV', nm + ' LOW FUEL (below 2/3)', p); if (q.batt < 0.5) add('pb' + p.id, 'TRBL', nm + ' BATTERY FAILURE', p); }
     } else if (p.type === 'tank' && q.gal < 0.9 * q.cap) add('tl' + p.id, 'SUPV', 'FIRE WATER TANK LOW LEVEL (' + DI.fmt(100 * q.gal / q.cap) + '%)', p);
-    else if (p.type === 'panel' && !W.power) add('ac' + p.id, 'TRBL', q.alive ? 'PANEL AC FAIL - on standby battery (' + DI.fmt(q.battH, 1) + ' h)' : 'PANEL DEAD - battery exhausted', p);   // 24 h standby plus alarm is a simplification
+    else if (p.type === 'panel' && !W.power) {       // 24 h standby plus alarm is a simplification
+      if (q.alive) add('ac' + p.id, 'TRBL', 'PANEL AC FAIL - on standby battery (' + DI.fmt(q.battH, 1) + ' h)', p);
+      // ASSUMED simplification: the supervising station sees the loss of a dead panel and reports trouble
+      else add('pd' + p.id, 'TRBL', 'PANEL DEAD - battery exhausted (supervising station reports loss of signal)', p, true);
+    }
   }
   if (panels.length) for (const room of W.rooms) if (room.temp < 40 && room.type !== 'gen') add('lt' + room.id, 'SUPV', 'LOW TEMPERATURE - ' + room.name + ' (' + DI.fmt(room.temp) + ' F)', panels[0]);
   S.sig = sig;
   // fire department
   const fd = S.fd; let monAlarm = false;
-  for (const o of sig.values()) if (o.type === 'ALARM' && o.mon && !o.test) monAlarm = true;
+  for (const o of sig.values()) if (o.type === 'ALARM' && o.mon && !o.sup && !o.test) monAlarm = true;
   const live = S.live || (S.drill && !S.drill.done);        // while the site is under construction nothing is transmitted
   if (live && fd.called < 0 && (S.fires.length || !S.fd.log || S.t - S.fd.log.t > 1800) && (monAlarm || (S.fires.length && S.fires.some((k) => S.fq[k] > 300) && S.t - S.fireT0 > 900))) {
     fd.called = S.t; fd.log = { t: S.t, auto: monAlarm }; S.say(monAlarm ? 'Alarm transmitted. Fire department dispatched.' : 'A passer-by called 911. Fire department dispatched (late).', 'warn');
@@ -1336,16 +1519,77 @@ DI.alarmStep = function (S, dt) {
 
 DI.sendTech = function (S, roomId) { if (S.tech) return 'A technician is already on the way.'; S.tech = { room: roomId, at: S.t + 75 }; S.say('Technician dispatched to ' + S.W.rooms[roomId - 1].name + ' (about 75 s).', ''); return ''; };
 
+// Panel reset: clears the panel's own latches, then the next tick re-reads every input, so a live input
+// comes straight back. On an electric / electric trim P is a panel latch (PSL-REL) and clears here; if the
+// pipe is still below P trip it latches again at once. On an electric / pneumatic trim P sits at the
+// actuator and a panel reset cannot clear it (DI.resetTrimP). A panel reset never closes a tripped valve.
 DI.panelReset = function (S, panelId) {
-  const W = S.W; let held = 0;
+  const W = S.W, pn = W.parts.get(panelId); let held = 0, atTrim = 0;
   for (const w of W.wires) {
     if (w[0] !== panelId) continue; const d = W.parts.get(w[1]); if (!d) continue;
     if (d.type === 'vesda' || d.type === 'smoke') { if ((d.p.live || 0) >= (d.type === 'vesda' ? DI.FIRE1 : 1)) held++; d.p.lvl = d.p.live || 0; d.p.rel = false; }
-    // Manual reset: detection leg drops out and P unlatches. If the pipe is still below the P trip
-    // setpoint it latches again on the next tick. Simplification: both trims clear on a panel reset.
-    if (d.type === 'prev') { d.p.sol = false; d.p.pull = false; d.p.pLatch = false; }
+    if (d.type === 'mstn' && d.p.on) held++;
+    if (d.type === 'prev') {
+      d.p.sol = false; d.p.pull = false;
+      if (d.p.trim === 'el-el') d.p.pLatch = false; else if (d.p.pLatch) atTrim++;
+      S.act('reset-panel', d.id);
+    }
   }
-  S.say(held ? 'Panel reset, but ' + held + ' detector(s) are still in alarm.' : 'Panel reset. Normal.', held ? 'warn' : 'good');
+  if (pn) pn.p.silenced = false;
+  S.say((held ? 'Panel reset, but ' + held + ' detector(s) or manual station(s) are still in alarm.' : 'Panel reset.' + (atTrim ? '' : ' Normal.')) +
+    (atTrim ? ' P is still latched at the actuator of ' + atTrim + ' electric / pneumatic valve(s): reset it at the trim.' : ''), held || atTrim ? 'warn' : 'good');
+};
+// Silence: acknowledges the signals at the panel. Nothing is reset and nothing clears; a new signal resounds.
+DI.silence = function (S, panelId) {
+  const pn = S.W.parts.get(panelId); if (!pn || pn.type !== 'panel') return 'No panel.';
+  pn.p.silenced = true; S.act('silence', panelId); S.say('Panel silenced. Signals stay on the annunciator until they clear.', '');
+  return '';
+};
+// Is this signal silenced? Only by the panel that owns it: silencing one panel never quiets another panel's
+// signals, and a signal that reaches no panel (local only) cannot be silenced at all.
+DI.sigSilenced = function (W, o) {
+  const p = W.parts.get(o.part), pn = p ? (p.type === 'panel' ? p : W.panelOf(p.id)) : null;
+  return !!(pn && pn.p.silenced);
+};
+// The operator has found an operated or broken head (selecting its tile in the UI).
+DI.findHead = function (S, k) {
+  const sid = S.sysd.tileSys[k]; if (!(S.W.spk[k] >= 2) || !sid) return false;
+  if (!S.acts.some((a) => a.kind === 'find-head' && a.k === k && S.t - a.t < 5)) S.act('find-head', sid, { k });
+  return true;
+};
+
+// ---------- recovery score (Fire Tutor): the eight steps after an incident on a preaction system, in order.
+// A step that does not apply counts as done: no operated head, no panel, no control valve, or an electric /
+// electric trim (P is reset at the panel there, so there is no actuator to reset at the trim).
+// A panel or trim reset counts only once the air is back: an earlier one relatches P and scores nothing.
+DI.RECOVERY = [['silence', 'Silence the panel'], ['find-head', 'Find the operated head'], ['close-valve', 'Close the control valve'], ['drain', 'Open the system drain'],
+  ['replace-head', 'Replace the head with a matching one'], ['restore-air', 'Restore air / nitrogen'], ['reset-trim', 'Reset the actuator at the trim'], ['reset-panel', 'Reset the panel']];
+DI.RECOVERY_TARGET = 660;      // ASSUMED: time bonus target for contract 5, seconds from the incident to the last step
+// Score the latest incident on system `id`, or the first one at or after sim time `from`.
+DI.recoveryScore = function (S, id, from) {
+  const W = S.W, v = W.parts.get(id), A = S.acts; if (!v || v.type !== 'prev') return null;
+  const isInc = (a) => a.kind === 'incident' && a.id === id; let i0 = -1;
+  if (from !== undefined) i0 = A.findIndex((a) => isInc(a) && a.t >= from); else for (let i = A.length - 1; i >= 0; i--) if (isInc(A[i])) { i0 = i; break; }
+  if (i0 < 0) return null;
+  let i1 = A.length; for (let i = i0 + 1; i < A.length; i++) if (isInc(A[i])) { i1 = i; break; }
+  const win = A.slice(i0, i1), t0 = A[i0].t, pn = W.panelOf(id), gate = DI.ctrlValve(W, id);
+  const first = (kind, pid, after) => win.find((a) => a.kind === kind && a.id === pid && (after === undefined || a.t >= after));
+  const heads = win.some((a) => a.kind === 'head-open' && a.id === id), air = first('restore-air', id);
+  const steps = DI.RECOVERY.map(([kind, label]) => {
+    let na = false, a = null;
+    if (kind === 'silence') { na = !pn; a = pn && first(kind, pn.id); }
+    else if (kind === 'find-head' || kind === 'replace-head') { na = !heads; a = first(kind, id); }
+    else if (kind === 'close-valve') { na = !gate; a = gate && first(kind, gate.id); }
+    else if (kind === 'reset-trim') { na = v.p.trim !== 'el-pn'; a = air && first(kind, id, air.t); }
+    else if (kind === 'reset-panel') { na = !pn; a = air && first(kind, id, air.t); }
+    else a = first(kind, id);
+    return { kind, label, na, done: na || !!a, t: !na && a ? a.t : null };
+  });
+  let inOrder = true, last = -Infinity;
+  for (const st of steps) if (st.t !== null) { if (st.t < last) inOrder = false; last = Math.max(last, st.t); }
+  const done = steps.filter((st) => st.done).length, complete = done === steps.length;
+  return { id, t0, why: A[i0].why, steps, done, total: steps.length, complete, inOrder, closed: win.some((a) => a.kind === 'in-service' && a.id === id),
+    time: complete ? Math.max(t0, last) - t0 : null };
 };
 
 </script>
@@ -1367,10 +1611,12 @@ DI.Sim = class {
     this.fd = { called: -1, onScene: -1 };  // fire department
     this.stats = { fireLoss: 0, waterLoss: 0, smokeLoss: 0, gallons: 0 };
     this.procs = []; this.results = [];     // running test procedures / finished test reports
+    this.acts = [];                         // operator / recovery log: { t, kind, id }, read by DI.recoveryScore
     this.genT = -1;                         // standby generator: time utility was lost
     DI.fireInit(this);
     this.sync();
   }
+  act(kind, id, x) { this.acts.push(Object.assign({ t: this.t, kind, id }, x || {})); if (this.acts.length > 400) this.acts.shift(); }
   say(text, cls) { this.log.push({ t: this.t, text, cls: cls || '' }); if (this.log.length > 200) this.log.shift(); DI.bus.emit('log', text, cls); }
   // re-discover systems after any map edit; keep state of valves that still exist
   sync() {
@@ -1463,7 +1709,9 @@ DI.Sim = class {
         if (!q.on && q.auto && pw && ps < q.start) { q.on = true; q.starts++; q.lastStart = this.t; }
         else if (q.on && (ps >= q.stop || !pw || !q.auto)) q.on = false;
       } else if (p.type === 'gate') {
+        const was = q.open;
         if (q.open !== q.target) q.open = q.target > q.open ? Math.min(q.target, q.open + dt / 4) : Math.max(q.target, q.open - dt / 4);
+        if (was > 0.02 && q.open <= 0.02) this.act('close-valve', p.id);
       } else if (p.type === 'tank') {
         if (q.gal < q.cap && q.fill > 0) q.gal = Math.min(q.cap, q.gal + q.fill * dt / 60);
       }
@@ -1534,13 +1782,14 @@ DI.Sim.prototype.warp = function (sec, maxMs) {
 };
 
 // Save / load of the dynamic state that matters (pressures re-settle on load).
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref'];
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
-  return { t: this.t, ss, results: this.results.slice(-60), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
+  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(-300), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
 };
 DI.Sim.prototype.restore = function (j) {
   for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) Object.assign(s, o); }
+  this.acts = j.acts || [];
   // a save from before the maker-trim setpoints: bring a set system up to its new normal pressure so the
   // migrated valve does not come back sitting on its P trip point
   for (const [id, s] of this.ss) {
@@ -1580,7 +1829,12 @@ DI.hydCalc = function (S, id) {
   const inf = S.sysd.info.get(id); if (!inf || inf.remote < 0) return { ok: false, err: 'No sprinklers on this system.' };
   let worst = null; const rooms = inf.rooms.size ? [...inf.rooms] : [0];
   for (const rm of rooms) { const r = DI.hydCalcRoom(S, id, rm); if (!r.ok) return r; r.margin = r.minQ / r.need; if (!worst || r.margin < worst.margin) worst = r; }
-  worst.pass = worst.pass && worst.margin >= 0.999; return worst;
+  worst.pass = worst.pass && worst.margin >= 0.999;
+  // The calc checks hydraulics only. Coverage stays in plan review, so the result carries a flag and the UI
+  // never shows an unqualified PASS over a room that is not fully sprinklered.
+  worst.covOk = [...inf.rooms].every((rm) => { const room = S.W.rooms[rm - 1]; if (room.exempt || DI.ROOMS[room.type].open) return true; const c = DI.roomCoverage(S.W, S.sysd, room); return c.have >= c.need && !c.orphan; });      // a head on no riser protects nothing
+  worst.verdict = !worst.pass ? 'FAIL' : worst.covOk ? 'PASS' : 'PASS (hydraulics only); coverage FAIL, see plan review';
+  return worst;
 };
 
 DI.hydCalcRoom = function (S, id, rm) {
@@ -1629,13 +1883,9 @@ DI.review = function (S) {
   const add = (sev, text, ref, x, y) => out.push({ sev, text, ref: ref || '', x, y });
   // --- coverage
   for (const room of W.rooms) {
-    const rt = DI.ROOMS[room.type]; let need = 0, have = 0, orphan = 0;
+    const rt = DI.ROOMS[room.type];
     if (room.exempt || rt.open) { room.cov = 1; continue; }
-    for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
-      const k = W.k(x, y); if (W.partAt[k]) continue; need++;
-      if (W.spk[k]) { have++; if (!sd.tileSys[k]) orphan++; }
-      else if (W.pd[k] && (W.spk[k - 1] || W.spk[k + 1] || W.spk[k - W.w] || W.spk[k + W.w])) have++;   // a main between branch lines
-    }
+    const { need, have, orphan } = DI.roomCoverage(W, sd, room);
     room.cov = need ? have / need : 1;
     if (have < need) add('fail', room.name + ': ' + (need - have) + ' of ' + need + ' tiles have no sprinkler (' + DI.fmt(100 * room.cov) + '% covered).', 'NFPA 13 Ch. 9: sprinklers throughout the premises', room.x, room.y);
     if (orphan) add('fail', room.name + ': ' + orphan + ' sprinklers are not connected to any system riser.', '', room.x, room.y);
@@ -1656,11 +1906,14 @@ DI.review = function (S) {
     if (dry) {
       if (inf.gridded) add('fail', nm + ': piping is gridded (looped). Dry and double-interlock preaction systems must not be gridded - air cannot be driven out one way. Give every branch line a dead end (Cap tool, 6).', R(J.nfpa13 === 2025 ? '§8.2.1, §8.3' : '§8.2, §8.3'), v.x, v.y);
       if (!inf.src.length) add('fail', nm + ': no air compressor or nitrogen generator is tubed to the valve.', R('§8.2 / §8.3'), v.x, v.y);
-      const lim = v.type === 'dryv' && v.p.qod ? 750 : 500;
-      if (inf.vol > lim) add('warn', nm + ': ' + DI.fmt(inf.vol) + ' gal exceeds ' + lim + ' gal, so it must prove water delivery by trip test (60 s).', v.type === 'prev' ? J.ref.di : J.ref.delivery, v.x, v.y);
+      // water delivery: one row per limit that applies, judged on full zone volume (pipe + fittings + trim)
+      const dl = DI.deliveryLimits(S, id), vols = 'zone volume ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')';
+      if (dl.nfpa.limit !== null) add('warn', nm + ': ' + vols + ' is over ' + dl.nfpa.thr + ' gal. Prove delivery with the ' + dl.nfpa.limit + ' s timed trip test, or rezone into smaller systems.' +
+        (v.type === 'prev' ? ' A quick-opening device does not extend the ' + dl.nfpa.thr + ' gal on double interlock.' : ''), dl.nfpa.ref, v.x, v.y);
+      if (dl.fm.limit !== null) add('info', nm + ': insurer is FM, so water must reach the inspector’s test in ' + dl.fm.limit + ' s at any volume (' + vols + '). The most stringent limit governs. NEEDS PE REVIEW.', DI.DELIVERY.fmRef + ' (site setting)', v.x, v.y);
       if (v.type === 'prev') {
         const pn = W.panelOf(id);
-        if (!pn) add('fail', nm + ': solenoid is not wired to a releasing panel. The valve can never open on its own.', R('§8.3, NFPA 72'), v.x, v.y);
+        if (!pn) add('fail', nm + ': solenoid is not wired to a releasing panel. The valve can never open on its own.' + (v.p.trim === 'el-el' ? ' P is latched in the panel; wire the valve to a panel to reset it.' : ''), R('§8.3, NFPA 72'), v.x, v.y);
         else {
           // only detectors that can act as the detection leg count: aspirating anywhere, spot only in support rooms
           for (const r of inf.rooms) {
@@ -1686,8 +1939,26 @@ DI.review = function (S) {
     if (!W.panelOf(id)) add('warn', nm + ': waterflow alarm is not wired to a panel. Nobody off-site will know it is flowing.', R('Ch. 16, NFPA 72'), v.x, v.y);
   }
   // --- site settings
-  const thr = DI.detThr(W);
+  const thr = DI.detThr(W), LA = DI.LISTED.vesda, LS = DI.LISTED.smoke, spot = DI.spotThr(W), listed = 'Device listing; NFPA 72 Ch. 14 (ITM)';
   if (!thr.every((t, i) => isFinite(t) && t > 0 && (i === 0 || t > thr[i - 1]))) add('fail', 'Aspirating detection thresholds are not strictly increasing (' + thr.join(' / ') + '). They must run Alert < Action < Fire 1 < Fire 2.', 'Site setting (example values)', 0, 0);
+  // Fire 1 and Fire 2 must sit inside the listed sensitivity window of the detector model
+  [['Fire 1', thr[2]], ['Fire 2', thr[3]]].forEach(([n, t]) => { if (!(t >= LA.min && t <= LA.max)) add('fail', 'Aspirating ' + n + ' threshold ' + t + ' %/ft is outside the listed window of the detector (' + LA.min + ' to ' + LA.max + ' %/ft' + (LA.assumed ? ', ASSUMED placeholder' : '') + ').', listed, 0, 0); });
+  if (!(spot >= LS.min && spot <= LS.max)) add('fail', 'Spot detector alarm threshold ' + spot + ' %/ft is outside the listed window of the detector (' + LS.min + ' to ' + LS.max + ' %/ft, example data).', listed, 0, 0);
+  if (J.nfpa76Adopted) {
+    const P76 = DI.PRESETS.nfpa76;
+    if (thr[0] > P76.alert) add('fail', 'NFPA 76 is adopted on this site: Alert must be ' + P76.alert + ' %/ft or less (it is ' + thr[0] + ').', 'NFPA 76-2024 §8.5.3.1.2.5', 0, 0);
+    if (thr[2] > P76.fire1) add('fail', 'NFPA 76 is adopted on this site: Fire 1 must be ' + P76.fire1 + ' %/ft or less (it is ' + thr[2] + ').', 'NFPA 76-2024 §8.5.3.1.2.5', 0, 0);
+  }
+  // signal classes: a latched P may be OPEN (not elected), alarm or trouble, never supervisory
+  const sc = (W.cfg && W.cfg.sigClass) || {};
+  for (const k of Object.keys(DI.SIG_CLASS)) if (sc[k] !== undefined && !DI.SIG_CLASS[k].includes(sc[k]))
+    add('fail', k === 'pLatch' ? 'Signal class of a latched P is set to ' + sc[k] + '. Supervisory is blocked for the release input: elect alarm or trouble, or leave it not elected. NEEDS PE REVIEW.' : 'Signal class of the ' + k + ' stage is set to ' + sc[k] + '. It must be supervisory or alarm.', 'Site setting; NFPA 72 (signal classification)', 0, 0);
+  // manual release stations
+  for (const p of W.byType('mstn')) {
+    const pn = W.panelOf(p.id), r = W.roomAt[W.k(p.x, p.y)];
+    if (!pn) add('warn', 'Manual release station #' + p.id + ' is not wired to a releasing panel. Operating it does nothing.', 'NFPA 72', p.x, p.y);
+    else if (![...sd.info.values()].some((i) => i.type === 'prev' && r && i.rooms.has(r) && W.panelOf(i.id) === pn)) add('warn', 'Manual release station #' + p.id + ' is not in a room protected by a preaction valve on its panel. It raises the alarm and releases nothing.', 'NFPA 72', p.x, p.y);
+  }
   // --- valves, supply, pumps
   for (const p of W.parts.values()) {
     if (p.type === 'gate' && !W.panelOf(p.id)) add('warn', 'Control valve #' + p.id + ' has no tamper switch wired to a panel.', R('Ch. 16: valve supervision'), p.x, p.y);
@@ -1724,12 +1995,17 @@ DI.review = function (S) {
 // Commissioning / ITM test procedures. Each one drives the real simulation and reads the real gauges.
 var DI = globalThis.DI || (globalThis.DI = {});
 
+// 24 h dry air leakage test: about 40 psi test pressure, allowed drop 1.5 psi in 24 h.
+// VERIFY the section and the values against the enforced edition before citing them in game text.
+DI.AIR_TEST = { psi: 40, drop: 1.5 };
+
 DI.startTest = function (S, kind, id) {
   const W = S.W, v = W.parts.get(id), s = S.ss.get(id);
   if (S.procs.some((p) => p.id === id)) return 'A test is already running on this equipment.';
   const pr = { kind, id, t0: S.t, stage: 0, ts: S.t, pts: [] };
   if (kind === 'trip') {
     if (!s || s.state !== 'dry' || !s.set) return 'Valve must be set and pressurized before a trip test.';
+    if (v.type === 'prev' && v.p.pLatch) return 'P is latched. The timed test starts from normal air with P clear: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + ' first.';
     if (v.type === 'prev') {       // the test operates detection through the panel; P comes from the open inspector's test
       const pn = W.panelOf(id); if (!pn || pn.p.alive === false) return 'Wire the valve to a live releasing panel first. The trip test operates detection through it.';
       v.p.sol = true; pr.rel = true;
@@ -1762,14 +2038,17 @@ DI.testStep = function (S, dt) {
     let res = null;
     if (!v) { S.procs.splice(i, 1); continue; }
     if (pr.kind === 'trip') {
-      const inf = S.sysd.info.get(pr.id), lim = v.type === 'dryv' && v.p.qod ? 750 : 500, exempt = inf.vol <= lim;
       if (s.waterT > 0 || el > 240) {
-        const tw = s.waterT > 0 ? s.waterT - pr.t0 : -1, tt = s.tripT > 0 ? s.tripT - pr.t0 : -1;
-        res = { pass: tw > 0 && (exempt || tw <= 60), title: 'Full-flow trip test', lines: [
-          'System volume: ' + DI.fmt(inf.vol) + ' gal',
+        // measured delivery against every limit that applies on this site; the most stringent one governs
+        const tw = s.waterT > 0 ? s.waterT - pr.t0 : -1, tt = s.tripT > 0 ? s.tripT - pr.t0 : -1, dl = DI.deliveryLimits(S, pr.id, tw);
+        const lines = ['Zone volume: ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')',
           tt > 0 ? 'Valve tripped: ' + DI.fmt(tt, 1) + ' s' : 'Valve DID NOT TRIP in 240 s',
           tw > 0 ? 'Water at inspector’s test: ' + DI.fmt(tw, 1) + ' s' : 'No water at the inspector’s test',
-          exempt ? 'Limit: none (' + lim + ' gal or less)' : 'Limit: 60 s (system over ' + lim + ' gal)'], val: tw, trip: tt };
+          dl.nfpa.rule, dl.fm.rule,
+          dl.governing === null ? 'Governing: no time limit applies' : 'Governing: ' + dl.by + ' ' + dl.governing + ' s' + (dl.margin !== null ? ', margin ' + (dl.margin >= 0 ? '+' : '−') + DI.fmt(Math.abs(dl.margin), 1) + ' s' : '')];
+        if (dl.nfpa.limit !== null) { const hz = DI.sysHazard(W, S.sysd.info.get(pr.id)); lines.push('Calc / table alternative: ' + DI.HAZ[hz].name + ' ' + DI.DELIVERY.table[hz] + ' s, not modelled [' + DI.juris.ref.table + ']'); }
+        res = { pass: tw > 0 && (dl.governing === null || tw <= dl.governing), title: 'Full-flow trip test', lines, gov: 5, val: tw, trip: tt,
+          zone: dl.zone, pipe: dl.pipe, governing: dl.governing, by: dl.by, margin: dl.margin, nfpa: dl.nfpa.limit, fm: dl.fm.limit };
         v.p.itc = 0; S.touch();
       }
     } else if (pr.kind === 'itc') {
@@ -1812,7 +2091,9 @@ DI.testStep = function (S, dt) {
     } else if (pr.kind === 'leak') {
       if (el >= 86400 || s.state !== 'dry') {
         const loss = pr.p0 - s.P; v.p.airValve = 1;
-        res = { pass: s.state === 'dry' && loss <= 1.5, title: '24-hour air leakage test', val: loss, lines: ['Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi', 'Loss: ' + DI.fmt(loss, 2) + ' psi in 24 h (limit 1.5 psi)'] };
+        // the report is about air only: start, end and the drop against the allowed loss. A latched release
+        // input is a panel matter and goes to the panel event log, not here.
+        res = { pass: s.state === 'dry' && loss <= DI.AIR_TEST.drop, title: '24-hour air leakage test', val: loss, lines: ['Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi', 'Drop: ' + DI.fmt(loss, 2) + ' psi in 24 h, allowed ' + DI.AIR_TEST.drop + ' psi'] };
       }
     } else if (pr.kind === 'run') {
       if (v.p.failed || (el > 40 && v.p.spd < 0.5)) res = { pass: false, title: 'Weekly churn run', lines: ['Pump failed to start.'] };
@@ -1849,6 +2130,20 @@ DI.mk = function (W) {
   return b;
 };
 
+// Build a fresh world and sim for a scenario: the map, the budget, the site settings the contract fixes
+// (sc.cfg, optional: basis of design set by the AHJ, the owner and the insurer) and the plant commissioned.
+// `cfg` adds settings on top, for tests and what-if runs.
+DI.buildScenario = function (sc, cfg) {
+  const W = new DI.World(sc.w, sc.h); sc.build(W); W.money = sc.money;
+  Object.assign(W.cfg, JSON.parse(JSON.stringify(sc.cfg || {})), JSON.parse(JSON.stringify(cfg || {})));
+  const S = new DI.Sim(W); S.contract = !sc.sandbox; S.commission(); if (sc.start) sc.start(S);
+  DI.simFlags(S, sc);
+  return { W, S };
+};
+// live = the site transmits to the fire department outside drills (sandbox only). contract = site settings
+// are fixed, and a Manual Release zone bypass shows as an impairment.
+DI.simFlags = function (S, sc) { S.live = !!sc.sandbox; S.contract = !sc.sandbox; };
+
 // --- goal helpers (all read live state)
 DI.G = {
   covered: (S, types) => S.W.rooms.filter((r) => !types || types.includes(r.type)).every((r) => (r.cov === undefined ? 0 : r.cov) >= 0.999),
@@ -1861,6 +2156,15 @@ DI.G = {
   test: (S, kind, type) => DI.G.each(S, type, (v, inf, s, id) => { const r = DI.lastResult(S, kind, id); return !!r && r.pass; }),
   anyTest: (S, kind, ptype) => S.results.some((r) => r.kind === kind && r.pass && (!ptype || (S.W.parts.get(r.id) || {}).type === ptype)),
   wired: (S, types) => [...S.W.parts.values()].filter((p) => types.includes(p.type)).every((p) => S.W.panelOf(p.id)),
+  // the latest incident on every preaction system serving rooms of `type` was recovered completely and in order
+  recovered: (S, type) => DI.G.each(S, type, (v, inf, s, id) => { const r = DI.recoveryScore(S, id); return !!r && r.complete && r.inOrder; }),
+};
+// Recovery score of the first incident of the running drill, as report lines for DI.lossJudge (informational).
+DI.drillRecovery = function (S, what) {
+  const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), r = a ? DI.recoveryScore(S, a.id, S.drill.t0) : null; if (!r) return [];
+  const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase());
+  return [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
+    [r.time !== null && r.time <= DI.RECOVERY_TARGET, 'Time bonus: ' + (r.time !== null ? 'recovered in ' + DI.dur(r.time) : 'recovery not finished') + ', target ' + DI.dur(DI.RECOVERY_TARGET) + ' (ASSUMED, informational)', true]];
 };
 
 // --- drills: timed scripts of incidents. step = [secondsFromStart, fn(S), optional banner]
@@ -1897,7 +2201,8 @@ DI.X = {
 DI.lossJudge = (limit, extra) => (S) => {
   const loss = S.stats.fireLoss + S.stats.waterLoss + S.stats.smokeLoss, lines = [], ex = extra ? extra(S) : [];
   let pass = loss <= limit && !S.fires.length;
-  for (const [ok, txt] of ex) { lines.push((ok ? '✓ ' : '✗ ') + txt); if (!ok) pass = false; }
+  // [ok, text] decides the drill; [ok, text, true] is informational (a star when earned) and never fails it
+  for (const [ok, txt, info] of ex) { lines.push((info ? (ok ? '★ ' : '• ') : ok ? '✓ ' : '✗ ') + txt); if (!ok && !info) pass = false; }
   lines.push((loss <= limit ? '✓ ' : '✗ ') + 'Total loss ' + DI.money(loss) + ' (limit ' + DI.money(limit) + ')');
   return { pass, lines, limit };
 };
@@ -1936,7 +2241,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'comp', 'panel'],
     brief: ['The staging area is sprinklered and warm. The loading dock next to it is neither. Dock doors stand open all winter, and water in pipe at 20 °F becomes a pipe bomb with a delay fuse.',
       'A dry pipe system keeps the dock piping full of compressed air. A differential clapper holds the water back with roughly one-sixth the pressure. When a sprinkler opens the air has to get out of the way first, and the fire keeps growing while it does. Everything about dry pipe design is managing that delay.'],
-    learn: ['Differential dry valve: trips near water pressure ÷ 5.5, so air is set ~20 psi above that', 'Delay costs area: design area +30%, no gridding, 60 s water delivery above 500 gal (750 with an accelerator)', 'Compressor must refill the system in 30 minutes', 'Impairment: what to do, in order, after a trip'],
+    learn: ['Differential dry valve: trips near water pressure ÷ 5.5, so air is set ~20 psi above that', 'Delay costs area: design area +30%, no gridding, 60 s water delivery above 500 gal of zone volume (750 with an accelerator)', 'Compressor must refill the system in 30 minutes', 'Impairment: what to do, in order, after a trip'],
     build(W) {
       const b = DI.mk(W); const rr = W.addRoom('riser', 8, 8, 4, 6); rr.exempt = true; W.addRoom('stor', 12, 6, 12, 10); W.addRoom('dock', 24, 6, 22, 10);
       b.p('city', 2, 11, 0, { stat: 78, resid: 60, flow: 1400, fixed: true }); b.h(3, 4, 11, 7);
@@ -1950,7 +2255,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'The dock is on a dry pipe valve, and review finds no code failures', ok: (S) => G.each(S, 'dock', (v) => v.type === 'dryv') && G.noFails(S), hint: 'Wet pipe may not pass through an unheated room. Dry systems may not be gridded: every branch line needs a dead end.' },
       { t: 'Compressor brings the system up to pressure in 30 minutes or less', ok: (S) => G.each(S, 'dock', (v, i, s) => s.set && s.fillTime > 0 && s.fillTime <= 1800), hint: 'Tube a compressor to the dry valve (Air tool, 4). Too slow? Bigger compressor or smaller system.' },
       { t: 'Hydraulic calc passes: 0.20 gpm/ft² over 1,950 ft² (1,500 + 30%) + 250 gpm hose', ok: (S) => G.calcOk(S, 'dock'), hint: 'All pipe is calculated at C = 100, and the dry design area is 30% bigger. Expect larger pipe than the wet side.' },
-      { t: 'Full-flow trip test passes', ok: (S) => G.test(S, 'trip', 'dock'), hint: 'Select the dry valve. Over 500 gal the water must reach the inspector’s test in 60 s. An accelerator raises the limit to 750 gal.' },
+      { t: 'Full-flow trip test passes', ok: (S) => G.test(S, 'trip', 'dock'), hint: 'Select the dry valve. Zone volume counts fittings and trim on top of the pipe. Over 500 gal the water must reach the inspector’s test in 60 s. An accelerator raises the limit to 750 gal.' },
       { t: 'Low air and waterflow report to the panel; system reset and back in service', ok: (S) => G.each(S, 'dock', (v, i, s, id) => !!S.W.panelOf(id) && s.state === 'dry' && s.set), hint: 'After the trip test: close the control valve, open the system drain, reset the clapper, let the air build, reopen the valve.' },
     ],
     drill: { name: 'Cold Snap', len: 7800, steps: () => [
@@ -2043,10 +2348,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   DI.SCEN.push({
     id: 'c5', name: 'Double Interlock', tag: 'Preaction, VESDA, releasing panel', w: 64, h: 36, money: 430000, par: 345000,
-    parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'prev', 'comp', 'panel', 'vesda', 'smoke'],
+    parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'prev', 'comp', 'panel', 'vesda', 'smoke', 'mstn'],
     brief: ['Data Hall 1: 48,000 square feet and nine figures of servers. The owner wants sprinklers, because a fire that is not stopped takes the whole building. The owner is also terrified of water.',
       'Double interlock preaction answers both. The pipe is dry and held under supervisory pressure. Water is admitted only when two independent things have happened: detection has reached Fire 1 (or someone has operated the manual station) AND P, the pipe pressure falling below the P trip setpoint. A broken sprinkler alone gives P and no water. A false detection alone energizes the solenoid and no water. P stays latched until you reset it, so a broken sprinkler that was replaced but never reset still counts.'],
-    learn: ['The two interlocks: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint)', 'Aspirating detection stages: Alert is supervisory, Action is a pre-alarm, Fire 1 releases, Fire 2 only escalates', 'System size: 60 s water delivery above 500 gal, +30% design area, no gridding', 'Low air is a warning, P is a latch: after every repair, reset the panel or one detection event floods the room', 'One control valve per system, so an impairment stays small'],
+    learn: ['The two interlocks: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint)', 'Aspirating detection stages: Alert is supervisory, Action is a pre-alarm, Fire 1 releases, Fire 2 only escalates', 'System size: zone volume counts pipe, fittings and trim. Over 500 gal a double-interlock zone must pass the 60 s timed trip test, or be rezoned. +30% design area, no gridding', 'Low air is a warning, P is a latch: after every repair restore the air first, then reset, or one detection event floods the room', 'Recovery in order: silence, find the head, close the valve, drain, replace the head, restore air, reset the trim, reset the panel', 'One control valve per system, so an impairment stays small'],
     build(W) {
       const b = DI.mk(W); W.addRoom('riser', 15, 10, 6, 8).exempt = true; W.addRoom('hall', 22, 5, 30, 16); W.addRoom('elec', 22, 22, 12, 7);
       b.p('city', 2, 14, 0, { stat: 135, resid: 115, flow: 2500, fixed: true, loop: true, label: 'Campus Fire Loop' }); b.h(3, 12, 14, 8); b.p('gate', 13, 14); b.h(14, 16, 14, 8);
@@ -2056,15 +2361,18 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'Both rooms on double-interlock preaction, with no code failures', ok: (S) => di(S, ['hall', 'elec']) && G.noFails(S), hint: 'Each preaction valve needs supervisory air, a releasing panel, and detection in every room it serves.' },
       { t: 'Releasing panel wired: detection, every solenoid, every tamper switch', ok: (S) => S.W.byType('prev').length > 0 && G.wired(S, ['prev', 'gate', 'vesda', 'smoke']), hint: 'Wire tool: panel first, then each device.' },
       { t: 'Hydraulic calc passes on every system: 0.15 gpm/ft² over 1,950 ft² + 250 gpm hose', ok: (S) => G.calcOk(S, 'hall') && G.calcOk(S, 'elec'), hint: 'Feed the hall from the middle so no branch line is long.' },
-      { t: 'Trip test passes on every preaction valve', ok: (S) => G.test(S, 'trip', 'hall') && G.test(S, 'trip', 'elec'), hint: 'Over 500 gal the water has 60 s to reach the far end. Split the hall into more than one system if it cannot.' },
-      { t: 'All systems reset, pressurized and in service', ok: (S) => inService(S, ['hall', 'elec']), hint: 'Close control valve, drain, panel reset, reset the valve, air up, reopen. A valve showing P LATCHED is not in service: reset the panel once the air is back. Give each preaction valve its own control valve, or restoring one system takes all of them out of service.' },
+      { t: 'Trip test passes on every preaction valve', ok: (S) => G.test(S, 'trip', 'hall') && G.test(S, 'trip', 'elec'), hint: 'Zone volume counts fittings and trim on top of the pipe (the valve shows both). Over 500 gal a double-interlock zone must put water at the inspector’s test in 60 s, and a quick-opening device does not extend the 500 gal. Pass the timed test or rezone the hall into more systems.' },
+      { t: 'Recovery done in order after the trip test on every preaction valve', ok: (S) => G.recovered(S, 'hall') && G.recovered(S, 'elec'), hint: 'In this order: silence the panel, close the control valve, open the system drain, reset the panel so detection drops out, reset the valve at the riser, let the air build, reset the actuator at the trim (electric / pneumatic only), then reset the panel. Out of order? Run that trip test again and restore it in order.' },
+      { t: 'All systems reset, pressurized and in service', ok: (S) => inService(S, ['hall', 'elec']), hint: 'A valve showing P LATCHED is not in service. P clears only after the air is back: at the panel on an electric / electric trim, at the actuator on electric / pneumatic. An earlier reset latches straight back. Give each preaction valve its own control valve, or restoring one system takes all of them out of service.' },
     ],
-    drill: { name: 'Three Bad Days', len: 4200, steps: () => [
+    // The false alarm comes after the 30-minute air-restore window, so a recovery done in order has time to
+    // finish. No hard timer: an unfinished recovery still floods the hall when the false alarm arrives.
+    drill: { name: 'Three Bad Days', len: 5600, steps: () => [
       [10, X.smash('hall', 0.3, 0.3), 'A contractor’s ladder just snapped a sprinkler off in the data hall.'],
-      [660, X.falseAlarm('hall'), 'Construction dust is being pulled into a VESDA sampling pipe.'],
-      [1480, mark], [1500, X.fire('hall', 0.65, 0.6, 240), 'Something in row 14 smells hot.'],
-      [2700, X.fire('elec', 0.5, 0.5, 0, 1.5), 'Arc flash in a switchboard in the electrical room.']],
-      judge: DI.lossJudge(4500000, (S) => [[(S.drill.g0 || 0) < 5, 'No water on the IT load from the broken sprinkler or the false alarm']]) },
+      [2100, X.falseAlarm('hall'), 'Construction dust is being pulled into a VESDA sampling pipe.'],
+      [2900, mark], [2920, X.fire('hall', 0.65, 0.6, 240), 'Something in row 14 smells hot.'],
+      [4100, X.fire('elec', 0.5, 0.5, 0, 1.5), 'Arc flash in a switchboard in the electrical room.']],
+      judge: DI.lossJudge(4500000, (S) => [[(S.drill.g0 || 0) < 5, 'No water on the IT load from the broken sprinkler or the false alarm']].concat(DI.drillRecovery(S, 'the broken sprinkler'))) },
   });
 
   DI.SCEN.push({
@@ -2165,27 +2473,33 @@ DI.MANUAL = [
   { id: 'dry', t: 'Dry pipe systems', h: `<p>For spaces that freeze: docks, canopies, unheated mechanical yards. The pipe holds compressed air or nitrogen. A <b>differential dry pipe valve</b> has a clapper with a large air seat and a small water seat, so a little air holds back a lot of water, roughly 5.5 to 1.</p>
 <ul><li><b>Trip point</b> &asymp; water pressure &divide; 5.5. Air is normally set about 20 psi above it. Remember that a fire pump raises the water pressure, and so the trip point.</li>
 <li><b>The delay is the problem.</b> Air must bleed down to the trip point, then water has to push the rest of the air out through one sprinkler.</li>
-<li><b>Size limits (NFPA 13-2025 &sect;8.2.4):</b> up to 500 gal needs no delivery test; up to 750 gal with a listed quick-opening device (accelerator). Above that, water must reach the inspector&rsquo;s test in 60 s, or meet the calculated delivery table (ordinary hazard: 2 sprinklers, 50 s).</li>
+<li><b>Size limits (NFPA 13-2025 &sect;8.2.4; in 2019 &sect;8.2.3.2 to &sect;8.2.3.4):</b> up to 500 gal needs no delivery test; up to 750 gal with a listed quick-opening device (accelerator). Above that, water must reach the inspector&rsquo;s test in 60 s. The calculation / table route (2025 Table 8.2.4.3.2: light 60, ordinary 50, extra 45, high-piled storage 40 s) is shown on the test report for information and is not modelled.</li>
+<li><b>Zone volume is what counts:</b> pipe plus a fittings allowance plus the valve trim (5 % and 2 gal by default, both ASSUMED project settings). The valve and the trip-test report show the pipe-only figure beside it. A system that reads 498 gal of pipe is a 525 gal zone.</li>
+<li><b>Insurer overlay:</b> where the site insurer is FM, dry and double-interlock systems must deliver in 30 s at any volume (FM DS 5-32, NEEDS PE REVIEW). The most stringent limit governs, and the report shows the NFPA limit, the FM limit, the governing one and the margin in seconds.</li>
 <li><b>Design area +30%</b> with no density reduction, because the fire is bigger when the water arrives (Ch. 19).</li>
 <li><b>No gridding</b> (&sect;8.2.1). Air cannot be swept out of a loop.</li>
 <li><b>C-factor 100.</b> Company rule for all sprinkler pipe. Nitrogen protects the pipe and earns no C-factor credit.</li>
 <li><b>Air supply</b> must restore normal pressure in 30 minutes. Low-air and high-air supervisory setpoints are set on each valve (30 and 50 psi around a 40 psi normal by default).</li>
-<li><b>Acceptance air test:</b> 40 psi for 24 hours, lose no more than 1.5 psi.</li>
+<li><b>Acceptance air test:</b> about 40 psi for 24 hours, lose no more than 1.5 psi. The report gives start pressure, end pressure and the drop against the allowed loss. (Verify the section and the values against the adopted edition before quoting them.)</li>
 <li>Pipe is pitched back to drain; low points get drum drips that someone has to empty before winter.</li></ul>
 <p>A dry system does <b>not</b> protect against accidental discharge. Break a sprinkler and the valve trips.</p>` },
   { id: 'pre', t: 'Preaction systems', h: `<p>A deluge-type valve, closed sprinklers, supervisory gas in the pipe and a detection system. This game builds one kind only: <b>double interlock</b>. Water enters the pipe when two things are both true.</p>
-<table><tr><th>Leg</th><th>True when</th><th>Held by</th></tr><tr><td><b>D</b> detection</td><td>aspirating detection reaches <b>Fire 1</b>, or one listed spot detector alarms in an electrical / UPS room, or someone operates the panel manual station (typed DETECTION)</td><td>the releasing panel, which energizes the solenoid</td></tr>
-<tr><td><b>P</b> pressure</td><td>pipe pressure falls below the <b>P trip</b> setpoint</td><td>a latch, until someone resets it</td></tr></table>
+<table><tr><th>Leg</th><th>True when</th><th>Held by</th></tr><tr><td><b>D</b> detection</td><td>aspirating detection is at or above <b>Fire 1</b> (a level check, so a jump straight to Fire 2 is D), or one listed spot detector alarms in an electrical / UPS room, or someone operates a manual release station wired to the panel (typed DETECTION)</td><td>a latch in the releasing panel</td></tr>
+<tr><td><b>P</b> pressure</td><td>pipe pressure falls below the <b>P trip</b> setpoint</td><td>a latch, until someone resets it where that trim holds it</td></tr></table>
 <p><b>Release = D AND P.</b> A broken sprinkler alone gives P and no water. A false detection alone gives D and no water.</p>
 <ul><li><b>P is a threshold, not a cause.</b> The sensor reads pipe pressure and nothing else. An open sprinkler, an open inspector&rsquo;s test and a broken pipe all look the same to it: any opening big enough to beat the compressor. A slow leak the compressor keeps up with never reaches P trip and gives a low-air supervisory only.</li>
-<li><b>The trim decides the sensor.</b> Electric / electric trim reads P with a pressure switch (PSL-REL). Electric / pneumatic trim reads it with a pneumatic actuator (PA-REL).</li>
+<li><b>The trim decides the sensor, the solenoid and the reset.</b>
+<table><tr><th>Trim</th><th>P sensed by</th><th>Solenoid energized on</th><th>Valve opens on</th><th>P is reset</th></tr><tr><td>Electric / electric</td><td>pressure switch PSL-REL, latched in the panel</td><td>D AND P</td><td>D AND P</td><td>at the releasing panel</td></tr>
+<tr><td>Electric / pneumatic</td><td>pneumatic actuator PA-REL, at the valve</td><td>D alone</td><td>D AND P</td><td>at the actuator, at the trim</td></tr></table></li>
+<li><b>Resetting.</b> A panel reset clears the panel&rsquo;s latches and then reads every input again, so a live input comes straight back. On electric / electric, P clears with the panel reset once the pipe is back above P trip; reset earlier and it latches again. On electric / pneumatic a panel reset cannot clear P: restore the air, then reset the actuator at the trim. On both trims a tripped valve is reset by hand at the riser, a panel reset never closes it, and the riser reset never clears P.</li>
 <li><b>Setpoints live on each valve</b> and load from the maker trim preset. The order is always high-air supervisory &gt; normal &gt; low-air supervisory &gt; P trip, with low air at least 5 psi above P trip so the warning arrives first. Defaults are 50 / 40 / 30 / 20 psi. All of these numbers are ASSUMED and adjustable.</li>
-<li><b>Low air and high air are supervisory only.</b> They follow live pressure and never release anything. P latches: it stays true after the air comes back, until the panel or the valve is reset.</li>
-<li>Double interlock is treated like dry pipe for delay: <b>60 s water delivery above 500 gal, +30% design area, no gridding</b>. Minimum <b>7 psi</b> supervisory pressure.</li>
+<li><b>Low air and high air are supervisory only.</b> They follow live pressure and never release anything. P latches: it stays true after the air comes back, until it is reset.</li>
+<li><b>A latched P on the annunciator</b> is a release input whose signal class has not been elected. It shows as an OPEN item, and the class is a site setting: alarm or trouble if the engineer elects one, never supervisory (NEEDS PE REVIEW).</li>
+<li>Double interlock is treated like dry pipe for delay: <b>+30% design area, no gridding</b>, and the <b>60 s timed trip test above 500 gal of zone volume</b> (NFPA 13-2025 &sect;8.3.2.3.1.1). A quick-opening device may help meet the 60 s but does not extend the 500 gal: there is no 750 gal exemption for double interlock. Minimum <b>7 psi</b> supervisory pressure.</li>
 <li><b>Panel failure never releases water.</b> The solenoid is energize-to-release. The releasing panel runs on standby batteries when utility power fails (about 24 h of standby plus alarm here, a simplification) and reports trouble to the supervising station. A dead panel leaves the valve shut. Recovery is the mechanical emergency release by a person.</li>
 <li><b>Mechanical emergency release.</b> A hand valve at the trim that opens the preaction valve directly, outside the panel logic. No detection and no P are needed. The sprinklers are still closed, so water flows only where a sprinkler is open.</li>
-<li><b>Manual station.</b> The panel manual station is typed DETECTION: it counts as the D leg and water still needs P. A Manual Release zone that bypasses P is a per-project setting, OFF by default, and NEEDS PE REVIEW (owner/insurer exception).</li></ul>
-<p><b>The trap:</b> low air alone is supervisory. A P that is latched (broken head, broken pipe, big leak) plus any detection event releases water, so reset P after every repair. A pipe break plus a detection event floods the system. A panel left latched in Fire 1 leaves only P between the room and the water.</p>
+<li><b>Manual station.</b> A manual release station is a device wired to the releasing panel. It is typed DETECTION: it sits inside D for every preaction valve that protects the room it is in, and water still needs P. It stays operated until it is reset at the station. A Manual Release zone that bypasses P is a per-project setting, OFF by default, and NEEDS PE REVIEW (owner/insurer exception). In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve.</li></ul>
+<p><b>The trap:</b> low air alone is supervisory. A P that is latched (broken head, broken pipe, big leak) plus any detection event releases water, so after every repair restore the air and then reset P. A pipe break plus a detection event floods the system. A panel left latched in Fire 1 leaves only P between the room and the water.</p>
 <p style="color:#7f93a3">Comparison only: NFPA 13 &sect;8.3 also defines single interlock (detection alone admits water) and non-interlock (detection or pressure loss) preaction. They are not built here.</p>` },
   { id: 'gas', t: 'Air, nitrogen and corrosion', h: `<p>Steel + water + oxygen = rust. Dry and preaction pipe is never really dry: hydrotests and trip tests leave water in the low points, and compressed air keeps delivering fresh oxygen at 21%. The result is pinhole leaks at the water line, usually within 5 to 10 years, and a compressor that never stops.</p>
 <ul><li><b>Nitrogen generators</b> (membrane or PSA) supply 98%+ nitrogen. With oxygen under about 2% the reaction starves.</li><li>The oxygen already in the pipe has to be <b>purged</b>. A vent at the far end bleeds gas while the generator makes it up (&ldquo;fill and purge&rdquo;); an analyzer closes it at 98%. Expect one to two weeks. Without a vent, dilution relies on leakage and takes months.</li>
@@ -2204,41 +2518,53 @@ DI.MANUAL = [
   { id: 'hyd', t: 'Hydraulics', h: `<p><b>Sprinkler:</b> Q = K &radic;P. A K5.6 head at 7 psi (the minimum) flows 14.8 gpm; at 28 psi it flows twice that, not four times.</p><p><b>Pipe friction (Hazen-Williams):</b> p = 4.52 Q<sup>1.85</sup> / (C<sup>1.85</sup> d<sup>4.87</sup>) psi per foot. Diameter is raised to almost the fifth power: one size up roughly thirds the loss.</p>
 <table><tr><th>Pipe</th><th>C</th></tr><tr><td>All sprinkler pipe: wet, dry, preaction, interior, yard and underground</td><td>100 (company rule)</td></tr></table>
 <p style="color:#7f93a3">Comparison only: the NFPA table value is 120 for wet steel. The company uses 100, and nitrogen earns no credit. This line has no effect on any calculation.</p>
-<p><b>Pipe schedule</b> sets the inside diameter. Default (ASSUMED): 2 in. and smaller is threaded Schedule 40, 2&frac12; in. and larger is roll-grooved Schedule 10. The Site menu can switch to the company lock text: mains and cross-mains 2 in. and larger Schedule 10, branch lines Schedule 40 at every size. A 2 in. pipe is 2.067 in. inside as Schedule 40 and 2.157 in. as Schedule 10.</p>
+<p><b>Pipe schedule</b> sets the inside diameter. One size cut decides it, regardless of main or branch: the cut size and smaller is threaded Schedule 40, every larger size is roll-grooved Schedule 10. The cut is a project setting, 2 in. by default (ASSUMED), and can be moved between 1&frac12; in. and 4 in. in the Sandbox. A 2 in. pipe is 2.067 in. inside as Schedule 40 and 2.157 in. as Schedule 10. 12 in. Schedule 10 (12.390 in. inside) is for above-ground headers only; underground and yard pipe is a different material and is not modelled.</p>
+<p><b>The hydraulic calc checks hydraulics only.</b> Coverage belongs to plan review. If a room the system serves is not fully sprinklered, the calc result reads &ldquo;PASS (hydraulics only); coverage FAIL, see plan review&rdquo;.</p>
 <p><b>Density / area method</b> (NFPA 13-2025 Ch. 19): every sprinkler in the hydraulically most remote area must deliver the design density.</p>
 <table><tr><th>Hazard</th><th>Density</th><th>Area</th><th>Hose</th><th>Duration</th></tr><tr><td>Light</td><td>0.10</td><td>1,500</td><td>100</td><td>30</td></tr><tr><td>Ordinary 1</td><td>0.15</td><td>1,500</td><td>250</td><td>60&ndash;90</td></tr><tr><td>Ordinary 2</td><td>0.20</td><td>1,500</td><td>250</td><td>60&ndash;90</td></tr><tr><td>Extra 1</td><td>0.30</td><td>2,500</td><td>500</td><td>90&ndash;120</td></tr></table>
 <p>The remote area is a rectangle 1.2&radic;A long, parallel to the branch lines. Dry and double-interlock systems add 30% to A.</p>
 <p><b>What starves the far end:</b> long dead-end branch lines, small cross mains, feeding from one corner. <b>What fixes it:</b> feed from the middle, step pipe sizes up toward the riser, shorten the lines.</p>` },
   { id: 'sig', t: 'Detection and signals', h: `<p>NFPA 72 sorts everything into three kinds of signal. Knowing which is which is half of operating a site.</p>
-<table><tr><th>Signal</th><th>Means</th><th>Examples</th></tr><tr><td style="color:#ff4b3a">ALARM</td><td>fire, now</td><td>waterflow, smoke detection, manual pull</td></tr><tr><td style="color:#ffb224">SUPERVISORY</td><td>the protection is impaired</td><td>valve tamper (2 turns or 1/5 travel), low or high air (per-valve setpoints), P latched on a preaction valve, aspirating Alert and Action, pump running, pump power loss, low fuel, low tank, room below 40&nbsp;&deg;F</td></tr>
-<tr><td style="color:#ffe45c">TROUBLE</td><td>the alarm system itself is impaired</td><td>AC failure, battery, open circuit</td></tr></table>
-<p><b>Aspirating smoke detection</b> (VESDA and similar) draws air through sampling pipe to a laser chamber. It reports in stages:</p><ul><li><b>Alert</b>: supervisory only. It never arms a release and sounds nothing. Investigate: this is the stage where a person with a CO&#8322; extinguisher wins.</li><li><b>Action</b>: pre-alarm. Still no release and no dispatch.</li><li><b>Fire 1</b>: alarm, and the detection leg of the preaction release (the panel energizes the solenoid). Water still needs P.</li><li><b>Fire 2</b>: escalation only. It is never a release input by itself.</li></ul>
-<p>The four thresholds are a site setting. 0.03 / 0.06 / 0.12 / 1.2 %/ft are example values. Where NFPA 76 is adopted, a preset holds Alert at 0.2 %/ft or less and Fire 1 at 1.0 %/ft or less (NFPA 76-2024 &sect;8.5.3.1.2.5).</p>
+<table><tr><th>Signal</th><th>Means</th><th>Examples</th></tr><tr><td style="color:#ff4b3a">ALARM</td><td>fire, now</td><td>waterflow, aspirating Fire 1 and Fire 2, spot smoke detection, manual station</td></tr><tr><td style="color:#ffb224">SUPERVISORY</td><td>the protection is impaired</td><td>valve tamper (2 turns or 1/5 travel), low or high air (per-valve setpoints), aspirating Alert and Action, pump running, pump power loss, low fuel, low tank, room below 40&nbsp;&deg;F, a Manual Release zone bypass in a contract</td></tr>
+<tr><td style="color:#ffe45c">TROUBLE</td><td>the alarm system itself is impaired</td><td>AC failure, battery, a dead panel (the supervising station sees the loss of signal)</td></tr>
+<tr><td style="color:#c59bff">OPEN</td><td>release input, class not elected</td><td>P latched on a preaction valve (PSL-REL or PA-REL)</td></tr></table>
+<h4>SIGNAL CLASSES</h4><table><tr><th>Signal</th><th>Class</th><th>Setting</th></tr><tr><td>Aspirating Alert, Action</td><td>supervisory (pre-alarm)</td><td>supervisory or alarm. ASSUMED, NEEDS PE REVIEW</td></tr><tr><td>Latched P (release input)</td><td>OPEN: not elected</td><td>not elected, alarm or trouble. Supervisory is blocked. ASSUMED, NEEDS PE REVIEW</td></tr>
+<tr><td>Fire 1, Fire 2, manual station, waterflow</td><td>alarm</td><td>fixed</td></tr><tr><td>Low air, high air</td><td>supervisory</td><td>fixed</td></tr><tr><td>Panel AC, battery, dead panel</td><td>trouble</td><td>fixed</td></tr></table>
+<p>The annunciator lists alarm first, then OPEN items, then supervisory, then trouble. Its banner reads OPEN ITEM only when nothing else is present (ASSUMED presentation). <b>Silence</b> on the panel acknowledges the signals: nothing is reset, nothing clears, and a new signal sounds again.</p>
+<p><b>Aspirating smoke detection</b> (VESDA and similar) draws air through sampling pipe to a laser chamber. It reports in stages:</p><ul><li><b>Alert</b>: pre-alarm. It never arms a release. Investigate: this is the stage where a person with a CO&#8322; extinguisher wins.</li><li><b>Action</b>: pre-alarm. Still no release.</li><li><b>Fire 1</b>: alarm, and the detection leg of the preaction release: D is true whenever the level is at or above Fire 1. Water still needs P.</li><li><b>Fire 2</b>: escalation only. It is never a release input by itself.</li></ul>
+<p>A reading that jumps past several thresholds at once is logged stage by stage, in order, at the same time: Alert, Action, Fire 1, Fire 2. The detector reports its highest stage; the stages below it stay on the annunciator, struck through, as the record.</p>
+<p>The four thresholds are a site setting. 0.03 / 0.06 / 0.12 / 1.2 %/ft are example values. They must run Alert &lt; Action &lt; Fire 1 &lt; Fire 2, and Fire 1 and Fire 2 must sit inside the listed sensitivity window of the detector model (the aspirating window here, 0.01 to 5.0 %/ft, is an ASSUMED placeholder until the maker&rsquo;s listing is given). The spot detector threshold is a site setting too: 1.3 %/ft inside an example window of 0.5 to 4.0 %/ft. Where NFPA 76 is adopted, plan review holds Alert at 0.2 %/ft or less and Fire 1 at 1.0 %/ft or less (NFPA 76-2024 &sect;8.5.3.1.2.5), and a preset sets both.</p>
 <p><b>Spot detectors</b> need far more smoke, so they answer later. In white space a spot detector raises the alarm only, and release needs aspirating detection. In a support room (electrical, UPS) one listed, compatible spot detector in alarm is the detection leg: any one detector in the zone, and D AND P is still the double interlock.</p><p>An unwired switch still clicks. Nobody hears it. In this game an unwired device shows as <i>local only</i> and the fire department is not called.</p>` },
   { id: 'itm', t: 'Testing and maintenance', h: `<p>NFPA 13 says how to build it. NFPA 25 says how to keep it working. The numbers you will use most:</p>
 <table><tr><th>Item</th><th>Frequency</th></tr><tr><td>Control valves (supervised)</td><td>inspect monthly; full operation annually</td></tr><tr><td>Dry / preaction air and water gauges</td><td>weekly, or monthly if supervised</td></tr><tr><td>Main drain test</td><td>annually; quarterly behind a backflow preventer on a sole supply</td></tr>
 <tr><td>Waterflow alarm devices</td><td>semi-annually (vane and pressure switch)</td></tr><tr><td>Dry valve partial trip</td><td>annually</td></tr><tr><td>Dry valve full-flow trip</td><td>every 3 years</td></tr><tr><td>Dry system air leakage</td><td>every 3 years</td></tr><tr><td>Preaction valve trip</td><td>annually</td></tr>
 <tr><td>Low-point drains</td><td>before and during freezing weather</td></tr><tr><td>Fire pump churn run</td><td>weekly (diesel 30 min, electric 10 min)</td></tr><tr><td>Fire pump flow test</td><td>annually</td></tr><tr><td>Internal pipe assessment</td><td>every 5 years</td></tr></table>
-<h4>AFTER A TRIP: PUTTING IT BACK</h4><ol><li>Close the system control valve. Tamper supervisory comes in: expected.</li><li>Open the system drain. Wait for it to stop.</li><li>Replace every sprinkler that operated, same K-factor, temperature and response.</li><li>Reset the releasing panel (preaction). Confirm detection is clear and P is no longer latched.</li>
-<li>Reset the valve clapper. Close the drain.</li><li>Let the air build to normal.</li><li>Open the control valve slowly. Confirm tamper and low-air clear.</li></ol><p>Until step 7 the building is unprotected. That time is the impairment, and it should be short.</p>` },
+<h4>AFTER A TRIP OR A BROKEN HEAD: PUTTING IT BACK</h4><p>The recovery is scored on these eight steps, in this order. A step that does not apply counts as done.</p><ol><li><b>Silence</b> the panel. Nothing is reset; you have acknowledged it.</li><li><b>Find the operated head</b> (select it on the map).</li><li><b>Close the system control valve.</b> Tamper supervisory comes in: expected.</li><li><b>Open the system drain.</b> Wait for it to stop.</li><li><b>Replace the head</b> with a matching one: same K-factor, temperature and response.</li>
+<li><b>Restore air or nitrogen</b> to normal pressure. After a trip that means: reset the panel so detection drops out, reset the valve at the riser (the clapper), close the drain and let the air build.</li><li><b>Reset the trim:</b> on an electric / pneumatic trim, reset the actuator at the trim. An electric / electric trim has no actuator to reset, so this step does not apply.</li><li><b>Reset the panel.</b> On an electric / electric trim this is what clears P.</li></ol>
+<p><b>No reset until the air is back.</b> A reset while the pipe is still below P trip latches P again and scores nothing. Then open the control valve slowly and confirm tamper and low air clear. Until then the building is unprotected. That time is the impairment, and it should be short. Contract 5 reports the time as a bonus against a 660 s target (ASSUMED); it is not a pass or fail.</p>` },
   { id: 'dc', t: 'Data center notes', h: `<ul><li><b>Data halls and electrical rooms:</b> double-interlock preaction is the usual owner and insurer position (FM Global Data Sheet 5-32), with aspirating detection. Hazard is commonly taken as Ordinary Hazard Group 1 or 2 depending on the owner standard.</li>
 <li><b>Hot / cold aisle containment</b> is an obstruction. Either sprinklers go inside it, or the containment is arranged to drop away or not obstruct (NFPA 75 / 76). The 2025 edition of NFPA 13 adds requirements for <i>supplemental</i> sprinklers below obstructions.</li>
-<li><b>System count:</b> a hyperscale hall is far larger than one 500-gal preaction system. Halls are zoned into several valves, each with its own detection zone.</li><li><b>Battery rooms</b> (lithium-ion): NFPA 855 drives higher densities and often dedicated systems; treat this game&rsquo;s OH2 as a placeholder.</li>
+<li><b>System count:</b> a hyperscale hall is far larger than one 500-gal preaction system. Halls are zoned into several valves, each with its own detection zone. Count the zone volume, not the pipe alone: fittings and trim tip a 498 gal layout over 500 gal, and then it has to pass the 60 s timed test or be rezoned. Where FM insures the site the limit is 30 s at any volume (FM DS 5-32, NEEDS PE REVIEW), so a zone can pass NFPA 13 and fail FM.</li><li><b>Battery rooms</b> (lithium-ion): NFPA 855 drives higher densities and often dedicated systems; treat this game&rsquo;s OH2 as a placeholder.</li>
 <li><b>Loading docks, generator enclosures, exterior canopies:</b> dry pipe.</li><li><b>Water supply:</b> rural sites mean tanks and redundant pumps (commonly one electric and one diesel, or N+1 diesel), on a looped yard main with sectional valves so one break does not isolate a building.</li>
 <li><b>Nitrogen</b> is standard on preaction and dry systems at this scale.</li></ul>` },
-  { id: 'site', t: 'Site settings and company rules', h: `<p>The <b>Site</b> button holds the settings that belong to the project, not to one valve. Two labels are used everywhere in the game:</p>
+  { id: 'site', t: 'Site settings and company rules', h: `<p>The <b>Site</b> button holds the settings that belong to the project, not to one valve. In a contract they are read-only: the basis of design is fixed by the AHJ, the owner and the insurer. They can be changed in the Sandbox. Two labels are used everywhere in the game:</p>
 <ul><li><b>ASSUMED</b>: a value the company has not fixed. It is a tunable default, not a rule.</li><li><b>NEEDS PE REVIEW</b>: a choice an engineer of record has to make.</li></ul>
 <h4>COMPANY RULES (LOCKED)</h4><ul><li>Wet, dry and double-interlock preaction systems only.</li><li>Preaction release = (Fire 1 detection OR manual station typed DETECTION) AND P. Low air is supervisory only and never a release input.</li><li>Only Fire 1 releases. Alert never arms. Fire 2 never releases by itself.</li>
 <li>Panel failure never releases water.</li><li>Hazen-Williams C = 100 for all pipe. No nitrogen credit.</li></ul>
-<h4>ENFORCED EDITION</h4><p>NFPA 13-2019, 2022 or 2025 for US sites, default 2025. Plan review cites the chosen edition and shows the delta from 2025 on its first line. Pass and fail do not differ by edition in this version.</p>
+<h4>ENFORCED EDITION</h4><p>NFPA 13-2019, 2022 or 2025 for US sites, default 2025. Plan review and the trip-test report cite the chosen edition, and plan review shows the delta from 2025 on its first line. Pass and fail do not differ by edition in this version.</p>
+<h4>INSURER</h4><p>None by default. With FM, dry and double-interlock systems must deliver water in 30 s at any volume, and the most stringent limit governs. Every contract is winnable with the default.</p>
 <h4>ASSUMED VALUES</h4><table><tr><th>Item</th><th>Default</th></tr><tr><td>Preaction setpoints (per valve, from the maker trim)</td><td>high 50, normal 40, low 30, P trip 20 psi</td></tr><tr><td>Minimum margin, low air above P trip</td><td>5 psi</td></tr>
-<tr><td>Pipe schedule</td><td>2 in. and smaller Schedule 40; 2&frac12; in. and larger Schedule 10; same cost per size</td></tr><tr><td>Aspirating thresholds (example values)</td><td>0.03 / 0.06 / 0.12 / 1.2 %/ft</td></tr><tr><td>Spot detector alarm threshold (example value)</td><td>1.3 %/ft</td></tr>
-<tr><td>NFPA 76 preset, Action example</td><td>0.6 %/ft</td></tr><tr><td>Releasing panel standby battery</td><td>24 h</td></tr></table>
-<h4>NEEDS PE REVIEW</h4><ul><li>Manual Release zone that bypasses P (OFF by default; owner/insurer exception).</li><li>Signal class of the aspirating Action stage and of the latched-P annunciation. Both are supervisory here.</li><li>Lithium-ion / ESS room density and approach. The battery room here is a placeholder.</li></ul>` },
+<tr><td>Pipe size cut (largest size on threaded Schedule 40)</td><td>2 in.; larger sizes Schedule 10; same cost per size</td></tr><tr><td>Zone volume: fittings allowance, trim volume</td><td>5 % of pipe volume, 2 gal per valve</td></tr><tr><td>Aspirating thresholds (example values)</td><td>0.03 / 0.06 / 0.12 / 1.2 %/ft</td></tr>
+<tr><td>Aspirating listed window for Fire 1 and Fire 2</td><td>0.01 to 5.0 %/ft (placeholder for the maker&rsquo;s listing)</td></tr><tr><td>Spot detector alarm threshold (example value) and window</td><td>1.3 %/ft inside 0.5 to 4.0 %/ft</td></tr>
+<tr><td>NFPA 76 preset, Action example</td><td>0.6 %/ft</td></tr><tr><td>Signal class of Alert and Action</td><td>supervisory</td></tr><tr><td>Signal class of a latched P; banner priority of an OPEN item</td><td>not elected (OPEN); shown only when nothing else is present</td></tr>
+<tr><td>Releasing panel standby battery; a dead panel is reported as a monitored trouble</td><td>24 h</td></tr><tr><td>Contract 5 recovery time bonus target</td><td>660 s</td></tr></table>
+<h4>NEEDS PE REVIEW</h4><ul><li>Manual Release zone that bypasses P (OFF by default; owner/insurer exception; shown as an impairment in a contract).</li><li>Signal classes: Alert and Action (supervisory by default), and a latched P (class not elected; supervisory blocked).</li><li>FM 30 s water delivery at any volume for dry and double interlock (FM DS 5-32), applied only when the insurer setting is FM.</li><li>Lithium-ion / ESS room density and approach. The battery room here is a placeholder.</li></ul>
+<h4>VERIFY BEFORE USE</h4><ul><li>NFPA 13-2022 section numbers for water delivery and the double-interlock clauses.</li><li>The paragraph numbers inside NFPA 13-2025 &sect;8.2.4.</li><li>The section and the values of the 24 h air leakage test (about 40 psi, 1.5 psi) per edition.</li></ul>` },
   { id: 'model', t: 'What the simulation does', h: `<p>So you know what to trust:</p><ul><li><b>Hydraulics:</b> a real network solver (global gradient method, the one in EPANET) on your pipe layout, with Hazen-Williams friction, pump curves, check valves and orifice outlets. Loops work. Fittings are a flat 30% equivalent-length adder. Elevation is ignored except tank level.</li>
 <li><b>Gas:</b> each dry or preaction system is one ideal-gas volume with choked-orifice flow through leaks and open sprinklers. Trip time and water transit come out of that, not a table.</li><li><b>Fire:</b> t-squared growth, Alpert ceiling-jet temperatures and RTI link heating (the DETACT method). Water at or above design density knocks the fire down; less only slows it.</li>
 <li><b>Simplified:</b> one sprinkler per 10 ft tile, no hangers or seismic bracing, one-storey buildings, corrosion as a single number, smoke as one value per room.</li>
-<li><b>Simplified in the release logic:</b> a panel reset or a valve reset clears a latched P on both trims. After a mechanical emergency release with every sprinkler closed, the trapped air is not vented, so the pipe sits pressurized and partly filled with no flow. The panel battery is a flat 24 h.</li></ul><p>It is a trainer for how these systems behave and why the rules exist. It is not a calculation tool for a submittal.</p>` },
+<li><b>Simplified in the release logic:</b> the P sensor goes live the first time a valve is set, so a brand-new valve does not latch P during its first air-up. After a mechanical emergency release with every sprinkler closed, the trapped air is not vented, so the pipe sits pressurized and partly filled with no flow. The panel battery is a flat 24 h, and a dead panel is reported as a monitored trouble (the supervising station sees the loss of signal). Notification appliances are not modelled.</li>
+<li><b>Simplified in water delivery:</b> delivery is judged by the timed trip test only. The calculation / table route is named on the report and not modelled. The inspector&rsquo;s test connection is always present, so the 750 gal trip-test-connection trigger for double interlock is not modelled. FM is the 30 s limit only: no FM density, hose or duration.</li></ul><p>It is a trainer for how these systems behave and why the rules exist. It is not a calculation tool for a submittal.</p>` },
 ];
 
 </script>
@@ -2271,7 +2597,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     tick(g) {
       if (!ac || !on || !loops) return; const S = g.S, W = g.W; let pump = 0, comp = 0, al = 0, sv = 0;
       for (const p of W.parts.values()) { if ((p.type === 'epump' || p.type === 'dpump') && p.p.spd > pump) pump = p.p.spd; if ((p.type === 'comp' || p.type === 'n2' || p.type === 'jockey') && p.p.on) comp = 1; }
-      for (const o of S.sig.values()) { if (o.type === 'ALARM') al = 1; else sv = 1; }
+      for (const o of S.sig.values()) { if (o.sup || DI.sigSilenced(W, o)) continue; if (o.type === 'ALARM') al = 1; else sv = 1; }      // a silenced panel keeps its own signals quiet until a new one arrives there
       const quiet = g.speed === 0 || DI.ui.modalOpen ? 0 : 1;
       set(loops.water, quiet * Math.min(0.22, (S.outFlow || 0) / 900)); let q = 0; for (const k of S.fires) q += S.fq[k]; set(loops.fire, quiet * Math.min(0.3, q / 4000));
       set(loops.pump.g, quiet * pump * 0.07); set(loops.pump2.g, quiet * pump * 0.02); loops.pump.o.frequency.value = 20 + 38 * pump; loops.pump2.o.frequency.value = 40 + 76 * pump; set(loops.comp.g, quiet * comp * 0.035);
@@ -2290,7 +2616,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
 var DI = globalThis.DI || (globalThis.DI = {});
 (function () {
   const TAU = Math.PI * 2;
-  const C = { ink: '#dbe7ef', body: '#18242f', red: '#ff4b3a', amb: '#ffb224', grn: '#3ddc91', wat: '#3aa6ff', air: '#e9d8a0', n2: '#6fe3c6', dim: '#6f8494' };
+  const C = { ink: '#dbe7ef', body: '#18242f', red: '#ff4b3a', amb: '#ffb224', grn: '#3ddc91', wat: '#3aa6ff', air: '#e9d8a0', n2: '#6fe3c6', dim: '#6f8494', opn: '#c59bff' };
   DI.COL = C;
   const P = (c, pts, close) => { c.beginPath(); c.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]); if (close !== false) c.closePath(); };
   const circ = (c, x, y, r) => { c.beginPath(); c.arc(x, y, r, 0, TAU); };
@@ -2338,14 +2664,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
     prev(c, st) { stub(c); arrow(c); c.fillStyle = C.wat; c.globalAlpha = 0.8; c.fillRect(-0.36, -0.3, 0.3, 0.6); c.fillStyle = st.tripped ? C.wat : st.n2 ? C.n2 : C.air; c.fillRect(-0.06, -0.3, 0.42, 0.6); c.globalAlpha = 1;
       c.strokeStyle = C.red; c.lineWidth = 0.06; c.strokeRect(-0.36, -0.3, 0.72, 0.6); c.fillStyle = '#10161c'; c.fillRect(-0.2, -0.46, 0.22, 0.16); c.strokeStyle = C.ink; c.lineWidth = 0.035; c.strokeRect(-0.2, -0.46, 0.22, 0.16);
       c.strokeStyle = '#10161c'; c.lineWidth = 0.07; if (st.tripped) P(c, [-0.06, -0.28, 0.2, -0.1], false); else P(c, [-0.06, -0.28, -0.06, 0.28], false); c.stroke();
-      led(c, 0.14, -0.42, C.red, st.sol); led(c, 0.32, -0.42, C.amb, st.low); if (st.pl) { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); } },     // amber bar: P is latched
+      // red LED: solenoid energized (dim red while only D is latched). Amber bar: P is latched.
+      if (st.sol || !st.det) led(c, 0.14, -0.42, C.red, st.sol); else { circ(c, 0.14, -0.42, 0.065); c.fillStyle = '#8a2f25'; c.fill(); }
+      led(c, 0.32, -0.42, C.amb, st.low); if (st.pl) { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); }
+      if (st.imp) { c.save(); c.rotate(-(st.rot || 0) * Math.PI / 2); P(c, [0.2, 0.12, 0.5, 0.12, 0.5, 0.48, 0.2, 0.48, 0.1, 0.3]); c.fillStyle = C.amb; c.fill(); c.strokeStyle = '#3a2a05'; c.lineWidth = 0.03; c.stroke(); txt(c, '!', 0.34, 0.3, 0.3, '#201400'); c.restore(); } },     // amber impairment tag
     comp(c, st) { c.fillStyle = C.body; c.strokeStyle = C.air; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, 0, 0.76, 0.34, 0.16); c.fill(); c.stroke(); circ(c, -0.1, -0.16, 0.19); c.fill(); c.stroke();
       c.save(); c.translate(-0.1, -0.16); c.rotate((st.t || 0) * 14 * (st.on ? 1 : 0)); P(c, [-0.13, 0, 0.13, 0], false); c.stroke(); P(c, [0, -0.13, 0, 0.13], false); c.stroke(); c.restore(); led(c, 0.28, -0.2, C.grn, st.on); },
     n2(c, st) { c.fillStyle = C.body; c.strokeStyle = C.n2; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, -0.38, 0.76, 0.76, 0.08); c.fill(); c.stroke(); txt(c, 'N₂', -0.02, 0.02, 0.36, C.n2, -(st.rot || 0) * Math.PI / 2); led(c, 0.26, -0.26, C.grn, st.on); },
     panel(c, st) { c.fillStyle = '#5a1712'; c.strokeStyle = C.red; c.lineWidth = 0.05; c.fillRect(-0.36, -0.42, 0.72, 0.84); c.strokeRect(-0.36, -0.42, 0.72, 0.84); c.fillStyle = '#0c1218'; c.fillRect(-0.26, -0.32, 0.52, 0.24);
-      led(c, -0.2, 0.08, C.red, st.al && Math.sin((st.t || 0) * 10) > 0); led(c, 0, 0.08, C.amb, st.sv); led(c, 0.2, 0.08, '#ffe45c', st.tr); led(c, -0.2, 0.28, C.grn, st.alive !== false); },
+      led(c, -0.2, 0.08, C.red, st.al && (st.sil || Math.sin((st.t || 0) * 10) > 0)); led(c, 0, 0.08, C.amb, st.sv); led(c, 0.2, 0.08, '#ffe45c', st.tr); led(c, -0.2, 0.28, C.grn, st.alive !== false); led(c, 0.2, 0.28, C.opn, st.op); },     // lower right: OPEN item (release input, class not elected)
     vesda(c, st) { c.fillStyle = C.body; c.strokeStyle = C.ink; c.lineWidth = 0.05; c.fillRect(-0.36, -0.3, 0.72, 0.6); c.strokeRect(-0.36, -0.3, 0.72, 0.6);
       for (let i = 0; i < 4; i++) { c.fillStyle = i < (st.lvl || 0) ? [C.grn, C.amb, C.red, C.red][i] : '#26333f'; c.fillRect(-0.28 + i * 0.15, -0.2, 0.11, 0.4); } P(c, [0, -0.3, 0, -0.5], false); c.stroke(); },
+    mstn(c, st) { c.fillStyle = st.on ? '#8a1c14' : '#5a1712'; c.strokeStyle = C.red; c.lineWidth = 0.05; c.fillRect(-0.3, -0.36, 0.6, 0.72); c.strokeRect(-0.3, -0.36, 0.6, 0.72);
+      c.fillStyle = '#e8eef2'; c.fillRect(-0.2, st.on ? 0.02 : -0.2, 0.4, 0.12); P(c, [0, st.on ? 0.14 : -0.08, 0, 0.26], false); c.strokeStyle = '#e8eef2'; c.lineWidth = 0.05; c.stroke(); led(c, 0.2, -0.26, C.red, st.on); },
     smoke(c, st) { circ(c, 0, 0, 0.32); c.fillStyle = '#e8eef2'; c.fill(); c.strokeStyle = C.dim; c.lineWidth = 0.04; c.stroke(); circ(c, 0, 0, 0.16); c.stroke(); led(c, 0, 0, C.red, (st.lvl || 0) > 0); },
   };
   DI.glyph = function (c, type, st) { const g = DI.GLYPH[type]; if (g) g(c, st || {}); };
@@ -2385,8 +2716,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       case 'city': st.loop = q.loop; break;
       case 'fdc': st.on = q.active; break;
       case 'testhdr': st.open = q.open; break;
-      case 'wetv': case 'dryv': case 'prev': { const s = S.ss.get(p.id), i = S.sysd.info.get(p.id); if (s) { st.alarm = s.alarm; st.tripped = s.state !== 'dry'; st.low = s.lowAir && s.state === 'dry'; st.sol = q.sol || q.pull; st.pl = q.pLatch; st.n2 = i && i.hasN2; } break; }
-      case 'panel': { let al = 0, sv = 0, tr = 0; for (const o of S.sig.values()) if (o.mon) { if (o.type === 'ALARM') al = 1; else if (o.type === 'SUPV') sv = 1; else tr = 1; } st.al = al; st.sv = sv; st.tr = tr; st.alive = q.alive; break; }
+      case 'wetv': case 'dryv': case 'prev': { const s = S.ss.get(p.id), i = S.sysd.info.get(p.id); if (s) { st.alarm = s.alarm; st.tripped = s.state !== 'dry'; st.low = s.lowAir && s.state === 'dry'; st.sol = q.solOut; st.det = q.sol || q.pull; st.pl = q.pLatch; st.n2 = i && i.hasN2; st.imp = p.type === 'prev' && !!S.contract && DI.stationType(g.W, p) === 'MANUAL RELEASE'; } break; }
+      case 'panel': { let al = 0, sv = 0, tr = 0, op = 0; for (const o of S.sig.values()) if (o.mon && !o.sup && !o.lost) { if (o.type === 'ALARM') al = 1; else if (o.type === 'OPEN') op = 1; else if (o.type === 'SUPV') sv = 1; else tr = 1; } st.al = al; st.sv = sv; st.tr = tr; st.op = op; st.alive = q.alive; st.sil = q.silenced; break; }
+      case 'mstn': st.on = q.on; break;
       case 'vesda': case 'smoke': st.lvl = q.lvl; break;
     }
     return st;
@@ -2560,9 +2892,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const r = DI.lastResult(S, 'pump', p.id); if (r && r.pts) { c.fillStyle = r.pass ? '#3ddc91' : '#ff4b3a'; for (const pt of r.pts) { c.beginPath(); c.arc(X(pt.q), Y(pt.pd - pt.ps), 3, 0, 7); c.fill(); } } };
   }
   function calcBlock(S, id) {
-    B.btns([['Run hydraulic calc', () => { const c = DI.hydCalc(S, id); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go']]);
+    B.btns([['Run hydraulic calc', () => { const c = DI.hydCalc(S, id); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go', false, 'Checks hydraulics only: does every sprinkler in the remote area get its density. Coverage is checked in plan review.']]);
     const c = S.calc.get(id); if (!c || !c.ok) return;
-    B.add('<div class="res ' + (c.pass ? 'pass' : 'fail') + '"><b>' + (c.pass ? 'PASS' : 'FAIL') + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' +
+    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' +
       'Design area ' + DI.fmt(c.area) + ' ft²' + (c.dryLike ? ' (+30% dry)' : '') + ': ' + c.n + ' sprinklers<br>Need ' + DI.fmt(c.need, 1) + ' gpm each (' + c.hz.dens.toFixed(2) + ' gpm/ft²)<br>Weakest gets ' + DI.fmt(c.minQ, 1) + ' gpm (' + c.dens.toFixed(3) + ')<br>' +
       'Demand ' + DI.fmt(c.total) + ' gpm (incl. ' + c.hz.hose + ' hose) @ ' + DI.fmt(c.pRiser) + ' psi at riser' + c.pumpPts.filter((p) => p.on).map((p) => '<br>Pump #' + p.id + ' at ' + DI.fmt(p.pct) + '% of rated' + (p.pct > 150 ? ' - OVERLOADED' : '')).join('') +
       (isFinite(c.tankMin) ? '<br>Tank lasts ' + DI.fmt(c.tankMin) + ' min (need ' + c.hz.dur + ')' : '') + '</div>');
@@ -2570,18 +2902,27 @@ var DI = globalThis.DI || (globalThis.DI = {});
   function sysPanel(S, W, p) {
     const s = S.ss.get(p.id), inf = S.sysd.info.get(p.id), q = p.p, dry = p.type !== 'wetv'; if (!s || !inf) return;
     B.sec('GAUGES'); B.row('Water supply', () => psi(S.pin(p.id)));
-    B.row(dry ? 'System (gas)' : 'System', () => { const v = dry && s.state !== 'wet' ? s.P : S.pout(p.id); return [psi(v), dry && s.lowAir ? 'warn' : '']; });
+    B.row(dry ? (s.state === 'dry' ? 'System (gas)' : 'System (water)') : 'System', () => { const v = dry && s.state !== 'wet' ? s.P : S.pout(p.id); return [psi(v), dry && s.lowAir ? 'warn' : '']; });      // the label follows what is in the pipe: gas while the valve is set, water once it has tripped
     if (p.type === 'dryv') B.row('Trip point (supply ÷ 5.5)', () => psi(S.pin(p.id) / DI.DRY_RATIO));
     B.row('Status', () => s.state === 'wet' ? (dry ? ['TRIPPED - full of water', 'bad'] : ['Normal', 'good']) : s.state === 'filling' ? ['Filling ' + DI.fmt(100 * s.wat / Math.max(inf.vol, 1)) + '%', 'warn'] : s.set ? (q.pLatch ? ['Set, but P is LATCHED', 'warn'] : ['Set - in service', 'good']) : ['Charging with air', 'warn']);
     B.row('Flow through valve', () => gpm(s.flow || 0));
-    B.row('Piping', () => DI.fmt(inf.vol) + ' gal · ' + inf.nSpk + ' heads · ' + inf.area.toLocaleString() + ' ft²');
+    B.row('Piping', () => (dry ? 'Zone ' + DI.fmt(DI.zoneVolume(W, inf)) + ' gal (pipe ' + DI.fmt(inf.vol) + ')' : DI.fmt(inf.vol) + ' gal') + ' · ' + inf.nSpk + ' heads · ' + inf.area.toLocaleString() + ' ft²');
+    if (dry) B.row('Water delivery limit', () => { const dl = DI.deliveryLimits(S, p.id); return dl.governing === null ? 'none (' + dl.nfpa.thr + ' gal or less)' : [dl.by + ' ' + dl.governing + ' s to the inspector’s test', 'warn']; });
     if (p.type === 'prev') {
+      // every reset path named here has a control on screen: the panel for El/El, the actuator at the trim for El/Pn
+      const el = q.trim !== 'el-pn', mr = DI.stationType(W, p) === 'MANUAL RELEASE', how = el ? 'reset the panel' : 'reset the actuator at the trim';
       B.sec('INTERLOCKS: D AND P');
-      B.row('D: detection (Fire 1 or manual station)', () => q.sol ? ['ACTIVE - solenoid energized', 'bad'] : q.pull ? ['ACTIVE - manual station', 'bad'] : ['normal', 'good']);
-      B.row('P: pipe pressure below ' + q.pTrip + ' psi', () => q.pLatch ? ['LATCHED - reset the panel', 'bad'] : ['normal', 'good']);
-      B.row('P sensor', () => DI.trimOf(p).sensor + (q.trim === 'el-pn' ? ' pneumatic actuator' : ' pressure switch'));
+      B.row('D: detection (Fire 1 or manual station)', () => DI.relState(W, p).D ? [q.sol ? 'ACTIVE - latched by the panel' : 'ACTIVE - manual station', 'bad'] : ['normal', 'good']);
+      B.row('P: pipe pressure below ' + q.pTrip + ' psi', () => q.pLatch ? ['LATCHED - ' + how, 'bad'] : ['normal', 'good']);
+      B.row('Solenoid (' + (el ? 'D AND P' : 'D alone') + ')', () => q.solOut ? ['ENERGIZED', 'bad'] : ['de-energized', 'good']);
+      B.row('P sensor', () => DI.trimOf(p).sensor + (el ? ' switch (panel latch)' : ' actuator (at the valve)'));
+      B.row('Manual station type', () => mr ? ['MANUAL RELEASE - bypasses P', 'warn'] : 'DETECTION - inside D');
+      if (mr && S.contract) B.row('IMPAIRMENT TAG', () => ['Manual Release zone bypasses P', 'warn']);
       B.pick('Maker trim (loads its ASSUMED setpoints)', Object.keys(DI.TRIMS), () => q.trim, (v) => { DI.loadTrim(p, v); W.ver++; }, (v) => DI.TRIMS[v].name);
-      B.p('Water enters only when D and P are both true. P latches until the panel or the valve is reset. Low and high air are supervisory only and follow live pressure.');
+      B.p('Water enters only when D and P are both true. ' + (el ? 'On this electric / electric trim P is latched in the releasing panel: a panel reset clears it once the pipe is back above P trip, and it latches straight back if the pipe is still low.' : 'On this electric / pneumatic trim P is the pneumatic actuator at the valve: a panel reset cannot clear it. Restore the air, then reset the actuator at the trim. It latches straight back if the pipe is still low.') + ' A reset at the riser closes the clapper and never clears P. Low and high air are supervisory only and follow live pressure.');
+      const pn = W.panelOf(p.id);
+      B.btns([el ? (q.pLatch && pn ? ['Go to the releasing panel', () => DI.ui.focus(pn.x, pn.y, { kind: 'part', id: pn.id }), 'go', false, 'P is latched in panel #' + pn.id + '. The Panel reset button is there.'] : null)
+        : ['Reset actuator at the trim', () => say(DI.resetTrimP(S, p.id)), q.pLatch ? 'go' : '', !q.pLatch, 'Clears P at the pneumatic actuator. Restore the air first, or it latches again.']]);
     }
     if (dry) {
       B.sec('SUPERVISORY GAS'); B.row('Source', () => inf.src.length ? inf.src.map((id) => W.parts.get(id).type === 'n2' ? 'N₂ gen #' + id : 'Compressor #' + id).join(', ') : ['NONE - run tubing', 'bad']);
@@ -2599,9 +2940,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
     B.sec('OPERATE');
     B.btns([[(dry ? 'Main drain ' : 'Main drain ') + (q.drain ? 'OPEN' : 'closed'), () => { q.drain = q.drain ? 0 : 1; S.touch(); }, q.drain ? 'hot' : ''], dry ? ['System drain ' + (q.sdrain ? 'OPEN' : 'closed'), () => { q.sdrain = q.sdrain ? 0 : 1; S.touch(); }, q.sdrain ? 'hot' : ''] : null,
       ['Inspector’s test ' + (q.itc ? 'OPEN' : 'closed'), () => { q.itc = q.itc ? 0 : 1; S.touch(); }, q.itc ? 'hot' : ''],
-      p.type === 'prev' ? ['Panel manual station (typed DETECTION)', () => { const pn = W.panelOf(p.id); if (!pn || pn.p.alive === false) say('No live releasing panel, so the manual station does nothing. Use the mechanical emergency release at the trim.'); else q.pull = true; }, 'hot', q.pull, 'Counts as detection. Water still needs P.'] : null,
+      // sandbox shortcut: in a contract the manual input is the wired Manual Release Station device
+      p.type === 'prev' && g().sc.sandbox ? ['Manual station (shortcut, typed ' + DI.stationType(W, p) + ')', () => { const pn = W.panelOf(p.id); if (!pn || pn.p.alive === false) say('No live releasing panel, so the manual station does nothing. Use the mechanical emergency release at the trim.'); else q.pull = true; }, 'hot', q.pull, DI.stationType(W, p) === 'MANUAL RELEASE' ? 'Manual Release zone: releases without P (project flag, NEEDS PE REVIEW).' : 'Counts as detection. Water still needs P. Same as operating a wired Manual Release Station.'] : null,
       p.type === 'prev' ? ['Mechanical emergency release (at the trim)', () => { q.mech = true; }, 'hot', false, 'Opens the valve by hand at the trim, outside the panel logic. Works with a dead panel. Water flows only where a sprinkler is open.'] : null,
-      dry && s.state !== 'dry' ? ['Reset valve', () => say(DI.resetValve(S, p.id)), 'go'] : null,
+      dry && s.state !== 'dry' ? ['Reset valve at the riser', () => say(DI.resetValve(S, p.id)), 'go', false, p.type === 'prev' ? 'Closes the clapper and the emergency release once the system is drained. It does not clear P.' : 'Closes the clapper once the system is drained.'] : null,
       s.openK && s.openK.length ? ['Replace ' + s.openK.length + ' sprinkler(s)', () => say(DI.replaceSprinklers(S, p.id)), 'go'] : null]);
     B.sec('TESTS'); const busy = S.procs.some((x) => x.id === p.id);
     B.btns([dry ? ['Full-flow trip test', () => test('trip', p.id), '', busy] : ['Inspector’s test (timed)', () => test('itc', p.id), '', busy], ['Main drain test', () => test('drain', p.id), '', busy], dry ? ['24 h air test', () => test('leak', p.id), '', busy] : null]);
@@ -2612,7 +2954,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   function partPanel(S, W, p) {
     const d = DI.PARTS[p.type], q = p.p;
     B.title(q.label || d.name, '#' + p.id); B.p(d.desc);
-    const pn = W.panelOf(p.id); if (['gate', 'wetv', 'dryv', 'prev', 'epump', 'dpump', 'vesda', 'smoke'].includes(p.type)) B.row('Wired to', () => { const x = W.panelOf(p.id); return x ? ['Panel #' + x.id, 'good'] : ['NOT WIRED', 'warn']; });
+    const pn = W.panelOf(p.id); if (['gate', 'wetv', 'dryv', 'prev', 'epump', 'dpump', 'vesda', 'smoke', 'mstn'].includes(p.type)) B.row('Wired to', () => { const x = W.panelOf(p.id); return x ? ['Panel #' + x.id, 'good'] : ['NOT WIRED', 'warn']; });
     if (p.type === 'gate') { B.row('Position', () => [DI.fmt(q.open * 100) + '% open', q.open > 0.98 ? 'good' : 'bad']); B.row('Flow', () => gpm(Math.abs(S.flowOf(p.id)))); B.row('Upstream / downstream', () => DI.fmt(S.pin(p.id)) + ' / ' + DI.fmt(S.pout(p.id)) + ' psi');
       B.btns([[q.target > 0.5 ? 'Close valve' : 'Open valve', () => { q.target = q.target > 0.5 ? 0 : 1; DI.audio.play('valve'); }, q.target > 0.5 ? 'hot' : 'go']]); }
     else if (p.type === 'city') { B.row('Flow test', () => q.stat + ' static, ' + q.resid + ' @ ' + q.flow + ' gpm'); B.row('Flowing now', () => gpm(S.flowOf(p.id))); B.row('Pressure at tap', () => psi(S.pout(p.id))); }
@@ -2638,20 +2980,29 @@ var DI = globalThis.DI || (globalThis.DI = {});
     else if (DI.SYSV[p.type]) sysPanel(S, W, p);
     else if (p.type === 'comp' || p.type === 'n2') { B.pick('Capacity (SCFM)', p.type === 'comp' ? DI.COMP_SCFM : DI.N2_SCFM, () => q.scfm, (v) => reprice(p, () => { q.scfm = v; })); B.row('Status', () => q.on ? ['RUNNING', 'good'] : 'idle'); B.row('Starts', () => String(q.starts)); B.row('Run time', () => DI.dur(q.runSec) + ' (' + DI.fmt(100 * q.runSec / Math.max(S.t, 1), 1) + '% duty)');
       B.row('Feeds', () => { const o = []; for (const [id, i] of S.sysd.info) if (i.src.includes(p.id)) o.push('#' + id); return o.length ? 'valve ' + o.join(', ') : ['nothing - run tubing', 'bad']; }); }
-    else if (p.type === 'panel') { B.row('Power', () => W.power ? ['AC normal', 'good'] : q.alive ? ['BATTERY ' + DI.fmt(q.battH, 1) + ' h', 'warn'] : ['DEAD', 'bad']); B.row('Devices wired', () => String(W.wires.filter((w) => w[0] === p.id).length)); B.btns([['Panel reset', () => DI.panelReset(S, p.id), 'go']]); B.p('Reset clears latched detection, drops out the release solenoids and unlatches P. A detector still in alarm, or pipe still below the P trip setpoint, latches right back.'); B.p('A dead panel leaves every preaction valve shut: the solenoid is energize-to-release. Recovery is the mechanical emergency release at the trim, by a person. The 24 h standby battery (standby plus alarm) is a simplification.'); }
+    else if (p.type === 'panel') { B.row('Power', () => W.power ? ['AC normal', 'good'] : q.alive ? ['BATTERY ' + DI.fmt(q.battH, 1) + ' h', 'warn'] : ['DEAD', 'bad']); B.row('Devices wired', () => String(W.wires.filter((w) => w[0] === p.id).length)); B.row('Audible', () => q.silenced ? ['SILENCED', 'warn'] : 'normal');
+      B.btns([['Silence', () => say(DI.silence(S, p.id)), q.silenced ? 'on' : '', false, 'Acknowledges the signals. Nothing is reset and nothing clears. A new signal sounds again.'], ['Panel reset', () => DI.panelReset(S, p.id), 'go']]);
+      B.p('Reset clears the panel’s latches and then reads every input again, so a live input comes straight back: a detector or manual station still in alarm, or pipe still below P trip. P is a panel latch on an electric / electric trim and clears here. On an electric / pneumatic trim P sits at the actuator: reset it at the trim. A panel reset never closes a tripped valve.'); B.p('A dead panel leaves every preaction valve shut: the solenoid is energize-to-release. Recovery is the mechanical emergency release at the trim, by a person. The 24 h standby battery (standby plus alarm) is a simplification.'); }
     else if (p.type === 'vesda' || p.type === 'smoke') { const room = W.room(p.x, p.y);
       B.row('Room', () => room ? room.name : ['outdoors - move it', 'bad']); B.row('Smoke reading', () => DI.fmt(q.obs || 0, 3)); B.row('Level', () => p.type === 'vesda' ? [DI.VESDA_N[q.lvl] || 'normal', q.lvl >= DI.FIRE1 ? 'bad' : q.lvl ? 'warn' : 'good'] : [q.lvl ? 'ALARM' : 'normal', q.lvl ? 'bad' : 'good']);
-      B.row(p.type === 'vesda' ? 'Alert / Action / Fire 1 / Fire 2' : 'Alarm threshold', () => (p.type === 'vesda' ? DI.detThr(W) : DI.SPOT_T).join(' / ') + ' (example)');
+      B.row(p.type === 'vesda' ? 'Alert / Action / Fire 1 / Fire 2' : 'Alarm threshold', () => (p.type === 'vesda' ? DI.detThr(W) : [DI.spotThr(W)]).join(' / ') + ' (example)');
+      B.row('Listed window', () => { const L = DI.LISTED[p.type]; return L.min + ' to ' + L.max + ' %/ft' + (L.assumed ? ' (ASSUMED)' : ' (example)'); });
       B.row('Release role', () => p.type === 'vesda' ? 'Fire 1 is the detection leg' : DI.canRelease(W, p) ? 'alarm is the detection leg' : ['alarm only here', 'warn']);
-      if (p.type === 'vesda') B.p('Alert is supervisory. Action is a pre-alarm. Fire 1 energizes the solenoid, and water still needs P. Fire 2 is escalation and releases nothing by itself. Thresholds are a site setting.');
+      if (p.type === 'vesda') B.p('Alert and Action are pre-alarm (supervisory unless the site elects alarm). At or above Fire 1 the detection leg D is true, and water still needs P. Fire 2 is escalation and releases nothing by itself. Thresholds and signal classes are site settings.');
       else B.p('One listed spot detector in alarm is the detection leg in an electrical / UPS room. In white space it raises the alarm only: use aspirating detection there.'); if (room) B.btns([['Send technician', () => say(DI.sendTech(S, room.id)), 'go', false, 'Someone walks to the room. If the fire is still smouldering they can stop it by hand.']]); }
+    if (p.type === 'mstn') { const room = W.room(p.x, p.y), pn2 = W.panelOf(p.id), r = W.roomAt[W.k(p.x, p.y)];
+      const zone = () => (pn2 ? [...S.sysd.info.values()].filter((i) => i.type === 'prev' && r && i.rooms.has(r) && W.panelOf(i.id) === pn2).map((i) => W.parts.get(i.id)) : []);
+      B.row('Room', () => room ? room.name : ['outdoors', 'warn']); B.row('Status', () => q.on ? ['OPERATED', 'bad'] : ['normal', 'good']);
+      B.row('Operates', () => { const z = zone(); return z.length ? 'valve ' + z.map((v) => '#' + v.id + ' (' + DI.stationType(W, v) + ')').join(', ') : ['no preaction valve protects this room', 'warn']; });
+      B.btns([q.on ? ['Reset station', () => { q.on = false; S.say('Manual station #' + p.id + ' reset. Reset the panel to clear the alarm.', ''); }, 'go'] : ['Operate station', () => { q.on = true; DI.audio.play('valve'); }, 'hot', false, 'An alarm, and the manual input of the valves listed above.']]);
+      B.p('Typed DETECTION: operating it is the detection leg D, and water still needs P. It stays operated until it is reset here, so a panel reset alone brings the alarm straight back. With the Manual Release zone bypass ON (site setting, NEEDS PE REVIEW) it is typed MANUAL RELEASE on an electric / electric trim and releases without P.'); }
     if (!q.fixed) B.btns([['Remove (refund ' + DI.money(DI.partCost(p.type, q)) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.partCost(p.type, q) + (q.vent ? 3200 : 0); W.removePart(p.id); G.sel = null; DI.edited(); }]]);
   }
   function tilePanel(S, W, k) {
     const x = k % W.w, y = (k / W.w) | 0, room = W.room(x, y), G = g();
     if (W.pd[k]) { const pi = DI.pipeAt(W, k), sid = S.sysd.tileSys[k], brk = S.leaks.find((l) => l.k === k && l.a); B.title(pi.n + ' Sch ' + pi.sch + (W.pk[k] ? ' branch line' : ' main'), x + ',' + y); B.row('Inside diameter', () => pi.id.toFixed(3) + ' in · C = ' + DI.pipeC(W, k));
       if (brk) { B.row('Condition', () => ['BROKEN PIPE', 'bad']); B.btns([['Repair this pipe ' + DI.money(1800), () => { if (spend(1800)) { S.leaks = S.leaks.filter((l) => l !== brk); S.touch(); S.say('Broken pipe section replaced.', 'good'); } }, 'go']]); } B.row('Pressure', () => { const s = sid && S.ss.get(sid); return s && s.state === 'dry' ? psi(s.P) + ' gas' : psi(S.pT[k]); });
-      B.row('System', () => sid ? DI.sysName(S, sid) : 'supply side'); if (W.spk[k]) B.row('Sprinkler', () => W.spk[k] === 1 ? 'K5.6, 155 °F quick response (link ' + DI.fmt(S.lt[k] * 9 / 5 + 32) + ' °F)' : [W.spk[k] === 2 ? 'OPERATED' : 'BROKEN', 'bad']);
+      B.row('System', () => sid ? DI.sysName(S, sid) : 'supply side'); if (W.spk[k]) B.row('Sprinkler', () => W.spk[k] === 1 ? 'K5.6, 155 °F quick response (link ' + DI.fmt(S.lt[k] * 9 / 5 + 32) + ' °F)' : [(W.spk[k] === 2 ? 'OPERATED' : 'BROKEN') + ' - replace with a matching head', 'bad']);
       if (G.sc.sandbox) B.btns([W.spk[k] === 1 ? ['Break this sprinkler', () => DI.breakSprinkler(S, k), 'hot'] : null, !brk ? ['Break this pipe', () => DI.breakPipe(S, k), 'hot', false, 'To the P sensor a broken pipe is the same pressure drop as an open sprinkler.'] : null]); }
     if (room) { const rt = DI.ROOMS[room.type], hz = DI.HAZ[rt.haz]; B.title(room.name, rt.cond ? 'heated' : 'UNHEATED'); B.row('Hazard', () => hz.name); B.row('Design', () => hz.dens.toFixed(2) + ' gpm/ft² over ' + hz.area + ' ft² + ' + hz.hose + ' gpm hose');
       B.row('Coverage', () => room.exempt ? 'by others' : [DI.fmt(100 * (room.cov || 0)) + '%', room.cov >= 0.999 ? 'good' : 'bad']); B.row('Temperature', () => [DI.fmt(room.temp) + ' °F', room.temp < 40 ? 'bad' : '']); B.row('Smoke', () => DI.fmt(S.smoke[room.id], 3)); B.row('Contents', () => DI.money(rt.val * room.w * room.h));
@@ -2682,7 +3033,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const ui = DI.ui = { modalOpen: false };
   const TOOLS = [['select', 'Select', 'Q'], ['pipe', 'Main', '1'], ['branch', 'Sprinklers', '2'], ['head', 'Head', '3'], ['air', 'Air line', '4'], ['wire', 'Wire', '5'], ['cap', 'Cap', '6'], ['erase', 'Erase', 'X']];
-  const SHORT = { city: 'City Tap', tank: 'Tank', epump: 'Electric', dpump: 'Diesel', jockey: 'Jockey', bfp: 'Backflow', gate: 'Valve', check: 'Check', fdc: 'FDC', testhdr: 'Test Hdr', wetv: 'Wet', dryv: 'Dry', prev: 'Preaction', comp: 'Compr.', n2: 'N\u2082 Gen', panel: 'Panel', vesda: 'VESDA', smoke: 'Smoke' };
+  const SHORT = { city: 'City Tap', tank: 'Tank', epump: 'Electric', dpump: 'Diesel', jockey: 'Jockey', bfp: 'Backflow', gate: 'Valve', check: 'Check', fdc: 'FDC', testhdr: 'Test Hdr', wetv: 'Wet', dryv: 'Dry', prev: 'Preaction', comp: 'Compr.', n2: 'N\u2082 Gen', panel: 'Panel', vesda: 'VESDA', smoke: 'Smoke', mstn: 'Station' };
   const HINT = { select: 'Click anything to inspect and operate it. Right-drag or WASD to pan, wheel to zoom.', pipe: 'Drag to lay main pipe. [ and ] change size. Drawing over pipe resizes it.',
     branch: 'Drag a rectangle of sprinkler branch lines. R flips their direction. Feed each line from a main at one end.', head: 'Click a pipe to add or remove a sprinkler on it.',
     air: 'Drag air / nitrogen tubing from a compressor or generator to a dry or preaction valve.', wire: 'Click a panel, then each device to wire to it (valves, pumps, detectors).', cap: 'Cap a joint so two neighbouring pipes do NOT connect. Click near the joint, or drag along a row or column to cap its whole far side. Again to remove.', erase: 'Drag to remove. Full refund.' };
@@ -2699,6 +3050,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       ['False smoke in every room', () => { for (const r of g().W.rooms) g().S.smoke[r.id] = 2.5; }],
       ['Break a pipe', () => { const S = g().S, t = ['hall', 'elec', 'dock', 'stor', 'batt', 'office'].find((q) => DI.G.sysOf(S, q).length); if (!t || !DI.X.pipeBreak(t)(S)) ui.banner('No sprinkler system main to break yet. Or select a pipe tile and break that one.'); }], ['Wipe the map and start over', () => { DI.LS.del('di.save.' + g().sc.id); DI.startScenario(g().sc.id, true); }], ['Tip: select a tile to ignite it or break its sprinkler', () => {}]]);
     $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal') && ui.dismiss) ui.close(); });
+    window.addEventListener('resize', () => ui.fitPanels());
     document.addEventListener('mousedown', (e) => { if (!$('pop').contains(e.target)) $('pop').style.display = 'none'; });
     DI.bus.on('log', (text, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = '<i>' + DI.clock(g().S ? g().S.t : 0).slice(-8) + '</i>' + esc(text); const L = $('log'); L.appendChild(d); while (L.childNodes.length > 80) L.removeChild(L.firstChild); L.scrollTop = 1e6; });
     DI.bus.on('banner', ui.banner);
@@ -2724,7 +3076,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const ps = G.sc.parts.filter((p) => DI.PARTS[p].cat === cat.id); if (!ps.length) continue; d = grp(cat.name.toUpperCase());
       for (const p of ps) btn(d, p, SHORT[p] || DI.PARTS[p].name, '', G.tool.type === 'part' && G.tool.part === p, () => ui.setTool('part', p), DI.PARTS[p].name + ' - ' + DI.money(DI.partCost(p)) + '\n' + DI.PARTS[p].desc);
     }
+    ui.fitPanels();
   };
+  // The toolbar grows with the parts a scenario offers (two rows in the sandbox and contract 7). Keep the
+  // inspector and the annunciator above it, so the last controls of a panel are never hidden behind it.
+  ui.fitPanels = function () { const top = $('tools').getBoundingClientRect().top; if (!(top > 0)) return; for (const id of ['side', 'ann']) $(id).style.maxHeight = Math.max(180, top - 52 - 8) + 'px'; };
   ui.onScenario = function () {
     const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
     $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
@@ -2738,11 +3094,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('wx').textContent = DI.fmt(W.outTemp) + '°F  ' + (W.power ? 'UTILITY OK' : 'UTILITY OUT');
     $('wx').style.color = W.power ? '' : 'var(--red)';
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
-    let h = '', al = 0, sv = 0, tr = 0;
-    const list = [...S.sig.values()].sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : a.type === 'ALARM' ? -1 : b.type === 'ALARM' ? 1 : a.type < b.type ? -1 : 1));
-    for (const o of list) { if (o.type === 'ALARM') al++; else if (o.type === 'SUPV') sv++; else tr++; h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? '' : ' <em>(local only)</em>') + '</span></div>'; }
+    // Annunciator: alarm, then OPEN (release input, class not elected), then supervisory, then trouble. A detector
+    // stage that a higher stage has superseded stays listed as the record of the crossing and is not counted.
+    let h = '', al = 0, sv = 0, tr = 0, op = 0, loud = 0; const ORD = DI.SIG_ORDER;
+    const list = [...S.sig.values()].sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
+    for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; if (!DI.sigSilenced(W, o)) loud++; }
+      h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? '' : ' <em>(local only)</em>') + '</span></div>'; }
     if ($('sigs').dataset.h !== h) { $('sigs').innerHTML = h || '<div class="sig"><span style="color:var(--dim)">All systems normal.</span></div>'; $('sigs').dataset.h = h; }
-    const st = $('annState'); st.textContent = al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : 'NORMAL'; st.className = al ? 'al' : sv ? 'sv' : tr ? 'tr' : '';
+    // ASSUMED presentation: the banner reads OPEN ITEM only when nothing but OPEN is present
+    const st = $('annState'), sil = (al || sv || tr || op) && !loud;       // SILENCED only when every active signal's own panel is silenced
+    st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
     DI.inspect.render(false);
   };
 
@@ -2782,32 +3143,63 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('mbox').querySelectorAll('.find').forEach((el) => { el.onclick = () => { const f = G.S.rv[+el.dataset.i]; if (f.x !== undefined) { ui.close(); ui.focus(f.x, f.y); } }; });
   };
   // Site / project settings: enforced edition, company rules and the values that are ASSUMED or NEEDS PE REVIEW.
-  ui.showSite = function () {
-    const G = g(), W = G.W, c = W.cfg, J = DI.setJuris(W), thr = DI.detThr(W), pol = DI.pipePolicy(W), ed = DI.JURIS[c.edition] && !DI.JURIS[c.edition].hidden ? c.edition : DI.EDITION_DEFAULT;
-    const opt = (grp, val, label, on, dis) => '<button data-s="' + grp + '" data-v="' + val + '"' + (on ? ' class="on"' : '') + (dis ? ' disabled' : '') + '>' + esc(label) + '</button>';
-    const rowL = (inner) => '<div class="mrow" style="justify-content:flex-start;margin-top:6px;flex-wrap:wrap">' + inner + '</div>';
-    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2><p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
-    h += '<h4>ENFORCED EDITION OF NFPA 13 (US)</h4>' + rowL(DI.editionChoices().map((k) => opt('ed', k, 'NFPA 13-' + DI.JURIS[k].nfpa13, ed === k)).join(''));
-    h += '<p>' + (J.delta.length ? '<b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + ' ' : '') + 'Citations in plan review follow the edition. Pass and fail do not differ by edition in this version.</p>';
-    h += '<h4>HAZEN-WILLIAMS C</h4><p>C = ' + DI.HW_C + ' for all sprinkler pipe: wet, dry, preaction, interior, yard and underground. Company rule. Nitrogen earns no credit.<br><span style="color:var(--dim)">Comparison only: the NFPA table value is 120 for wet steel. It has no effect on any calculation here.</span></p>';
-    h += '<h4>PIPE SCHEDULE</h4>' + rowL(Object.keys(DI.PIPE_POLICY).map((k) => opt('pol', k, DI.PIPE_POLICY[k], pol === k)).join('')) + '<p>Sets the inside diameter and volume of every pipe. Cost per size is the same for both schedules (ASSUMED).</p>';
-    h += '<h4>ASPIRATING DETECTION THRESHOLDS (EXAMPLE VALUES, %/FT)</h4>' + rowL(['Alert', 'Action', 'Fire 1', 'Fire 2'].map((n, i) => '<label style="font-size:13px;color:#b6c6d2">' + n + ' <input data-t="' + i + '" type="number" step="0.01" min="0.001" value="' + thr[i] + '" style="width:74px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"></label>').join(''));
-    h += '<p>Alert is supervisory only. Action is a pre-alarm. Fire 1 is the detection leg of a release. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing.</p>';
-    h += rowL('<span style="font-size:13px;color:#b6c6d2">NFPA 76 adopted on this site</span>' + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) + opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
-    h += '<p>NFPA 76 preset: Alert 0.2 %/ft and Fire 1 1.0 %/ft at most (NFPA 76-2024 &sect;8.5.3.1.2.5). Offered only where NFPA 76 is adopted. Action 0.6 is an ASSUMED example, used when the current Action value does not fit between them.</p>';
-    h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL('<span style="font-size:13px;color:#b6c6d2">Manual Release zone bypasses P</span>' + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
-    h += '<p><b style="color:var(--amb)">NEEDS PE REVIEW</b> (owner/insurer exception, footnote 9(c)). OFF: the panel manual station counts as detection and water still needs P. ON: the station alone releases water on an electric / electric trim. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed.</p>';
-    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
-    const done = () => { W.ver++; DI.setJuris(W); G.S.touch(); DI.edited(); ui.showSite(); };
-    $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => {
-      const k = b.dataset.s, v = b.dataset.v;
-      if (k === 'ed') c.edition = v; else if (k === 'pol') c.pipePolicy = v; else if (k === 'n76') c.nfpa76Adopted = v === '1'; else if (k === 'byp') c.manualReleaseBypassP = v === '1';
-      else if (k === 'pre') { if (v === 'reset') delete c.detThr; else { const m = DI.applyDetPreset(W, v); if (m) ui.banner(m); } }
-      done();
-    }; });
-    $('mbox').querySelectorAll('input[data-t]').forEach((inp) => { inp.onchange = () => { const t = DI.detThr(W).slice(), x = parseFloat(inp.value); if (isFinite(x) && x > 0) { t[+inp.dataset.t] = x; c.detThr = t; } done(); }; });
+  // ui.siteSet is the only writer of W.cfg in the front end. It works in the sandbox only: in a contract the
+  // basis of design is fixed (set by the AHJ, the owner and the insurer) and the dialog is read-only.
+  ui.siteSet = function (key, val) {
+    const G = g(), W = G.W, c = W.cfg; if (!G.sc.sandbox) return false;
+    const num = (x, lo, hi) => typeof x === 'number' && isFinite(x) && x >= lo && x <= hi;
+    if (key === 'ed') { if (!DI.editionChoices().includes(val)) return false; c.edition = val; }
+    else if (key === 'cut') { if (!DI.PIPE_CUTS.includes(+val)) return false; c.pipeCut = +val; }
+    else if (key === 'n76') c.nfpa76Adopted = val === '1';
+    else if (key === 'byp') c.manualReleaseBypassP = val === '1';
+    else if (key === 'ins') c.insurer = val === 'FM' ? 'FM' : 'none';
+    else if (key === 'pre') { if (val === 'reset') { delete c.detThr; delete c.spotThr; } else { const m = DI.applyDetPreset(W, val); if (m) { ui.banner(m); return false; } } }
+    else if (key === 'thr') { const t = DI.detThr(W).slice(); if (!num(val[1], 1e-6, 1e3)) return false; t[val[0]] = val[1]; c.detThr = t; }
+    else if (key === 'spot') { if (!num(val, 1e-6, 1e3)) return false; c.spotThr = val; }
+    else if (key === 'fit') { if (!num(val, 0, 50)) return false; c.fitPct = val; }
+    else if (key === 'trim') { if (!num(val, 0, 50)) return false; c.trimGal = val; }
+    else if (key === 'alert' || key === 'action' || key === 'pLatch') { if (!DI.SIG_CLASS[key].includes(val)) return false; c.sigClass = Object.assign({}, c.sigClass, { [key]: val }); }   // SUPV is not in the pLatch list
+    else return false;
+    W.ver++; DI.setJuris(W); G.S.touch(); DI.edited(); return true;
   };
-  ui.resHtml = (r) => '<div class="res ' + (r.pass ? 'pass' : 'fail') + '"><b>' + (r.pass ? 'PASS' : 'FAIL') + ' · ' + esc(r.title) + '</b>' + r.lines.map(esc).join('<br>') + '</div>';
+  ui.showSite = function () {
+    const G = g(), W = G.W, c = W.cfg, ro = !G.sc.sandbox, J = DI.setJuris(W), thr = DI.detThr(W), cut = DI.pipeCut(W), ed = DI.JURIS[c.edition] && !DI.JURIS[c.edition].hidden ? c.edition : DI.EDITION_DEFAULT;
+    const opt = (grp, val, label, on, dis) => '<button data-s="' + grp + '" data-v="' + val + '"' + (on ? ' class="on"' : '') + (dis || ro ? ' disabled' : '') + '>' + esc(label) + '</button>';
+    const rowL = (inner) => '<div class="mrow" style="justify-content:flex-start;margin-top:6px;flex-wrap:wrap">' + inner + '</div>';
+    const lab = (t) => '<span style="font-size:13px;color:#b6c6d2">' + t + '</span>';
+    const inp = (key, val, step, w) => '<input data-n="' + key + '" type="number" step="' + step + '" min="0" value="' + val + '"' + (ro ? ' disabled' : '') + ' style="width:' + (w || 74) + 'px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace">';
+    const A = ' <b style="color:var(--amb)">ASSUMED</b>', PE = '<b style="color:var(--amb)">NEEDS PE REVIEW</b>', CLS = { SUPV: 'Supervisory', ALARM: 'Alarm', TRBL: 'Trouble', OPEN: 'Not elected' };
+    const LA = DI.LISTED.vesda, LS = DI.LISTED.smoke, D = DI.DELIVERY;
+    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2>';
+    if (ro) h += '<p id="siteRO" style="border-left:3px solid var(--amb);padding-left:10px"><b>Basis of design is fixed in a contract: set by the AHJ, the owner and the insurer.</b> These settings are read-only here. They can be changed in the Sandbox.</p>';
+    h += '<p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
+    h += '<h4>ENFORCED EDITION OF NFPA 13 (US)</h4>' + rowL(DI.editionChoices().map((k) => opt('ed', k, 'NFPA 13-' + DI.JURIS[k].nfpa13, ed === k)).join(''));
+    h += '<p id="siteDelta">' + (J.delta.length ? '<b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + ' ' : '') + 'Citations in plan review and on test reports follow the edition. Pass and fail do not differ by edition in this version.</p>';
+    h += '<h4>HAZEN-WILLIAMS C</h4><p>C = ' + DI.HW_C + ' for all sprinkler pipe: wet, dry, preaction, interior, yard and underground. Company rule. Nitrogen earns no credit.<br><span style="color:var(--dim)">Comparison only: the NFPA table value is 120 for wet steel. It has no effect on any calculation here.</span></p>';
+    h += '<h4>PIPE SCHEDULE: SIZE CUT</h4>' + rowL(lab('Largest size on threaded Schedule 40') + DI.PIPE_CUTS.map((i) => opt('cut', i, DI.PIPES[i].n.replace('"', ' in.'), cut === i)).join(''));
+    h += '<p>' + esc(DI.PIPES[cut].n.replace('"', ' in.')) + ' and smaller is threaded Schedule 40; every larger size is roll-grooved Schedule 10, main or branch alike.' + A + ' (default 2 in.). It sets the inside diameter and volume of every pipe. Cost per size is the same for both schedules (ASSUMED).</p>';
+    h += '<h4>WATER DELIVERY</h4>' + rowL('<label>' + lab('Fittings allowance, % of pipe volume ') + inp('fit', DI.cfgNum(W, 'fitPct'), 1, 60) + '</label><label>' + lab('Trim volume per valve, gal ') + inp('trim', DI.cfgNum(W, 'trimGal'), 1, 60) + '</label>');
+    h += '<p>Zone volume = pipe + fittings + trim.' + A + ' (5 % and 2 gal). NFPA 13 judges the size exemptions on it: a dry system needs the ' + D.timed + ' s timed trip test above ' + D.dry + ' gal (' + D.dryQod + ' gal with a quick-opening device), a double-interlock system above ' + D.di + ' gal, and a quick-opening device does not extend that one.</p>';
+    h += rowL(lab('Insurer') + opt('ins', 'none', 'None', DI.insurer(W) === 'none') + opt('ins', 'FM', 'FM', DI.insurer(W) === 'FM'));
+    h += '<p>' + PE + ' With FM, dry and double-interlock systems must deliver water in ' + D.fm + ' s at any volume (' + D.fmRef + '). The most stringent limit governs, so a zone can pass NFPA 13 and fail FM. FM density, hose and duration are not part of this setting.</p>';
+    h += '<h4>ASPIRATING DETECTION THRESHOLDS (EXAMPLE VALUES, %/FT)</h4>' + rowL(['Alert', 'Action', 'Fire 1', 'Fire 2'].map((n, i) => '<label>' + lab(n + ' ') + '<input data-t="' + i + '" type="number" step="0.01" min="0.001" value="' + thr[i] + '"' + (ro ? ' disabled' : '') + ' style="width:74px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"></label>').join(''));
+    h += '<p>Alert and Action are pre-alarm. Fire 1 is the detection leg of a release: D is true at or above it. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing, and a Fire 1 or Fire 2 outside the listed window of the detector: ' + LA.min + ' to ' + LA.max + ' %/ft' + A + ' (placeholder until the maker’s listing is given).</p>';
+    h += rowL('<label>' + lab('Spot detector alarm threshold ') + inp('spot', DI.spotThr(W), 0.1) + '</label>' + lab('listed window ' + LS.min + ' to ' + LS.max + ' %/ft (example data)') + A);
+    h += rowL(lab('NFPA 76 adopted on this site') + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) + opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
+    h += '<p>Where NFPA 76 is adopted, plan review fails an Alert above 0.2 %/ft or a Fire 1 above 1.0 %/ft (NFPA 76-2024 &sect;8.5.3.1.2.5). The preset sets both. Action 0.6 is an ASSUMED example, used when the current Action value does not fit between them.</p>';
+    h += '<h4>SIGNAL CLASSES</h4>' + [['alert', 'Aspirating Alert'], ['action', 'Aspirating Action'], ['pLatch', 'Latched P (release input)']].map(([k, n]) => rowL(lab(n) + DI.SIG_CLASS[k].map((v) => opt(k, v, CLS[v], DI.sigClass(W, k) === v)).join(''))).join('');
+    h += '<p>' + PE + A + ' Alert and Action are supervisory unless the engineer elects alarm. A latched P is a release input whose class has not been elected: it shows as an OPEN item until it is elected alarm or trouble. Supervisory is blocked for it. Fixed: Fire 1, Fire 2, manual station and waterflow are alarm; low and high air are supervisory; panel and battery are trouble.</p>';
+    h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL(lab('Manual Release zone bypasses P') + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
+    h += '<p>' + PE + ' (owner/insurer exception, footnote 9(c)). OFF: the manual station is typed DETECTION, sits inside D, and water still needs P. ON: the station is typed MANUAL RELEASE and alone releases water on an electric / electric trim. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve.</p>';
+    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
+    if (ro) return;
+    const set = (k, v) => { ui.siteSet(k, v); ui.showSite(); };
+    $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => set(b.dataset.s, b.dataset.v); });
+    $('mbox').querySelectorAll('input[data-t]').forEach((el) => { el.onchange = () => set('thr', [+el.dataset.t, parseFloat(el.value)]); });
+    $('mbox').querySelectorAll('input[data-n]').forEach((el) => { el.onchange = () => set(el.dataset.n, parseFloat(el.value)); });
+  };
+  // r.gov = index of the governing-limit line of a trip test: it is highlighted
+  ui.resHtml = (r) => '<div class="res ' + (r.pass ? 'pass' : 'fail') + '"><b>' + (r.pass ? 'PASS' : 'FAIL') + ' · ' + esc(r.title) + '</b>' + r.lines.map((l, i) => (i === r.gov ? '<span class="gov">' + esc(l) + '</span>' : esc(l))).join('<br>') + '</div>';
   ui.showTests = function () {
     const S = g().S; let h = '<h4>COMMISSIONING RECORD</h4><h2>Test log</h2>';
     if (!S.results.length) h += '<p>No tests on record. Select a riser or a pump and run its tests from the panel on the right.</p>';
@@ -2828,7 +3220,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const i = DI.SCEN.indexOf(G.sc), nx = DI.SCEN[i + 1];
     h += '<div class="mrow"><button id="mBack">Back to the plant</button>' + (res.pass && full && nx ? '<button id="mNext" class="go">Next: ' + esc(nx.name) + '</button>' : '') + '</div>';
     ui.modal(h, false);
-    $('mBack').onclick = () => { ui.close(); if (G.pre) { const pre = G.pre; G.pre = null; const W = DI.World.fromJSON(JSON.parse(pre.world)); W.rooms.forEach((r, k) => { r.exempt = pre.ex[k]; }); const S = new DI.Sim(W); S.restore(JSON.parse(pre.sim)); G.W = W; G.S = S; S.calc = new Map(); S.rv = DI.review(S); S.live = !!G.sc.sandbox; G.sel = null; G.calcShow = null; $('log').innerHTML = ''; DI.inspect.render(true); } };
+    $('mBack').onclick = () => { ui.close(); if (G.pre) { const pre = G.pre; G.pre = null; const W = DI.World.fromJSON(JSON.parse(pre.world)); W.rooms.forEach((r, k) => { r.exempt = pre.ex[k]; }); const S = new DI.Sim(W); S.restore(JSON.parse(pre.sim)); G.W = W; G.S = S; S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, G.sc); G.sel = null; G.calcShow = null; $('log').innerHTML = ''; DI.inspect.render(true); } };
     if ($('mNext')) $('mNext').onclick = () => { G.pre = null; DI.startScenario(nx.id); };
   };
   ui.showManual = function (topic, back) {
@@ -2943,6 +3335,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       if (t.type === 'select') {
         const p = W.at(tl.x, tl.y); G.calcShow = null;
         G.sel = p ? { kind: 'part', id: p.id } : W.inb(tl.x, tl.y) && (W.pd[W.k(tl.x, tl.y)] || W.room(tl.x, tl.y)) ? { kind: 'tile', k: W.k(tl.x, tl.y) } : null;
+        if (G.sel && G.sel.kind === 'tile') DI.findHead(G.S, G.sel.k);       // selecting an operated head is "find the operated head" in the recovery log
         DI.inspect.render(true); if (p) DI.audio.play('click'); drag = { kind: 'pan', mx: e.clientX, my: e.clientY, cx: G.cam.x, cy: G.cam.y, moved: false, btn: 0 };
       } else if (t.type === 'part') placePart(tl);
       else if (t.type === 'head') { if (!W.inb(tl.x, tl.y)) return; const k = W.k(tl.x, tl.y); if (!W.pd[k]) return; const add = !W.spk[k]; if (add && !rich(DI.SPK_COST)) return; DI.pushUndo(); W.spk[k] = add ? 1 : 0; W.ver++; W.money -= add ? DI.SPK_COST : -DI.SPK_COST; DI.edited(); DI.audio.play('place'); }
@@ -3000,10 +3393,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
   DI.startScenario = function (id, fresh) {
     const sc = DI.SCEN.find((s) => s.id === id), sv = fresh ? null : LS.get('di.save.' + id, null);
     let W, S;
-    if (sv) { W = DI.World.fromJSON(sv.world); for (const r of W.rooms) { const o = sv.world.rooms.find((q) => q.id === r.id); if (o) { r.exempt = o.exempt; } } S = new DI.Sim(W); S.restore(sv.sim); if (sc.start && sv.sim.leaks.length) S.dirty = true; }
-    else { W = new DI.World(sc.w, sc.h); sc.build(W); W.money = sc.money; S = new DI.Sim(W); S.commission(); if (sc.start) sc.start(S); }
+    if (sv) { W = DI.World.fromJSON(sv.world); for (const r of W.rooms) { const o = sv.world.rooms.find((q) => q.id === r.id); if (o) { r.exempt = o.exempt; } } S = new DI.Sim(W); S.contract = !sc.sandbox; S.restore(sv.sim); if (sc.start && sv.sim.leaks.length) S.dirty = true; }
+    else ({ W, S } = DI.buildScenario(sc));           // fresh map: the contract's fixed site settings (sc.cfg) are merged in
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
-    S.calc = new Map(); S.rv = DI.review(S); S.live = !!sc.sandbox;
+    S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
     let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0; for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
     for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
     g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
@@ -3027,7 +3420,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cv = DI.cv, c = DI.ctx; if (!cv) return;
     if (g.mode === 'play') {
       const S = g.S, sc = g.sc;
-      if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM')) g.warp = 0; }
+      if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM' && !o.sup)) g.warp = 0; }
       else if (g.speed > 0 && !DI.ui.modalOpen) {
         g.acc += dtR * g.speed;
         let busy = S.outFlow > 0.5 || S.fires.length > 0; if (!busy) for (const s of S.ss.values()) if (s.state === 'filling') { busy = true; break; }

@@ -3,7 +3,7 @@
 var DI = globalThis.DI || (globalThis.DI = {});
 (function () {
   const TAU = Math.PI * 2;
-  const C = { ink: '#dbe7ef', body: '#18242f', red: '#ff4b3a', amb: '#ffb224', grn: '#3ddc91', wat: '#3aa6ff', air: '#e9d8a0', n2: '#6fe3c6', dim: '#6f8494' };
+  const C = { ink: '#dbe7ef', body: '#18242f', red: '#ff4b3a', amb: '#ffb224', grn: '#3ddc91', wat: '#3aa6ff', air: '#e9d8a0', n2: '#6fe3c6', dim: '#6f8494', opn: '#c59bff' };
   DI.COL = C;
   const P = (c, pts, close) => { c.beginPath(); c.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) c.lineTo(pts[i], pts[i + 1]); if (close !== false) c.closePath(); };
   const circ = (c, x, y, r) => { c.beginPath(); c.arc(x, y, r, 0, TAU); };
@@ -51,14 +51,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
     prev(c, st) { stub(c); arrow(c); c.fillStyle = C.wat; c.globalAlpha = 0.8; c.fillRect(-0.36, -0.3, 0.3, 0.6); c.fillStyle = st.tripped ? C.wat : st.n2 ? C.n2 : C.air; c.fillRect(-0.06, -0.3, 0.42, 0.6); c.globalAlpha = 1;
       c.strokeStyle = C.red; c.lineWidth = 0.06; c.strokeRect(-0.36, -0.3, 0.72, 0.6); c.fillStyle = '#10161c'; c.fillRect(-0.2, -0.46, 0.22, 0.16); c.strokeStyle = C.ink; c.lineWidth = 0.035; c.strokeRect(-0.2, -0.46, 0.22, 0.16);
       c.strokeStyle = '#10161c'; c.lineWidth = 0.07; if (st.tripped) P(c, [-0.06, -0.28, 0.2, -0.1], false); else P(c, [-0.06, -0.28, -0.06, 0.28], false); c.stroke();
-      led(c, 0.14, -0.42, C.red, st.sol); led(c, 0.32, -0.42, C.amb, st.low); if (st.pl) { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); } },     // amber bar: P is latched
+      // red LED: solenoid energized (dim red while only D is latched). Amber bar: P is latched.
+      if (st.sol || !st.det) led(c, 0.14, -0.42, C.red, st.sol); else { circ(c, 0.14, -0.42, 0.065); c.fillStyle = '#8a2f25'; c.fill(); }
+      led(c, 0.32, -0.42, C.amb, st.low); if (st.pl) { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); }
+      if (st.imp) { c.save(); c.rotate(-(st.rot || 0) * Math.PI / 2); P(c, [0.2, 0.12, 0.5, 0.12, 0.5, 0.48, 0.2, 0.48, 0.1, 0.3]); c.fillStyle = C.amb; c.fill(); c.strokeStyle = '#3a2a05'; c.lineWidth = 0.03; c.stroke(); txt(c, '!', 0.34, 0.3, 0.3, '#201400'); c.restore(); } },     // amber impairment tag
     comp(c, st) { c.fillStyle = C.body; c.strokeStyle = C.air; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, 0, 0.76, 0.34, 0.16); c.fill(); c.stroke(); circ(c, -0.1, -0.16, 0.19); c.fill(); c.stroke();
       c.save(); c.translate(-0.1, -0.16); c.rotate((st.t || 0) * 14 * (st.on ? 1 : 0)); P(c, [-0.13, 0, 0.13, 0], false); c.stroke(); P(c, [0, -0.13, 0, 0.13], false); c.stroke(); c.restore(); led(c, 0.28, -0.2, C.grn, st.on); },
     n2(c, st) { c.fillStyle = C.body; c.strokeStyle = C.n2; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, -0.38, 0.76, 0.76, 0.08); c.fill(); c.stroke(); txt(c, 'N₂', -0.02, 0.02, 0.36, C.n2, -(st.rot || 0) * Math.PI / 2); led(c, 0.26, -0.26, C.grn, st.on); },
     panel(c, st) { c.fillStyle = '#5a1712'; c.strokeStyle = C.red; c.lineWidth = 0.05; c.fillRect(-0.36, -0.42, 0.72, 0.84); c.strokeRect(-0.36, -0.42, 0.72, 0.84); c.fillStyle = '#0c1218'; c.fillRect(-0.26, -0.32, 0.52, 0.24);
-      led(c, -0.2, 0.08, C.red, st.al && Math.sin((st.t || 0) * 10) > 0); led(c, 0, 0.08, C.amb, st.sv); led(c, 0.2, 0.08, '#ffe45c', st.tr); led(c, -0.2, 0.28, C.grn, st.alive !== false); },
+      led(c, -0.2, 0.08, C.red, st.al && (st.sil || Math.sin((st.t || 0) * 10) > 0)); led(c, 0, 0.08, C.amb, st.sv); led(c, 0.2, 0.08, '#ffe45c', st.tr); led(c, -0.2, 0.28, C.grn, st.alive !== false); led(c, 0.2, 0.28, C.opn, st.op); },     // lower right: OPEN item (release input, class not elected)
     vesda(c, st) { c.fillStyle = C.body; c.strokeStyle = C.ink; c.lineWidth = 0.05; c.fillRect(-0.36, -0.3, 0.72, 0.6); c.strokeRect(-0.36, -0.3, 0.72, 0.6);
       for (let i = 0; i < 4; i++) { c.fillStyle = i < (st.lvl || 0) ? [C.grn, C.amb, C.red, C.red][i] : '#26333f'; c.fillRect(-0.28 + i * 0.15, -0.2, 0.11, 0.4); } P(c, [0, -0.3, 0, -0.5], false); c.stroke(); },
+    mstn(c, st) { c.fillStyle = st.on ? '#8a1c14' : '#5a1712'; c.strokeStyle = C.red; c.lineWidth = 0.05; c.fillRect(-0.3, -0.36, 0.6, 0.72); c.strokeRect(-0.3, -0.36, 0.6, 0.72);
+      c.fillStyle = '#e8eef2'; c.fillRect(-0.2, st.on ? 0.02 : -0.2, 0.4, 0.12); P(c, [0, st.on ? 0.14 : -0.08, 0, 0.26], false); c.strokeStyle = '#e8eef2'; c.lineWidth = 0.05; c.stroke(); led(c, 0.2, -0.26, C.red, st.on); },
     smoke(c, st) { circ(c, 0, 0, 0.32); c.fillStyle = '#e8eef2'; c.fill(); c.strokeStyle = C.dim; c.lineWidth = 0.04; c.stroke(); circ(c, 0, 0, 0.16); c.stroke(); led(c, 0, 0, C.red, (st.lvl || 0) > 0); },
   };
   DI.glyph = function (c, type, st) { const g = DI.GLYPH[type]; if (g) g(c, st || {}); };

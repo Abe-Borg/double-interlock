@@ -8,13 +8,9 @@ DI.review = function (S) {
   const add = (sev, text, ref, x, y) => out.push({ sev, text, ref: ref || '', x, y });
   // --- coverage
   for (const room of W.rooms) {
-    const rt = DI.ROOMS[room.type]; let need = 0, have = 0, orphan = 0;
+    const rt = DI.ROOMS[room.type];
     if (room.exempt || rt.open) { room.cov = 1; continue; }
-    for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
-      const k = W.k(x, y); if (W.partAt[k]) continue; need++;
-      if (W.spk[k]) { have++; if (!sd.tileSys[k]) orphan++; }
-      else if (W.pd[k] && (W.spk[k - 1] || W.spk[k + 1] || W.spk[k - W.w] || W.spk[k + W.w])) have++;   // a main between branch lines
-    }
+    const { need, have, orphan } = DI.roomCoverage(W, sd, room);
     room.cov = need ? have / need : 1;
     if (have < need) add('fail', room.name + ': ' + (need - have) + ' of ' + need + ' tiles have no sprinkler (' + DI.fmt(100 * room.cov) + '% covered).', 'NFPA 13 Ch. 9: sprinklers throughout the premises', room.x, room.y);
     if (orphan) add('fail', room.name + ': ' + orphan + ' sprinklers are not connected to any system riser.', '', room.x, room.y);
@@ -35,11 +31,14 @@ DI.review = function (S) {
     if (dry) {
       if (inf.gridded) add('fail', nm + ': piping is gridded (looped). Dry and double-interlock preaction systems must not be gridded - air cannot be driven out one way. Give every branch line a dead end (Cap tool, 6).', R(J.nfpa13 === 2025 ? '§8.2.1, §8.3' : '§8.2, §8.3'), v.x, v.y);
       if (!inf.src.length) add('fail', nm + ': no air compressor or nitrogen generator is tubed to the valve.', R('§8.2 / §8.3'), v.x, v.y);
-      const lim = v.type === 'dryv' && v.p.qod ? 750 : 500;
-      if (inf.vol > lim) add('warn', nm + ': ' + DI.fmt(inf.vol) + ' gal exceeds ' + lim + ' gal, so it must prove water delivery by trip test (60 s).', v.type === 'prev' ? J.ref.di : J.ref.delivery, v.x, v.y);
+      // water delivery: one row per limit that applies, judged on full zone volume (pipe + fittings + trim)
+      const dl = DI.deliveryLimits(S, id), vols = 'zone volume ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')';
+      if (dl.nfpa.limit !== null) add('warn', nm + ': ' + vols + ' is over ' + dl.nfpa.thr + ' gal. Prove delivery with the ' + dl.nfpa.limit + ' s timed trip test, or rezone into smaller systems.' +
+        (v.type === 'prev' ? ' A quick-opening device does not extend the ' + dl.nfpa.thr + ' gal on double interlock.' : ''), dl.nfpa.ref, v.x, v.y);
+      if (dl.fm.limit !== null) add('info', nm + ': insurer is FM, so water must reach the inspector’s test in ' + dl.fm.limit + ' s at any volume (' + vols + '). The most stringent limit governs. NEEDS PE REVIEW.', DI.DELIVERY.fmRef + ' (site setting)', v.x, v.y);
       if (v.type === 'prev') {
         const pn = W.panelOf(id);
-        if (!pn) add('fail', nm + ': solenoid is not wired to a releasing panel. The valve can never open on its own.', R('§8.3, NFPA 72'), v.x, v.y);
+        if (!pn) add('fail', nm + ': solenoid is not wired to a releasing panel. The valve can never open on its own.' + (v.p.trim === 'el-el' ? ' P is latched in the panel; wire the valve to a panel to reset it.' : ''), R('§8.3, NFPA 72'), v.x, v.y);
         else {
           // only detectors that can act as the detection leg count: aspirating anywhere, spot only in support rooms
           for (const r of inf.rooms) {
@@ -65,8 +64,26 @@ DI.review = function (S) {
     if (!W.panelOf(id)) add('warn', nm + ': waterflow alarm is not wired to a panel. Nobody off-site will know it is flowing.', R('Ch. 16, NFPA 72'), v.x, v.y);
   }
   // --- site settings
-  const thr = DI.detThr(W);
+  const thr = DI.detThr(W), LA = DI.LISTED.vesda, LS = DI.LISTED.smoke, spot = DI.spotThr(W), listed = 'Device listing; NFPA 72 Ch. 14 (ITM)';
   if (!thr.every((t, i) => isFinite(t) && t > 0 && (i === 0 || t > thr[i - 1]))) add('fail', 'Aspirating detection thresholds are not strictly increasing (' + thr.join(' / ') + '). They must run Alert < Action < Fire 1 < Fire 2.', 'Site setting (example values)', 0, 0);
+  // Fire 1 and Fire 2 must sit inside the listed sensitivity window of the detector model
+  [['Fire 1', thr[2]], ['Fire 2', thr[3]]].forEach(([n, t]) => { if (!(t >= LA.min && t <= LA.max)) add('fail', 'Aspirating ' + n + ' threshold ' + t + ' %/ft is outside the listed window of the detector (' + LA.min + ' to ' + LA.max + ' %/ft' + (LA.assumed ? ', ASSUMED placeholder' : '') + ').', listed, 0, 0); });
+  if (!(spot >= LS.min && spot <= LS.max)) add('fail', 'Spot detector alarm threshold ' + spot + ' %/ft is outside the listed window of the detector (' + LS.min + ' to ' + LS.max + ' %/ft, example data).', listed, 0, 0);
+  if (J.nfpa76Adopted) {
+    const P76 = DI.PRESETS.nfpa76;
+    if (thr[0] > P76.alert) add('fail', 'NFPA 76 is adopted on this site: Alert must be ' + P76.alert + ' %/ft or less (it is ' + thr[0] + ').', 'NFPA 76-2024 §8.5.3.1.2.5', 0, 0);
+    if (thr[2] > P76.fire1) add('fail', 'NFPA 76 is adopted on this site: Fire 1 must be ' + P76.fire1 + ' %/ft or less (it is ' + thr[2] + ').', 'NFPA 76-2024 §8.5.3.1.2.5', 0, 0);
+  }
+  // signal classes: a latched P may be OPEN (not elected), alarm or trouble, never supervisory
+  const sc = (W.cfg && W.cfg.sigClass) || {};
+  for (const k of Object.keys(DI.SIG_CLASS)) if (sc[k] !== undefined && !DI.SIG_CLASS[k].includes(sc[k]))
+    add('fail', k === 'pLatch' ? 'Signal class of a latched P is set to ' + sc[k] + '. Supervisory is blocked for the release input: elect alarm or trouble, or leave it not elected. NEEDS PE REVIEW.' : 'Signal class of the ' + k + ' stage is set to ' + sc[k] + '. It must be supervisory or alarm.', 'Site setting; NFPA 72 (signal classification)', 0, 0);
+  // manual release stations
+  for (const p of W.byType('mstn')) {
+    const pn = W.panelOf(p.id), r = W.roomAt[W.k(p.x, p.y)];
+    if (!pn) add('warn', 'Manual release station #' + p.id + ' is not wired to a releasing panel. Operating it does nothing.', 'NFPA 72', p.x, p.y);
+    else if (![...sd.info.values()].some((i) => i.type === 'prev' && r && i.rooms.has(r) && W.panelOf(i.id) === pn)) add('warn', 'Manual release station #' + p.id + ' is not in a room protected by a preaction valve on its panel. It raises the alarm and releases nothing.', 'NFPA 72', p.x, p.y);
+  }
   // --- valves, supply, pumps
   for (const p of W.parts.values()) {
     if (p.type === 'gate' && !W.panelOf(p.id)) add('warn', 'Control valve #' + p.id + ' has no tamper switch wired to a panel.', R('Ch. 16: valve supervision'), p.x, p.y);

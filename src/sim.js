@@ -15,10 +15,12 @@ DI.Sim = class {
     this.fd = { called: -1, onScene: -1 };  // fire department
     this.stats = { fireLoss: 0, waterLoss: 0, smokeLoss: 0, gallons: 0 };
     this.procs = []; this.results = [];     // running test procedures / finished test reports
+    this.acts = [];                         // operator / recovery log: { t, kind, id }, read by DI.recoveryScore
     this.genT = -1;                         // standby generator: time utility was lost
     DI.fireInit(this);
     this.sync();
   }
+  act(kind, id, x) { this.acts.push(Object.assign({ t: this.t, kind, id }, x || {})); if (this.acts.length > 400) this.acts.shift(); }
   say(text, cls) { this.log.push({ t: this.t, text, cls: cls || '' }); if (this.log.length > 200) this.log.shift(); DI.bus.emit('log', text, cls); }
   // re-discover systems after any map edit; keep state of valves that still exist
   sync() {
@@ -111,7 +113,9 @@ DI.Sim = class {
         if (!q.on && q.auto && pw && ps < q.start) { q.on = true; q.starts++; q.lastStart = this.t; }
         else if (q.on && (ps >= q.stop || !pw || !q.auto)) q.on = false;
       } else if (p.type === 'gate') {
+        const was = q.open;
         if (q.open !== q.target) q.open = q.target > q.open ? Math.min(q.target, q.open + dt / 4) : Math.max(q.target, q.open - dt / 4);
+        if (was > 0.02 && q.open <= 0.02) this.act('close-valve', p.id);
       } else if (p.type === 'tank') {
         if (q.gal < q.cap && q.fill > 0) q.gal = Math.min(q.cap, q.gal + q.fill * dt / 60);
       }
@@ -182,13 +186,14 @@ DI.Sim.prototype.warp = function (sec, maxMs) {
 };
 
 // Save / load of the dynamic state that matters (pressures re-settle on load).
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref'];
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
-  return { t: this.t, ss, results: this.results.slice(-60), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
+  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(-300), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
 };
 DI.Sim.prototype.restore = function (j) {
   for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) Object.assign(s, o); }
+  this.acts = j.acts || [];
   // a save from before the maker-trim setpoints: bring a set system up to its new normal pressure so the
   // migrated valve does not come back sitting on its P trip point
   for (const [id, s] of this.ss) {

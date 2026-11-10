@@ -80,3 +80,61 @@ DI.findSystems = function (W) {
   const reach = (sid, k) => { const s = info.get(sid); if (!s || s.vol <= 0) return 0; return Math.min(1, (dvol[k] + 0.35 * (s.vol - dvol[k])) / s.vol); };
   return { tileSys, par, dvol, tdist, info, reach };
 };
+
+// Sprinkler coverage of one room: tiles that need a head, tiles that have one, heads on no system.
+DI.roomCoverage = function (W, sd, room) {
+  let need = 0, have = 0, orphan = 0;
+  for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
+    const k = W.k(x, y); if (W.partAt[k]) continue; need++;
+    if (W.spk[k]) { have++; if (!sd.tileSys[k]) orphan++; }
+    else if (W.pd[k] && (W.spk[k - 1] || W.spk[k + 1] || W.spk[k - W.w] || W.spk[k + W.w])) have++;   // a main between branch lines
+  }
+  return { need, have, orphan };
+};
+
+// Nearest control valve upstream of a system valve (walk the supply pipe run back from the riser inlet).
+DI.ctrlValve = function (W, id) {
+  const v = W.parts.get(id); if (!v) return null;
+  const seen = new Set(), q = [[v.x, v.y, W.ports(v).i]];
+  for (let h = 0; h < q.length && h < 400; h++) {
+    const [x, y, d] = q[h]; if (!W.linked(x, y, d)) continue; const nx = x + DI.DX[d], ny = y + DI.DY[d], k = W.k(nx, ny); if (seen.has(k)) continue; seen.add(k);
+    const o = W.at(nx, ny); if (o) { if (o.type === 'gate') return o; continue; }
+    for (let e = 0; e < 4; e++) if (e !== DI.OPP[d]) q.push([nx, ny, e]);
+  }
+  return null;
+};
+
+// ---------- water delivery
+// Full zone volume = pipe + a fittings allowance + the valve trim (project settings, ASSUMED 5 % and 2 gal).
+// inf.vol stays pipe only; every delivery rule is judged on the zone volume.
+DI.zoneVolume = (W, inf) => inf.vol * (1 + DI.cfgNum(W, 'fitPct') / 100) + DI.cfgNum(W, 'trimGal');
+// the most demanding hazard among the rooms a system protects (key into DI.HAZ)
+DI.sysHazard = function (W, inf) {
+  let key = '';
+  for (const r of inf.rooms) { const h = DI.ROOMS[W.rooms[r - 1].type].haz; if (!key || DI.HAZ[h].dens > DI.HAZ[key].dens) key = h; }
+  return key || 'OH1';
+};
+// The limits that apply to a zone of `zone` gallons. Pure: no world needed, so the thresholds can be tested exactly.
+//   NFPA 13: dry needs the 60 s timed test above 500 gal, or above 750 gal with a quick-opening device.
+//            Double interlock needs it above 500 gal and a QOD does not extend that. Wet: nothing.
+//   FM:      30 s at any volume for dry and double interlock, only when the site insurer is FM (NEEDS PE REVIEW).
+//   The most stringent limit governs.
+DI.deliveryRule = function (type, qod, zone, insurer) {
+  const D = DI.DELIVERY, R = DI.juris.ref, o = { type, zone, nfpa: { limit: null, thr: null, rule: '', ref: '' }, fm: { limit: null, rule: 'FM: not applied' }, governing: null, by: '' };
+  if (type !== 'dryv' && type !== 'prev') return o;
+  const thr = type === 'dryv' ? (qod ? D.dryQod : D.dry) : D.di, over = zone > thr;
+  const ref = type === 'prev' ? R.di : over ? R.timedTest : qod ? R.qod : R.noQod;
+  o.nfpa = { limit: over ? D.timed : null, thr, ref, rule: (over ? 'NFPA 13: ' + D.timed + ' s (over ' + thr + ' gal)' : 'NFPA 13: no timed test (' + thr + ' gal or less)') + ' [' + ref + ']' };
+  if (insurer === 'FM') o.fm = { limit: D.fm, rule: 'FM: ' + D.fm + ' s (any volume, ' + D.fmRef.replace('FM ', '') + ', NEEDS PE REVIEW)' };
+  for (const [by, l] of [['NFPA', o.nfpa.limit], ['FM', o.fm.limit]]) if (l !== null && (o.governing === null || l < o.governing)) { o.governing = l; o.by = by; }
+  return o;
+};
+// Limits for system `id` on this site, with the margin against a measured delivery time (seconds) if one is given.
+// margin = governing - measured: negative means it failed. null when no limit applies or nothing was measured.
+DI.deliveryLimits = function (S, id, measured) {
+  const W = S.W, v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v || !inf) return null;
+  DI.setJuris(W);
+  const o = DI.deliveryRule(v.type, !!v.p.qod, DI.zoneVolume(W, inf), DI.insurer(W));
+  o.pipe = inf.vol; o.margin = o.governing !== null && measured > 0 ? o.governing - measured : null;
+  return o;
+};

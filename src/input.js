@@ -101,6 +101,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       if (t.type === 'select') {
         const p = W.at(tl.x, tl.y); G.calcShow = null;
         G.sel = p ? { kind: 'part', id: p.id } : W.inb(tl.x, tl.y) && (W.pd[W.k(tl.x, tl.y)] || W.room(tl.x, tl.y)) ? { kind: 'tile', k: W.k(tl.x, tl.y) } : null;
+        if (G.sel && G.sel.kind === 'tile') DI.findHead(G.S, G.sel.k);       // selecting an operated head is "find the operated head" in the recovery log
         DI.inspect.render(true); if (p) DI.audio.play('click'); drag = { kind: 'pan', mx: e.clientX, my: e.clientY, cx: G.cam.x, cy: G.cam.y, moved: false, btn: 0 };
       } else if (t.type === 'part') placePart(tl);
       else if (t.type === 'head') { if (!W.inb(tl.x, tl.y)) return; const k = W.k(tl.x, tl.y); if (!W.pd[k]) return; const add = !W.spk[k]; if (add && !rich(DI.SPK_COST)) return; DI.pushUndo(); W.spk[k] = add ? 1 : 0; W.ver++; W.money -= add ? DI.SPK_COST : -DI.SPK_COST; DI.edited(); DI.audio.play('place'); }

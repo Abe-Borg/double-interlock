@@ -13,8 +13,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       case 'city': st.loop = q.loop; break;
       case 'fdc': st.on = q.active; break;
       case 'testhdr': st.open = q.open; break;
-      case 'wetv': case 'dryv': case 'prev': { const s = S.ss.get(p.id), i = S.sysd.info.get(p.id); if (s) { st.alarm = s.alarm; st.tripped = s.state !== 'dry'; st.low = s.lowAir && s.state === 'dry'; st.sol = q.sol || q.pull; st.pl = q.pLatch; st.n2 = i && i.hasN2; } break; }
-      case 'panel': { let al = 0, sv = 0, tr = 0; for (const o of S.sig.values()) if (o.mon) { if (o.type === 'ALARM') al = 1; else if (o.type === 'SUPV') sv = 1; else tr = 1; } st.al = al; st.sv = sv; st.tr = tr; st.alive = q.alive; break; }
+      case 'wetv': case 'dryv': case 'prev': { const s = S.ss.get(p.id), i = S.sysd.info.get(p.id); if (s) { st.alarm = s.alarm; st.tripped = s.state !== 'dry'; st.low = s.lowAir && s.state === 'dry'; st.sol = q.solOut; st.det = q.sol || q.pull; st.pl = q.pLatch; st.n2 = i && i.hasN2; st.imp = p.type === 'prev' && !!S.contract && DI.stationType(g.W, p) === 'MANUAL RELEASE'; } break; }
+      case 'panel': { let al = 0, sv = 0, tr = 0, op = 0; for (const o of S.sig.values()) if (o.mon && !o.sup && !o.lost) { if (o.type === 'ALARM') al = 1; else if (o.type === 'OPEN') op = 1; else if (o.type === 'SUPV') sv = 1; else tr = 1; } st.al = al; st.sv = sv; st.tr = tr; st.op = op; st.alive = q.alive; st.sil = q.silenced; break; }
+      case 'mstn': st.on = q.on; break;
       case 'vesda': case 'smoke': st.lvl = q.lvl; break;
     }
     return st;

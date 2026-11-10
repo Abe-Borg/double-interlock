@@ -9,10 +9,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   DI.SCEN.push({
     id: 'c5', name: 'Double Interlock', tag: 'Preaction, VESDA, releasing panel', w: 64, h: 36, money: 430000, par: 345000,
-    parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'prev', 'comp', 'panel', 'vesda', 'smoke'],
+    parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'prev', 'comp', 'panel', 'vesda', 'smoke', 'mstn'],
     brief: ['Data Hall 1: 48,000 square feet and nine figures of servers. The owner wants sprinklers, because a fire that is not stopped takes the whole building. The owner is also terrified of water.',
       'Double interlock preaction answers both. The pipe is dry and held under supervisory pressure. Water is admitted only when two independent things have happened: detection has reached Fire 1 (or someone has operated the manual station) AND P, the pipe pressure falling below the P trip setpoint. A broken sprinkler alone gives P and no water. A false detection alone energizes the solenoid and no water. P stays latched until you reset it, so a broken sprinkler that was replaced but never reset still counts.'],
-    learn: ['The two interlocks: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint)', 'Aspirating detection stages: Alert is supervisory, Action is a pre-alarm, Fire 1 releases, Fire 2 only escalates', 'System size: 60 s water delivery above 500 gal, +30% design area, no gridding', 'Low air is a warning, P is a latch: after every repair, reset the panel or one detection event floods the room', 'One control valve per system, so an impairment stays small'],
+    learn: ['The two interlocks: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint)', 'Aspirating detection stages: Alert is supervisory, Action is a pre-alarm, Fire 1 releases, Fire 2 only escalates', 'System size: zone volume counts pipe, fittings and trim. Over 500 gal a double-interlock zone must pass the 60 s timed trip test, or be rezoned. +30% design area, no gridding', 'Low air is a warning, P is a latch: after every repair restore the air first, then reset, or one detection event floods the room', 'Recovery in order: silence, find the head, close the valve, drain, replace the head, restore air, reset the trim, reset the panel', 'One control valve per system, so an impairment stays small'],
     build(W) {
       const b = DI.mk(W); W.addRoom('riser', 15, 10, 6, 8).exempt = true; W.addRoom('hall', 22, 5, 30, 16); W.addRoom('elec', 22, 22, 12, 7);
       b.p('city', 2, 14, 0, { stat: 135, resid: 115, flow: 2500, fixed: true, loop: true, label: 'Campus Fire Loop' }); b.h(3, 12, 14, 8); b.p('gate', 13, 14); b.h(14, 16, 14, 8);
@@ -22,15 +22,18 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'Both rooms on double-interlock preaction, with no code failures', ok: (S) => di(S, ['hall', 'elec']) && G.noFails(S), hint: 'Each preaction valve needs supervisory air, a releasing panel, and detection in every room it serves.' },
       { t: 'Releasing panel wired: detection, every solenoid, every tamper switch', ok: (S) => S.W.byType('prev').length > 0 && G.wired(S, ['prev', 'gate', 'vesda', 'smoke']), hint: 'Wire tool: panel first, then each device.' },
       { t: 'Hydraulic calc passes on every system: 0.15 gpm/ft² over 1,950 ft² + 250 gpm hose', ok: (S) => G.calcOk(S, 'hall') && G.calcOk(S, 'elec'), hint: 'Feed the hall from the middle so no branch line is long.' },
-      { t: 'Trip test passes on every preaction valve', ok: (S) => G.test(S, 'trip', 'hall') && G.test(S, 'trip', 'elec'), hint: 'Over 500 gal the water has 60 s to reach the far end. Split the hall into more than one system if it cannot.' },
-      { t: 'All systems reset, pressurized and in service', ok: (S) => inService(S, ['hall', 'elec']), hint: 'Close control valve, drain, panel reset, reset the valve, air up, reopen. A valve showing P LATCHED is not in service: reset the panel once the air is back. Give each preaction valve its own control valve, or restoring one system takes all of them out of service.' },
+      { t: 'Trip test passes on every preaction valve', ok: (S) => G.test(S, 'trip', 'hall') && G.test(S, 'trip', 'elec'), hint: 'Zone volume counts fittings and trim on top of the pipe (the valve shows both). Over 500 gal a double-interlock zone must put water at the inspector’s test in 60 s, and a quick-opening device does not extend the 500 gal. Pass the timed test or rezone the hall into more systems.' },
+      { t: 'Recovery done in order after the trip test on every preaction valve', ok: (S) => G.recovered(S, 'hall') && G.recovered(S, 'elec'), hint: 'In this order: silence the panel, close the control valve, open the system drain, reset the panel so detection drops out, reset the valve at the riser, let the air build, reset the actuator at the trim (electric / pneumatic only), then reset the panel. Out of order? Run that trip test again and restore it in order.' },
+      { t: 'All systems reset, pressurized and in service', ok: (S) => inService(S, ['hall', 'elec']), hint: 'A valve showing P LATCHED is not in service. P clears only after the air is back: at the panel on an electric / electric trim, at the actuator on electric / pneumatic. An earlier reset latches straight back. Give each preaction valve its own control valve, or restoring one system takes all of them out of service.' },
     ],
-    drill: { name: 'Three Bad Days', len: 4200, steps: () => [
+    // The false alarm comes after the 30-minute air-restore window, so a recovery done in order has time to
+    // finish. No hard timer: an unfinished recovery still floods the hall when the false alarm arrives.
+    drill: { name: 'Three Bad Days', len: 5600, steps: () => [
       [10, X.smash('hall', 0.3, 0.3), 'A contractor’s ladder just snapped a sprinkler off in the data hall.'],
-      [660, X.falseAlarm('hall'), 'Construction dust is being pulled into a VESDA sampling pipe.'],
-      [1480, mark], [1500, X.fire('hall', 0.65, 0.6, 240), 'Something in row 14 smells hot.'],
-      [2700, X.fire('elec', 0.5, 0.5, 0, 1.5), 'Arc flash in a switchboard in the electrical room.']],
-      judge: DI.lossJudge(4500000, (S) => [[(S.drill.g0 || 0) < 5, 'No water on the IT load from the broken sprinkler or the false alarm']]) },
+      [2100, X.falseAlarm('hall'), 'Construction dust is being pulled into a VESDA sampling pipe.'],
+      [2900, mark], [2920, X.fire('hall', 0.65, 0.6, 240), 'Something in row 14 smells hot.'],
+      [4100, X.fire('elec', 0.5, 0.5, 0, 1.5), 'Arc flash in a switchboard in the electrical room.']],
+      judge: DI.lossJudge(4500000, (S) => [[(S.drill.g0 || 0) < 5, 'No water on the IT load from the broken sprinkler or the false alarm']].concat(DI.drillRecovery(S, 'the broken sprinkler'))) },
   });
 
   DI.SCEN.push({

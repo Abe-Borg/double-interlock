@@ -36,8 +36,8 @@ DI.PARTS = {
     desc: 'Pipe holds air; a differential clapper holds water back. Sprinkler opens, air drops, valve trips. For spaces that freeze.',
     props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1 } },
   prev: { name: 'Preaction Valve', cat: 'system', cost: 24000, ports: 2, key: '3',
-    desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or manual) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
-    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false } },
+    desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
+    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false, solOut: false } },
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
     props: { scfm: 5, on: false, runSec: 0, starts: 0 } },
@@ -45,13 +45,42 @@ DI.PARTS = {
     desc: 'Membrane generator: 98%+ nitrogen as supervisory gas. Starves the oxygen corrosion that eats dry and preaction pipe.',
     props: { scfm: 2.5, on: false, runSec: 0, starts: 0 } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
-    desc: 'Listed releasing fire alarm panel. Wire detection, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
+    desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
     desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
   smoke: { name: 'Spot Smoke Detection', cat: 'alarm', cost: 4200, ports: 0, key: 'O',
     desc: 'Listed ceiling spot detector. In an electrical / UPS room one detector in alarm is the detection leg of a release. In white space it only raises the alarm.', props: { lvl: 0, obs: 0 } },
+  mstn: { name: 'Manual Release Station', cat: 'alarm', cost: 900, ports: 0, key: 'M',
+    desc: 'Manual station wired to the releasing panel. Typed DETECTION: operating it is the detection leg for every preaction valve that protects the room it is in, and water still needs P.', props: { on: false } },
 };
+
+// Listed sensitivity window of each detector model, %/ft obscuration. Fire 1 and Fire 2 (aspirating) and the
+// spot alarm threshold must sit inside the window of the device (plan review fails anything outside).
+//   smoke: 0.5 to 4.0 is the FA Lead's example window for a spot photoelectric detector (example data, not cited).
+//   vesda: ASSUMED placeholder 0.01 to 5.0 until the maker's listing for the aspirating detector is given.
+DI.LISTED = { vesda: { min: 0.01, max: 5.0, assumed: true }, smoke: { min: 0.5, max: 4.0 } };
+
+// Site / project settings with a default (W.cfg, saved with the world). All ASSUMED and tunable.
+//   spotThr  spot detector alarm threshold, %/ft (example value)
+//   fitPct   fittings allowance on pipe volume, %       trimGal  valve trim volume, gal per system valve
+//   insurer  'none' | 'FM' (FM adds the 30 s delivery limit at any volume; NEEDS PE REVIEW)
+DI.CFG_DEFAULT = { spotThr: 1.3, fitPct: 5, trimGal: 2, insurer: 'none' };
+DI.cfgNum = (W, key, lo) => { const v = W && W.cfg ? W.cfg[key] : undefined; return typeof v === 'number' && isFinite(v) && v >= (lo || 0) ? v : DI.CFG_DEFAULT[key]; };
+DI.spotThr = (W) => { const v = DI.cfgNum(W, 'spotThr'); return v > 0 ? v : DI.CFG_DEFAULT.spotThr; };
+DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
+
+// Signal classes (W.cfg.sigClass). Alert and Action are pre-alarm: supervisory by default, alarm if the
+// engineer elects it. A latched P is a release input whose class has not been elected: OPEN by default,
+// ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
+// Fixed classes, no setting: Fire 1, Fire 2, manual station and waterflow ALARM; low and high air SUPV;
+// panel and battery TRBL.
+DI.SIG_CLASS = { alert: ['SUPV', 'ALARM'], action: ['SUPV', 'ALARM'], pLatch: ['OPEN', 'ALARM', 'TRBL'] };
+DI.SIG_DEFAULT = { alert: 'SUPV', action: 'SUPV', pLatch: 'OPEN' };
+DI.sigClass = (W, key) => { const c = W && W.cfg && W.cfg.sigClass, v = c ? c[key] : undefined; return DI.SIG_CLASS[key].includes(v) ? v : DI.SIG_DEFAULT[key]; };
+// annunciator order and labels
+DI.SIG_ORDER = { ALARM: 0, OPEN: 1, SUPV: 2, TRBL: 3 };
+DI.OPEN_LABEL = 'RELEASE INPUT - CLASS NOT ELECTED';
 
 // Maker trim presets for the double-interlock preaction valve. All values ASSUMED, tunable per valve.
 // Order is always high-air supervisory > normal > low-air supervisory > P trip.
