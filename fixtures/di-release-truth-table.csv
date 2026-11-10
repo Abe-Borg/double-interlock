@@ -1,0 +1,18 @@
+Row,Trim,Fire1,Fire2,Manual,ManualReleaseZone,P,LowAir_SUP,HighAir_SUP,Power,Bypass9c,D,Solenoid,ValveOpen,SS_Alarm,SS_Supervisory,SS_Trouble,LocalNAC,Notes
+R01,El/El,0,0,0,0,0,0,0,AC,0,0,0,0,0,0,0,0,Normal standby
+R02,El/El,1,0,0,0,0,0,0,AC,0,1,0,0,1,0,0,1,Fire 1 alone: D is true and nothing releases. The solenoid needs D AND P
+R03,El/El,0,0,1,0,0,0,0,AC,0,1,0,0,1,0,0,1,Manual station typed DETECTION alone: it sits inside D and still needs P
+R04,El/El,0,0,0,0,1,0,0,AC,0,0,0,0,OPEN,0,0,0,P alone (PSL-REL latched): release input with class not elected. Supervisory is blocked
+R05,El/El,1,0,0,0,1,0,0,AC,0,1,1,1,1,0,0,1,Fire 1 AND P releases
+R06,El/El,0,0,1,0,1,0,0,AC,0,1,1,1,1,0,0,1,Manual station AND P releases
+R07,El/El,1,0,1,0,1,0,0,AC,0,1,1,1,1,0,0,1,Fire 1 and manual station AND P releases
+R08,El/El,0,1,0,0,0,0,0,AC,0,1,0,0,1,0,0,1,Fire 2 alone: D is a level check (level >= Fire 1) so D is true. No release without P
+R09,El/El,0,0,0,0,0,1,0,AC,0,0,0,0,0,1,0,0,Low air (PSL-SUP) is supervisory only
+R10,El/El,0,0,0,0,0,0,1,AC,0,0,0,0,0,1,0,0,High air (PSH-SUP) is supervisory only
+R11,El/El,1,0,0,0,0,1,0,AC,0,1,0,0,1,1,0,1,Fire 1 with low air: low air never stands in for P
+R12,El/El,1,0,0,0,1,0,0,Battery,0,1,1,1,1,0,1,1,On standby battery the panel still releases and reports AC trouble
+R13,El/El,1,0,0,0,1,0,0,Dead,0,0,0,0,0,0,1,0,Dead panel: no release. The supervising station sees loss of signal (trouble)
+R14,El/El,0,0,0,1,0,0,0,AC,1,0,1,1,1,0,0,1,Bypass 9(c) ON: the Manual Release zone releases without P. Flag OFF: no release. NEEDS PE REVIEW
+R15,El/Pn,1,0,0,0,0,0,0,AC,0,1,1,0,1,0,0,1,El/Pn: solenoid = D. P is the pneumatic actuator so the valve stays shut
+R16,El/Pn,1,0,0,0,1,0,0,AC,0,1,1,1,1,0,0,1,El/Pn: valve opens on D AND P
+R17,El/Pn,0,0,0,0,1,0,0,AC,0,0,0,0,OPEN,0,0,0,El/Pn P alone (PA-REL latched): class not elected. Supervisory is blocked

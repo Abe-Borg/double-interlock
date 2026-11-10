@@ -26,7 +26,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     tick(g) {
       if (!ac || !on || !loops) return; const S = g.S, W = g.W; let pump = 0, comp = 0, al = 0, sv = 0;
       for (const p of W.parts.values()) { if ((p.type === 'epump' || p.type === 'dpump') && p.p.spd > pump) pump = p.p.spd; if ((p.type === 'comp' || p.type === 'n2' || p.type === 'jockey') && p.p.on) comp = 1; }
-      for (const o of S.sig.values()) { if (o.type === 'ALARM') al = 1; else sv = 1; }
+      if (!W.byType('panel').some((p) => p.p.silenced)) for (const o of S.sig.values()) { if (o.sup) continue; if (o.type === 'ALARM') al = 1; else sv = 1; }      // a silenced panel stays quiet until a new signal arrives
       const quiet = g.speed === 0 || DI.ui.modalOpen ? 0 : 1;
       set(loops.water, quiet * Math.min(0.22, (S.outFlow || 0) / 900)); let q = 0; for (const k of S.fires) q += S.fq[k]; set(loops.fire, quiet * Math.min(0.3, q / 4000));
       set(loops.pump.g, quiet * pump * 0.07); set(loops.pump2.g, quiet * pump * 0.02); loops.pump.o.frequency.value = 20 + 38 * pump; loops.pump2.o.frequency.value = 40 + 76 * pump; set(loops.comp.g, quiet * comp * 0.035);

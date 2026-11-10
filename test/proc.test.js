@@ -25,10 +25,12 @@ const hline = (W, x0, x1, y, size) => { for (let x = x0; x <= x1; x++) W.setPipe
   const S = new DI.Sim(W); S.commission();
   DI.startTest(S, 'leak', v.id); S.warp(86500); let r = DI.lastResult(S, 'leak');
   ok('24 h air test passes on new pipe', r && r.pass, r && r.lines[1]);
+  ok('24 h air test report: start and end pressure, drop against the allowed loss', /^Start: [\d.]+ psi, end: [\d.]+ psi$/.test(r.lines[0]) && /^Drop: [\d.]+ psi in 24 h, allowed 1\.5 psi$/.test(r.lines[1]) && r.val <= DI.AIR_TEST.drop);
   DI.startTest(S, 'drain', v.id); S.warp(60); r = DI.lastResult(S, 'drain');
   ok('main drain test records static/residual', r && r.pass && r.val > 20 && r.val < 80, r && r.lines.join(' | '));
   DI.startTest(S, 'trip', v.id); S.warp(260); r = DI.lastResult(S, 'trip');
   ok('trip test passes', r && r.pass, r && r.lines.join(' | '));
+  ok('trip test report: zone volume beside pipe volume, NFPA and FM lines, governing limit', /^Zone volume: \d+ gal \(pipe \d+\)$/.test(r.lines[0]) && r.zone > r.pipe && r.lines[3].startsWith('NFPA 13: no timed test (500 gal or less) [NFPA 13-2025 §8.2.4]') && r.lines[4] === 'FM: not applied' && r.lines[r.gov] === 'Governing: no time limit applies' && r.governing === null);
   const s = S.ss.get(v.id);
   ok('reset refused while system is full', DI.resetValve(S, v.id) !== '', DI.resetValve(S, v.id));
   v.p.sdrain = 1; S.touch(); S.warp(600);

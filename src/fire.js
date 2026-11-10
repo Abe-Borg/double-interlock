@@ -120,6 +120,6 @@ DI.replaceSprinklers = function (S, id) {
   if (!s.openK || !s.openK.length) return 'No operated sprinklers on this system.';
   if (Math.abs(s.flow) > 1 || (s.qOut || 0) > 1) return 'Water is still flowing. Close the control valve first.';
   const n = s.openK.length; for (const k of s.openK) { S.W.spk[k] = 1; S.lt[k] = 21; }
-  S.spkVer++; S.dirty = true; S.W.money -= n * 180; S.say('Replaced ' + n + ' sprinkler(s) (-' + DI.money(n * 180) + ')', 'good');
+  S.spkVer++; S.dirty = true; S.W.money -= n * 180; S.act('replace-head', id); S.say('Replaced ' + n + ' sprinkler(s) with matching heads (-' + DI.money(n * 180) + ')', 'good');
   return '';
 };

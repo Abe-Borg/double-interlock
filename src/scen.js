@@ -17,6 +17,20 @@ DI.mk = function (W) {
   return b;
 };
 
+// Build a fresh world and sim for a scenario: the map, the budget, the site settings the contract fixes
+// (sc.cfg, optional: basis of design set by the AHJ, the owner and the insurer) and the plant commissioned.
+// `cfg` adds settings on top, for tests and what-if runs.
+DI.buildScenario = function (sc, cfg) {
+  const W = new DI.World(sc.w, sc.h); sc.build(W); W.money = sc.money;
+  Object.assign(W.cfg, JSON.parse(JSON.stringify(sc.cfg || {})), JSON.parse(JSON.stringify(cfg || {})));
+  const S = new DI.Sim(W); S.contract = !sc.sandbox; S.commission(); if (sc.start) sc.start(S);
+  DI.simFlags(S, sc);
+  return { W, S };
+};
+// live = the site transmits to the fire department outside drills (sandbox only). contract = site settings
+// are fixed, and a Manual Release zone bypass shows as an impairment.
+DI.simFlags = function (S, sc) { S.live = !!sc.sandbox; S.contract = !sc.sandbox; };
+
 // --- goal helpers (all read live state)
 DI.G = {
   covered: (S, types) => S.W.rooms.filter((r) => !types || types.includes(r.type)).every((r) => (r.cov === undefined ? 0 : r.cov) >= 0.999),
@@ -29,6 +43,15 @@ DI.G = {
   test: (S, kind, type) => DI.G.each(S, type, (v, inf, s, id) => { const r = DI.lastResult(S, kind, id); return !!r && r.pass; }),
   anyTest: (S, kind, ptype) => S.results.some((r) => r.kind === kind && r.pass && (!ptype || (S.W.parts.get(r.id) || {}).type === ptype)),
   wired: (S, types) => [...S.W.parts.values()].filter((p) => types.includes(p.type)).every((p) => S.W.panelOf(p.id)),
+  // the latest incident on every preaction system serving rooms of `type` was recovered completely and in order
+  recovered: (S, type) => DI.G.each(S, type, (v, inf, s, id) => { const r = DI.recoveryScore(S, id); return !!r && r.complete && r.inOrder; }),
+};
+// Recovery score of the first incident of the running drill, as report lines for DI.lossJudge (informational).
+DI.drillRecovery = function (S, what) {
+  const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), r = a ? DI.recoveryScore(S, a.id, S.drill.t0) : null; if (!r) return [];
+  const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase());
+  return [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
+    [r.time !== null && r.time <= DI.RECOVERY_TARGET, 'Time bonus: ' + (r.time !== null ? 'recovered in ' + DI.dur(r.time) : 'recovery not finished') + ', target ' + DI.dur(DI.RECOVERY_TARGET) + ' (ASSUMED, informational)', true]];
 };
 
 // --- drills: timed scripts of incidents. step = [secondsFromStart, fn(S), optional banner]
@@ -65,7 +88,8 @@ DI.X = {
 DI.lossJudge = (limit, extra) => (S) => {
   const loss = S.stats.fireLoss + S.stats.waterLoss + S.stats.smokeLoss, lines = [], ex = extra ? extra(S) : [];
   let pass = loss <= limit && !S.fires.length;
-  for (const [ok, txt] of ex) { lines.push((ok ? '✓ ' : '✗ ') + txt); if (!ok) pass = false; }
+  // [ok, text] decides the drill; [ok, text, true] is informational (a star when earned) and never fails it
+  for (const [ok, txt, info] of ex) { lines.push((info ? (ok ? '★ ' : '• ') : ok ? '✓ ' : '✗ ') + txt); if (!ok && !info) pass = false; }
   lines.push((loss <= limit ? '✓ ' : '✗ ') + 'Total loss ' + DI.money(loss) + ' (limit ' + DI.money(limit) + ')');
   return { pass, lines, limit };
 };

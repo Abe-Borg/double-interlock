@@ -15,6 +15,30 @@ DI.gasFlow = function (a, pg) {
 DI.N2_O2 = 0.015;                      // oxygen fraction leaving a 98.5% nitrogen generator
 DI.DRY_RATIO = 5.5;                    // differential dry pipe valve: trips near P_water / 5.5
 
+// ---------- preaction release state (FA Lead truth table, fixtures/di-release-truth-table.csv)
+// The panel manual station is typed DETECTION and sits inside D. Only where the project flag is ON and the
+// trim is electric / electric is it typed MANUAL RELEASE (footnote 9(c), NEEDS PE REVIEW) and bypasses P.
+DI.stationType = (W, v) => (v.p.trim === 'el-el' && W.cfg && W.cfg.manualReleaseBypassP ? 'MANUAL RELEASE' : 'DETECTION');
+//   D    = Fire 1 latched by the panel (v.p.sol) OR the manual station typed DETECTION (v.p.pull)
+//   P    = pipe pressure fell below P trip and latched (v.p.pLatch)
+//   sol  = the energized solenoid.  El/El: (D AND P) OR (Manual Release zone AND bypass).  El/Pn: D alone,
+//          because P is the pneumatic actuator at the valve and not a panel input.
+//   open = D AND P on both trims (or the Manual Release zone bypass). The mechanical release is separate.
+DI.relState = function (W, v) {
+  const q = v.p, mrz = !!q.pull && DI.stationType(W, v) === 'MANUAL RELEASE';
+  const D = !!q.sol || (!!q.pull && !mrz), P = !!q.pLatch;
+  return { D, P, mrz, sol: q.trim === 'el-pn' ? D : (D && P) || mrz, open: (D && P) || mrz };
+};
+DI.setSolOut = function (S, id, v) {
+  const on = DI.relState(S.W, v).sol;
+  if (on && !v.p.solOut) S.say('Releasing panel energized the solenoid on ' + DI.sysName(S, id) + (v.p.trim === 'el-pn' ? ' (electric leg). Water still needs P at the pneumatic actuator.' : '.'), 'bad');
+  v.p.solOut = on;
+};
+// An incident on a preaction system starts with an operated head, a latched P or a trip, and stays open
+// until the system is back in service. The recovery score (DI.recoveryScore) reads the log between them.
+DI.incident = function (S, id, s, why) { if (s.inc) return; s.inc = true; s.airLost = true; S.act('incident', id, { why }); };
+
+
 DI.gasPre = function (S, dt) {
   const W = S.W, info = S.sysd.info;
   // 1. who is calling for gas? (pressure switch with 3 psi dead band)
@@ -40,6 +64,16 @@ DI.gasPre = function (S, dt) {
     const v = W.parts.get(id), inf = info.get(id); if (!v || inf.vol <= 0) continue;
     const V = inf.vol;
     if (s.spkVer !== S.spkVer || s.ver !== S.ver) { s.openK = inf.tiles.filter((k) => W.spk[k] >= 2); s.spkVer = S.spkVer; s.ver = S.ver; }
+    const pre = v.type === 'prev';
+    if (pre) {
+      // recovery log: edge-detect what the operator did, whoever did it (UI, bot or test)
+      const nOpen = s.openK.length; if (nOpen > (s.nOpen || 0)) { DI.incident(S, id, s, 'head'); S.act('head-open', id); } s.nOpen = nOpen;
+      if (!!v.p.sdrain !== !!s.sdr) { s.sdr = !!v.p.sdrain; if (s.sdr) S.act('drain', id); }
+      if (s.state !== 'dry' || s.P < v.p.loAir) s.airLost = true;
+      else if (s.airLost && s.set && s.P >= v.p.airSet - 3.2 && !nOpen && !v.p.sdrain && !v.p.itc) { s.airLost = false; S.act('restore-air', id); }   // normal pressure with every opening shut
+      if (s.inc && s.state === 'dry' && s.set && !v.p.pLatch && !nOpen && !s.airLost) { s.inc = false; S.act('in-service', id); }
+      DI.setSolOut(S, id, v);
+    }
     if (s.state === 'wet') continue;
     const Vg = Math.max(V - s.wat, 0.02 * V), frac = s.wat / V;
     let inAir = 0, inN2 = 0;
@@ -73,14 +107,28 @@ DI.gasPre = function (S, dt) {
     if (v.type === 'wetv') continue;
     s.lowAir = s.set && s.P < v.p.loAir;         // supervisory only: follows live pressure, never a release input
     if (s.state !== 'dry') continue;
+    // P sensor (PSL-REL switch or PA-REL actuator): a pure threshold on pipe pressure. No outlet-type test and
+    // no rate term: a sprinkler, an open inspector's test and a broken pipe all look the same to it, and a
+    // slow leak the compressor holds never reaches the setpoint. It latches until a manual reset: the panel
+    // on an electric / electric trim, the actuator at the trim on electric / pneumatic. The sensor is live
+    // from the first time the valve is set (commissioning), so after a riser reset the empty pipe reads low
+    // and an early reset latches straight back.
+    if (pre) {
+      if (s.set) s.armed = true;
+      if (s.armed && !v.p.pLatch && s.P < v.p.pTrip) {
+        v.p.pLatch = true; DI.incident(S, id, s, 'P');
+        S.say(DI.sysName(S, id) + ': P latched (' + DI.fmt(s.P, 1) + ' psi, ' + DI.trimOf(v).sensor + '). It stays latched until ' + DI.pResetText(v) + '.', 'warn');
+      }
+      DI.setSolOut(S, id, v);
+    }
     // Mechanical emergency release at the trim: a person opens the valve directly, outside the panel
     // logic. No detection and no P involved, and it works with a dead panel. Water then flows only
     // where a sprinkler is open. Simplification: with every head closed the trapped air is not vented.
-    let why = v.type === 'prev' && v.p.mech ? 'mechanical emergency release at the trim' : '';
+    let why = pre && v.p.mech ? 'mechanical emergency release at the trim' : '';
     if (!why) {
       if (!s.set) {
         if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
-        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)', 'good'); }
+        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)' + (pre && v.p.pLatch ? '. P is still latched: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + '.' : ''), pre && v.p.pLatch ? 'warn' : 'good'); }
         continue;
       }
       // trip logic, evaluated only while the valve is set and pressurized
@@ -91,20 +139,14 @@ DI.gasPre = function (S, dt) {
         else if (v.p.qod && s.ref - s.P > 2.5) why = 'accelerator sensed the pressure drop';
       } else {
         // Preaction is double interlock only:  trip := (Fire 1 detection OR manual station typed DETECTION) AND P.
-        // P is a pure threshold on pipe pressure (no outlet-type test, no rate term): a sprinkler, an open
-        // inspector's test and a broken pipe all look the same to the sensor, and a slow leak the compressor
-        // holds never reaches the setpoint. P latches until a manual reset (panel reset or valve reset).
-        if (!v.p.pLatch && s.P < v.p.pTrip) {
-          v.p.pLatch = true;
-          S.say(DI.sysName(S, id) + ': P latched (' + DI.fmt(s.P, 1) + ' psi, ' + DI.trimOf(v).sensor + '). It stays latched until the panel is reset.', 'warn');
-        }
-        const det = !!v.p.sol || !!v.p.pull;       // Fire 1 through the panel solenoid, or the manual station typed DETECTION
-        if (v.p.pull && v.p.trim === 'el-el' && W.cfg && W.cfg.manualReleaseBypassP) why = 'Manual Release zone (bypasses P)';   // per-project flag, default OFF, NEEDS PE REVIEW
-        else if (det && v.p.pLatch) why = 'detection (or manual detection station) AND P (pipe pressure below ' + v.p.pTrip + ' psi)';
+        const rs = DI.relState(W, v);
+        if (rs.mrz) why = 'Manual Release zone (bypasses P)';                 // per-project flag, default OFF, NEEDS PE REVIEW
+        else if (rs.open) why = 'detection (or manual detection station) AND P (pipe pressure below ' + v.p.pTrip + ' psi)';
       }
     }
     if (why) {
       s.state = 'filling'; s.tripT = S.t; s.set = false; v.p.tripped = true; S.dirty = true;
+      if (pre) DI.incident(S, id, s, 'trip');
       S.say(DI.sysName(S, id) + ' TRIPPED: ' + why, 'bad'); DI.bus.emit('trip', id);
     }
   }
@@ -159,8 +201,24 @@ DI.resetValve = function (S, id) {
   if (s.openK && s.openK.length) return 'Replace the ' + s.openK.length + ' operated sprinkler(s) first.';
   s.state = 'dry'; s.wat = 0; s.G = DI.ATM * inf.vol; s.o2g = 0.209 * s.G; s.P = 0; s.set = false; s.fillT0 = -1; s.fillTime = -1;
   s.tripT = -1; s.openT = -1; s.waterT = -1; s.moist = 1; v.p.tripped = false; v.p.sdrain = 0; v.p.itc = 0; S.dirty = true;
-  if (v.type === 'prev') { v.p.pLatch = false; v.p.mech = false; }      // manual reset at the valve: P unlatched, emergency release closed
-  S.say(DI.sysName(S, id) + ' clapper reset. Re-pressurizing.', 'good');
+  // The riser reset closes the clapper and the mechanical emergency release. It never clears P: that is
+  // the releasing panel on an electric / electric trim and the actuator at the trim on electric / pneumatic.
+  if (v.type === 'prev') v.p.mech = false;
+  S.say(DI.sysName(S, id) + ' clapper reset. Re-pressurizing.' + (v.type === 'prev' ? ' P stays latched until the air is back and ' + DI.pResetText(v) + '.' : ''), 'good');
+  return '';
+};
+
+// How a latched P is cleared on this valve's trim (the only path that exists for it).
+DI.pResetText = (v) => (v.p.trim === 'el-pn' ? 'the actuator is reset at the trim' : 'the releasing panel is reset');
+// Electric / pneumatic trim: P is the pneumatic actuator at the valve. A panel reset cannot clear it.
+// Restore the air, then reset the actuator here. If the pipe is still below P trip it latches again.
+DI.resetTrimP = function (S, id) {
+  const v = S.W.parts.get(id), s = S.ss.get(id);
+  if (!v || v.type !== 'prev') return 'Only a preaction valve has a P sensor to reset.';
+  if (v.p.trim !== 'el-pn') return 'On an electric / electric trim P is latched in the releasing panel. Reset the panel.';
+  const low = s && s.state === 'dry' && s.armed && s.P < v.p.pTrip;
+  v.p.pLatch = false; S.act('reset-trim', id);
+  S.say(DI.sysName(S, id) + ': pneumatic actuator reset at the trim.' + (low ? ' The pipe is still below P trip, so it latches again.' : ''), low ? 'warn' : 'good');
   return '';
 };
 

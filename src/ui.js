@@ -5,7 +5,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const ui = DI.ui = { modalOpen: false };
   const TOOLS = [['select', 'Select', 'Q'], ['pipe', 'Main', '1'], ['branch', 'Sprinklers', '2'], ['head', 'Head', '3'], ['air', 'Air line', '4'], ['wire', 'Wire', '5'], ['cap', 'Cap', '6'], ['erase', 'Erase', 'X']];
-  const SHORT = { city: 'City Tap', tank: 'Tank', epump: 'Electric', dpump: 'Diesel', jockey: 'Jockey', bfp: 'Backflow', gate: 'Valve', check: 'Check', fdc: 'FDC', testhdr: 'Test Hdr', wetv: 'Wet', dryv: 'Dry', prev: 'Preaction', comp: 'Compr.', n2: 'N\u2082 Gen', panel: 'Panel', vesda: 'VESDA', smoke: 'Smoke' };
+  const SHORT = { city: 'City Tap', tank: 'Tank', epump: 'Electric', dpump: 'Diesel', jockey: 'Jockey', bfp: 'Backflow', gate: 'Valve', check: 'Check', fdc: 'FDC', testhdr: 'Test Hdr', wetv: 'Wet', dryv: 'Dry', prev: 'Preaction', comp: 'Compr.', n2: 'N\u2082 Gen', panel: 'Panel', vesda: 'VESDA', smoke: 'Smoke', mstn: 'Station' };
   const HINT = { select: 'Click anything to inspect and operate it. Right-drag or WASD to pan, wheel to zoom.', pipe: 'Drag to lay main pipe. [ and ] change size. Drawing over pipe resizes it.',
     branch: 'Drag a rectangle of sprinkler branch lines. R flips their direction. Feed each line from a main at one end.', head: 'Click a pipe to add or remove a sprinkler on it.',
     air: 'Drag air / nitrogen tubing from a compressor or generator to a dry or preaction valve.', wire: 'Click a panel, then each device to wire to it (valves, pumps, detectors).', cap: 'Cap a joint so two neighbouring pipes do NOT connect. Click near the joint, or drag along a row or column to cap its whole far side. Again to remove.', erase: 'Drag to remove. Full refund.' };
@@ -22,6 +22,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       ['False smoke in every room', () => { for (const r of g().W.rooms) g().S.smoke[r.id] = 2.5; }],
       ['Break a pipe', () => { const S = g().S, t = ['hall', 'elec', 'dock', 'stor', 'batt', 'office'].find((q) => DI.G.sysOf(S, q).length); if (!t || !DI.X.pipeBreak(t)(S)) ui.banner('No sprinkler system main to break yet. Or select a pipe tile and break that one.'); }], ['Wipe the map and start over', () => { DI.LS.del('di.save.' + g().sc.id); DI.startScenario(g().sc.id, true); }], ['Tip: select a tile to ignite it or break its sprinkler', () => {}]]);
     $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal') && ui.dismiss) ui.close(); });
+    window.addEventListener('resize', () => ui.fitPanels());
     document.addEventListener('mousedown', (e) => { if (!$('pop').contains(e.target)) $('pop').style.display = 'none'; });
     DI.bus.on('log', (text, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = '<i>' + DI.clock(g().S ? g().S.t : 0).slice(-8) + '</i>' + esc(text); const L = $('log'); L.appendChild(d); while (L.childNodes.length > 80) L.removeChild(L.firstChild); L.scrollTop = 1e6; });
     DI.bus.on('banner', ui.banner);
@@ -47,7 +48,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const ps = G.sc.parts.filter((p) => DI.PARTS[p].cat === cat.id); if (!ps.length) continue; d = grp(cat.name.toUpperCase());
       for (const p of ps) btn(d, p, SHORT[p] || DI.PARTS[p].name, '', G.tool.type === 'part' && G.tool.part === p, () => ui.setTool('part', p), DI.PARTS[p].name + ' - ' + DI.money(DI.partCost(p)) + '\n' + DI.PARTS[p].desc);
     }
+    ui.fitPanels();
   };
+  // The toolbar grows with the parts a scenario offers (two rows in the sandbox and contract 7). Keep the
+  // inspector and the annunciator above it, so the last controls of a panel are never hidden behind it.
+  ui.fitPanels = function () { const top = $('tools').getBoundingClientRect().top; if (!(top > 0)) return; for (const id of ['side', 'ann']) $(id).style.maxHeight = Math.max(180, top - 52 - 8) + 'px'; };
   ui.onScenario = function () {
     const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
     $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
@@ -61,11 +66,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('wx').textContent = DI.fmt(W.outTemp) + '°F  ' + (W.power ? 'UTILITY OK' : 'UTILITY OUT');
     $('wx').style.color = W.power ? '' : 'var(--red)';
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
-    let h = '', al = 0, sv = 0, tr = 0;
-    const list = [...S.sig.values()].sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : a.type === 'ALARM' ? -1 : b.type === 'ALARM' ? 1 : a.type < b.type ? -1 : 1));
-    for (const o of list) { if (o.type === 'ALARM') al++; else if (o.type === 'SUPV') sv++; else tr++; h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? '' : ' <em>(local only)</em>') + '</span></div>'; }
+    // Annunciator: alarm, then OPEN (release input, class not elected), then supervisory, then trouble. A detector
+    // stage that a higher stage has superseded stays listed as the record of the crossing and is not counted.
+    let h = '', al = 0, sv = 0, tr = 0, op = 0; const ORD = DI.SIG_ORDER;
+    const list = [...S.sig.values()].sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
+    for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; }
+      h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? '' : ' <em>(local only)</em>') + '</span></div>'; }
     if ($('sigs').dataset.h !== h) { $('sigs').innerHTML = h || '<div class="sig"><span style="color:var(--dim)">All systems normal.</span></div>'; $('sigs').dataset.h = h; }
-    const st = $('annState'); st.textContent = al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : 'NORMAL'; st.className = al ? 'al' : sv ? 'sv' : tr ? 'tr' : '';
+    // ASSUMED presentation: the banner reads OPEN ITEM only when nothing but OPEN is present
+    const st = $('annState'), sil = (al || sv || tr || op) && W.byType('panel').some((p) => p.p.silenced);
+    st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
     DI.inspect.render(false);
   };
 
@@ -105,32 +115,63 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('mbox').querySelectorAll('.find').forEach((el) => { el.onclick = () => { const f = G.S.rv[+el.dataset.i]; if (f.x !== undefined) { ui.close(); ui.focus(f.x, f.y); } }; });
   };
   // Site / project settings: enforced edition, company rules and the values that are ASSUMED or NEEDS PE REVIEW.
-  ui.showSite = function () {
-    const G = g(), W = G.W, c = W.cfg, J = DI.setJuris(W), thr = DI.detThr(W), pol = DI.pipePolicy(W), ed = DI.JURIS[c.edition] && !DI.JURIS[c.edition].hidden ? c.edition : DI.EDITION_DEFAULT;
-    const opt = (grp, val, label, on, dis) => '<button data-s="' + grp + '" data-v="' + val + '"' + (on ? ' class="on"' : '') + (dis ? ' disabled' : '') + '>' + esc(label) + '</button>';
-    const rowL = (inner) => '<div class="mrow" style="justify-content:flex-start;margin-top:6px;flex-wrap:wrap">' + inner + '</div>';
-    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2><p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
-    h += '<h4>ENFORCED EDITION OF NFPA 13 (US)</h4>' + rowL(DI.editionChoices().map((k) => opt('ed', k, 'NFPA 13-' + DI.JURIS[k].nfpa13, ed === k)).join(''));
-    h += '<p>' + (J.delta.length ? '<b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + ' ' : '') + 'Citations in plan review follow the edition. Pass and fail do not differ by edition in this version.</p>';
-    h += '<h4>HAZEN-WILLIAMS C</h4><p>C = ' + DI.HW_C + ' for all sprinkler pipe: wet, dry, preaction, interior, yard and underground. Company rule. Nitrogen earns no credit.<br><span style="color:var(--dim)">Comparison only: the NFPA table value is 120 for wet steel. It has no effect on any calculation here.</span></p>';
-    h += '<h4>PIPE SCHEDULE</h4>' + rowL(Object.keys(DI.PIPE_POLICY).map((k) => opt('pol', k, DI.PIPE_POLICY[k], pol === k)).join('')) + '<p>Sets the inside diameter and volume of every pipe. Cost per size is the same for both schedules (ASSUMED).</p>';
-    h += '<h4>ASPIRATING DETECTION THRESHOLDS (EXAMPLE VALUES, %/FT)</h4>' + rowL(['Alert', 'Action', 'Fire 1', 'Fire 2'].map((n, i) => '<label style="font-size:13px;color:#b6c6d2">' + n + ' <input data-t="' + i + '" type="number" step="0.01" min="0.001" value="' + thr[i] + '" style="width:74px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"></label>').join(''));
-    h += '<p>Alert is supervisory only. Action is a pre-alarm. Fire 1 is the detection leg of a release. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing.</p>';
-    h += rowL('<span style="font-size:13px;color:#b6c6d2">NFPA 76 adopted on this site</span>' + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) + opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
-    h += '<p>NFPA 76 preset: Alert 0.2 %/ft and Fire 1 1.0 %/ft at most (NFPA 76-2024 &sect;8.5.3.1.2.5). Offered only where NFPA 76 is adopted. Action 0.6 is an ASSUMED example, used when the current Action value does not fit between them.</p>';
-    h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL('<span style="font-size:13px;color:#b6c6d2">Manual Release zone bypasses P</span>' + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
-    h += '<p><b style="color:var(--amb)">NEEDS PE REVIEW</b> (owner/insurer exception, footnote 9(c)). OFF: the panel manual station counts as detection and water still needs P. ON: the station alone releases water on an electric / electric trim. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed.</p>';
-    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
-    const done = () => { W.ver++; DI.setJuris(W); G.S.touch(); DI.edited(); ui.showSite(); };
-    $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => {
-      const k = b.dataset.s, v = b.dataset.v;
-      if (k === 'ed') c.edition = v; else if (k === 'pol') c.pipePolicy = v; else if (k === 'n76') c.nfpa76Adopted = v === '1'; else if (k === 'byp') c.manualReleaseBypassP = v === '1';
-      else if (k === 'pre') { if (v === 'reset') delete c.detThr; else { const m = DI.applyDetPreset(W, v); if (m) ui.banner(m); } }
-      done();
-    }; });
-    $('mbox').querySelectorAll('input[data-t]').forEach((inp) => { inp.onchange = () => { const t = DI.detThr(W).slice(), x = parseFloat(inp.value); if (isFinite(x) && x > 0) { t[+inp.dataset.t] = x; c.detThr = t; } done(); }; });
+  // ui.siteSet is the only writer of W.cfg in the front end. It works in the sandbox only: in a contract the
+  // basis of design is fixed (set by the AHJ, the owner and the insurer) and the dialog is read-only.
+  ui.siteSet = function (key, val) {
+    const G = g(), W = G.W, c = W.cfg; if (!G.sc.sandbox) return false;
+    const num = (x, lo, hi) => typeof x === 'number' && isFinite(x) && x >= lo && x <= hi;
+    if (key === 'ed') { if (!DI.editionChoices().includes(val)) return false; c.edition = val; }
+    else if (key === 'cut') { if (!DI.PIPE_CUTS.includes(+val)) return false; c.pipeCut = +val; }
+    else if (key === 'n76') c.nfpa76Adopted = val === '1';
+    else if (key === 'byp') c.manualReleaseBypassP = val === '1';
+    else if (key === 'ins') c.insurer = val === 'FM' ? 'FM' : 'none';
+    else if (key === 'pre') { if (val === 'reset') { delete c.detThr; delete c.spotThr; } else { const m = DI.applyDetPreset(W, val); if (m) { ui.banner(m); return false; } } }
+    else if (key === 'thr') { const t = DI.detThr(W).slice(); if (!num(val[1], 1e-6, 1e3)) return false; t[val[0]] = val[1]; c.detThr = t; }
+    else if (key === 'spot') { if (!num(val, 1e-6, 1e3)) return false; c.spotThr = val; }
+    else if (key === 'fit') { if (!num(val, 0, 50)) return false; c.fitPct = val; }
+    else if (key === 'trim') { if (!num(val, 0, 50)) return false; c.trimGal = val; }
+    else if (key === 'alert' || key === 'action' || key === 'pLatch') { if (!DI.SIG_CLASS[key].includes(val)) return false; c.sigClass = Object.assign({}, c.sigClass, { [key]: val }); }   // SUPV is not in the pLatch list
+    else return false;
+    W.ver++; DI.setJuris(W); G.S.touch(); DI.edited(); return true;
   };
-  ui.resHtml = (r) => '<div class="res ' + (r.pass ? 'pass' : 'fail') + '"><b>' + (r.pass ? 'PASS' : 'FAIL') + ' · ' + esc(r.title) + '</b>' + r.lines.map(esc).join('<br>') + '</div>';
+  ui.showSite = function () {
+    const G = g(), W = G.W, c = W.cfg, ro = !G.sc.sandbox, J = DI.setJuris(W), thr = DI.detThr(W), cut = DI.pipeCut(W), ed = DI.JURIS[c.edition] && !DI.JURIS[c.edition].hidden ? c.edition : DI.EDITION_DEFAULT;
+    const opt = (grp, val, label, on, dis) => '<button data-s="' + grp + '" data-v="' + val + '"' + (on ? ' class="on"' : '') + (dis || ro ? ' disabled' : '') + '>' + esc(label) + '</button>';
+    const rowL = (inner) => '<div class="mrow" style="justify-content:flex-start;margin-top:6px;flex-wrap:wrap">' + inner + '</div>';
+    const lab = (t) => '<span style="font-size:13px;color:#b6c6d2">' + t + '</span>';
+    const inp = (key, val, step, w) => '<input data-n="' + key + '" type="number" step="' + step + '" min="0" value="' + val + '"' + (ro ? ' disabled' : '') + ' style="width:' + (w || 74) + 'px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace">';
+    const A = ' <b style="color:var(--amb)">ASSUMED</b>', PE = '<b style="color:var(--amb)">NEEDS PE REVIEW</b>', CLS = { SUPV: 'Supervisory', ALARM: 'Alarm', TRBL: 'Trouble', OPEN: 'Not elected' };
+    const LA = DI.LISTED.vesda, LS = DI.LISTED.smoke, D = DI.DELIVERY;
+    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2>';
+    if (ro) h += '<p id="siteRO" style="border-left:3px solid var(--amb);padding-left:10px"><b>Basis of design is fixed in a contract: set by the AHJ, the owner and the insurer.</b> These settings are read-only here. They can be changed in the Sandbox.</p>';
+    h += '<p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
+    h += '<h4>ENFORCED EDITION OF NFPA 13 (US)</h4>' + rowL(DI.editionChoices().map((k) => opt('ed', k, 'NFPA 13-' + DI.JURIS[k].nfpa13, ed === k)).join(''));
+    h += '<p id="siteDelta">' + (J.delta.length ? '<b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + ' ' : '') + 'Citations in plan review and on test reports follow the edition. Pass and fail do not differ by edition in this version.</p>';
+    h += '<h4>HAZEN-WILLIAMS C</h4><p>C = ' + DI.HW_C + ' for all sprinkler pipe: wet, dry, preaction, interior, yard and underground. Company rule. Nitrogen earns no credit.<br><span style="color:var(--dim)">Comparison only: the NFPA table value is 120 for wet steel. It has no effect on any calculation here.</span></p>';
+    h += '<h4>PIPE SCHEDULE: SIZE CUT</h4>' + rowL(lab('Largest size on threaded Schedule 40') + DI.PIPE_CUTS.map((i) => opt('cut', i, DI.PIPES[i].n.replace('"', ' in.'), cut === i)).join(''));
+    h += '<p>' + esc(DI.PIPES[cut].n.replace('"', ' in.')) + ' and smaller is threaded Schedule 40; every larger size is roll-grooved Schedule 10, main or branch alike.' + A + ' (default 2 in.). It sets the inside diameter and volume of every pipe. Cost per size is the same for both schedules (ASSUMED).</p>';
+    h += '<h4>WATER DELIVERY</h4>' + rowL('<label>' + lab('Fittings allowance, % of pipe volume ') + inp('fit', DI.cfgNum(W, 'fitPct'), 1, 60) + '</label><label>' + lab('Trim volume per valve, gal ') + inp('trim', DI.cfgNum(W, 'trimGal'), 1, 60) + '</label>');
+    h += '<p>Zone volume = pipe + fittings + trim.' + A + ' (5 % and 2 gal). NFPA 13 judges the size exemptions on it: a dry system needs the ' + D.timed + ' s timed trip test above ' + D.dry + ' gal (' + D.dryQod + ' gal with a quick-opening device), a double-interlock system above ' + D.di + ' gal, and a quick-opening device does not extend that one.</p>';
+    h += rowL(lab('Insurer') + opt('ins', 'none', 'None', DI.insurer(W) === 'none') + opt('ins', 'FM', 'FM', DI.insurer(W) === 'FM'));
+    h += '<p>' + PE + ' With FM, dry and double-interlock systems must deliver water in ' + D.fm + ' s at any volume (' + D.fmRef + '). The most stringent limit governs, so a zone can pass NFPA 13 and fail FM. FM density, hose and duration are not part of this setting.</p>';
+    h += '<h4>ASPIRATING DETECTION THRESHOLDS (EXAMPLE VALUES, %/FT)</h4>' + rowL(['Alert', 'Action', 'Fire 1', 'Fire 2'].map((n, i) => '<label>' + lab(n + ' ') + '<input data-t="' + i + '" type="number" step="0.01" min="0.001" value="' + thr[i] + '"' + (ro ? ' disabled' : '') + ' style="width:74px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace"></label>').join(''));
+    h += '<p>Alert and Action are pre-alarm. Fire 1 is the detection leg of a release: D is true at or above it. Fire 2 is escalation and never releases by itself. Plan review fails thresholds that are not strictly increasing, and a Fire 1 or Fire 2 outside the listed window of the detector: ' + LA.min + ' to ' + LA.max + ' %/ft' + A + ' (placeholder until the maker’s listing is given).</p>';
+    h += rowL('<label>' + lab('Spot detector alarm threshold ') + inp('spot', DI.spotThr(W), 0.1) + '</label>' + lab('listed window ' + LS.min + ' to ' + LS.max + ' %/ft (example data)') + A);
+    h += rowL(lab('NFPA 76 adopted on this site') + opt('n76', '0', 'No', !c.nfpa76Adopted) + opt('n76', '1', 'Yes', !!c.nfpa76Adopted) + opt('pre', 'nfpa76', 'Apply NFPA 76 preset', false, !J.nfpa76Adopted) + opt('pre', 'reset', 'Back to example values', false));
+    h += '<p>Where NFPA 76 is adopted, plan review fails an Alert above 0.2 %/ft or a Fire 1 above 1.0 %/ft (NFPA 76-2024 &sect;8.5.3.1.2.5). The preset sets both. Action 0.6 is an ASSUMED example, used when the current Action value does not fit between them.</p>';
+    h += '<h4>SIGNAL CLASSES</h4>' + [['alert', 'Aspirating Alert'], ['action', 'Aspirating Action'], ['pLatch', 'Latched P (release input)']].map(([k, n]) => rowL(lab(n) + DI.SIG_CLASS[k].map((v) => opt(k, v, CLS[v], DI.sigClass(W, k) === v)).join(''))).join('');
+    h += '<p>' + PE + A + ' Alert and Action are supervisory unless the engineer elects alarm. A latched P is a release input whose class has not been elected: it shows as an OPEN item until it is elected alarm or trouble. Supervisory is blocked for it. Fixed: Fire 1, Fire 2, manual station and waterflow are alarm; low and high air are supervisory; panel and battery are trouble.</p>';
+    h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL(lab('Manual Release zone bypasses P') + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
+    h += '<p>' + PE + ' (owner/insurer exception, footnote 9(c)). OFF: the manual station is typed DETECTION, sits inside D, and water still needs P. ON: the station is typed MANUAL RELEASE and alone releases water on an electric / electric trim. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve.</p>';
+    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = ui.close;
+    if (ro) return;
+    const set = (k, v) => { ui.siteSet(k, v); ui.showSite(); };
+    $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => set(b.dataset.s, b.dataset.v); });
+    $('mbox').querySelectorAll('input[data-t]').forEach((el) => { el.onchange = () => set('thr', [+el.dataset.t, parseFloat(el.value)]); });
+    $('mbox').querySelectorAll('input[data-n]').forEach((el) => { el.onchange = () => set(el.dataset.n, parseFloat(el.value)); });
+  };
+  // r.gov = index of the governing-limit line of a trip test: it is highlighted
+  ui.resHtml = (r) => '<div class="res ' + (r.pass ? 'pass' : 'fail') + '"><b>' + (r.pass ? 'PASS' : 'FAIL') + ' · ' + esc(r.title) + '</b>' + r.lines.map((l, i) => (i === r.gov ? '<span class="gov">' + esc(l) + '</span>' : esc(l))).join('<br>') + '</div>';
   ui.showTests = function () {
     const S = g().S; let h = '<h4>COMMISSIONING RECORD</h4><h2>Test log</h2>';
     if (!S.results.length) h += '<p>No tests on record. Select a riser or a pump and run its tests from the panel on the right.</p>';
@@ -151,7 +192,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const i = DI.SCEN.indexOf(G.sc), nx = DI.SCEN[i + 1];
     h += '<div class="mrow"><button id="mBack">Back to the plant</button>' + (res.pass && full && nx ? '<button id="mNext" class="go">Next: ' + esc(nx.name) + '</button>' : '') + '</div>';
     ui.modal(h, false);
-    $('mBack').onclick = () => { ui.close(); if (G.pre) { const pre = G.pre; G.pre = null; const W = DI.World.fromJSON(JSON.parse(pre.world)); W.rooms.forEach((r, k) => { r.exempt = pre.ex[k]; }); const S = new DI.Sim(W); S.restore(JSON.parse(pre.sim)); G.W = W; G.S = S; S.calc = new Map(); S.rv = DI.review(S); S.live = !!G.sc.sandbox; G.sel = null; G.calcShow = null; $('log').innerHTML = ''; DI.inspect.render(true); } };
+    $('mBack').onclick = () => { ui.close(); if (G.pre) { const pre = G.pre; G.pre = null; const W = DI.World.fromJSON(JSON.parse(pre.world)); W.rooms.forEach((r, k) => { r.exempt = pre.ex[k]; }); const S = new DI.Sim(W); S.restore(JSON.parse(pre.sim)); G.W = W; G.S = S; S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, G.sc); G.sel = null; G.calcShow = null; $('log').innerHTML = ''; DI.inspect.render(true); } };
     if ($('mNext')) $('mNext').onclick = () => { G.pre = null; DI.startScenario(nx.id); };
   };
   ui.showManual = function (topic, back) {

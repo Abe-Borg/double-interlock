@@ -12,6 +12,7 @@ DI.migratePart = function (p) {
     if (!DI.TRIMS[q.trim]) q.trim = 'el-el';
     if (q.pLatch === undefined) q.pLatch = false;
     if (q.mech === undefined) q.mech = false;
+    if (q.solOut === undefined) q.solOut = false;
   } else if (p.type === 'dryv') {
     const win = 10;                       // the supervisory window older saves used on either side of normal
     if (q.hiAir === undefined) q.hiAir = q.airSet + win;
@@ -39,7 +40,9 @@ DI.World = class {
     this.money = 0;
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
-    this.cfg = {};                        // site / project settings: edition, nfpa76Adopted, pipePolicy, detThr, manualReleaseBypassP
+    // site / project settings: edition, nfpa76Adopted, pipeCut, detThr, spotThr, sigClass, fitPct, trimGal,
+    // insurer, manualReleaseBypassP. Read them through the DI helpers, which supply the defaults.
+    this.cfg = {};
   }
   k(x, y) { return y * this.w + x; }
   inb(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
@@ -141,7 +144,7 @@ DI.World = class {
     for (const r of j.rooms) W.addRoom(r.type, r.x, r.y, r.w, r.h, r.name);
     un(j.pd, W.pd); un(j.pk, W.pk); un(j.spk, W.spk); un(j.air, W.air); if (j.cut) un(j.cut, W.cut);
     for (const p of j.parts) { DI.migratePart(p); W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
-    W.cfg = Object.assign({}, j.cfg || {});
+    W.cfg = Object.assign({}, j.cfg || {}); delete W.cfg.pipePolicy;      // the role-based schedule policy is gone: an old save gets the default size cut
     W.wires = j.wires || []; W.nextId = j.nextId; W.money = j.money; W.outTemp = j.outTemp === undefined ? 70 : j.outTemp;
     return W;
   }

@@ -64,40 +64,40 @@
   };
   DI.worth = function (W) { let c = 0; for (let k = 0; k < W.pd.length; k++) { if (W.pd[k]) c += DI.PIPES[W.pd[k] - 1].cost + (W.spk[k] ? DI.SPK_COST : 0); if (W.air[k]) c += 25; } for (const p of W.parts.values()) if (!p.p.fixed) c += DI.partCost(p.type, p.p) + (p.p.vent ? 3200 : 0); return c; };
   DI.botBuild = function (S, id) { const W = S.W, b = DI.mk(W), c0 = DI.worth(W), out = SOL[id](W, b); W.money -= DI.worth(W) - c0; S.sync(); return out; };
-  // operator: put impaired dry / preaction systems back in service, the way the manual says to
+  // operator: put impaired dry / preaction systems back in service in the order the manual gives:
+  // silence, find the head, close the control valve, drain, replace the head, restore air, reset the trim, reset the panel
   DI.botOps = function (S) {
     const W = S.W, gates = W.byType('gate');
     for (const p of W.byType('dpump')) if (p.p.batt < 0.5) { p.p.batt = 1; p.p.failed = false; p.p.crank = 0; }
     for (const g of gates) if (g.p.target < 1 && !g.p.bot) g.p.target = 1;                    // somebody closed a valve: open it
     for (const d of W.parts.values()) if ((d.type === 'vesda') && d.p.lvl >= 1 && d.p.lvl < 3 && !S.tech) { const r = W.room(d.x, d.y); if (r) DI.sendTech(S, r.id); }
     if (S.fires.length) return;
+    const quiet = [...W.parts.values()].every((d) => !(d.type === 'vesda' || d.type === 'smoke') || !(d.p.live > 0));
+    const back = (v, s) => s.state === 'dry' && s.set && !s.airLost && !(s.openK && s.openK.length) && !v.p.sdrain;     // air restored
     for (const [id, s] of S.ss) {
       const v = W.parts.get(id); if (v.type === 'wetv') { if (s.openK && s.openK.length && S.outFlow < 1) DI.replaceSprinklers(S, id); continue; }
-      if (s.state === 'dry') {
-        if (s.openK && s.openK.length) DI.replaceSprinklers(S, id);
-        // repair done and air back above P trip: reset the panel so a latched P does not sit waiting for one detection event
-        else if (v.p.pLatch && s.P > v.p.pTrip + 1 && !v.p.sol) { const pn = W.panelOf(id); if (pn) DI.panelReset(S, pn.id); }
+      const pre = v.type === 'prev', pn = W.panelOf(id), heads = s.openK && s.openK.length;
+      if (s.state === 'dry' && !heads) {
+        if (s.botDr && v.p.sdrain) { v.p.sdrain = 0; S.touch(); } s.botDr = false;            // head replaced on a system that never tripped: shut the drain
+        // air is back: clear the latched P where this trim holds it (actuator at the trim on el-pn), then the panel
+        if (pre && pn && back(v, s) && !v.p.sol && (v.p.pLatch || s.botSil)) { if (v.p.trim === 'el-pn' && v.p.pLatch) DI.resetTrimP(S, id); DI.panelReset(S, pn.id); }
+        if (!pre || back(v, s)) s.botSil = false;
         continue;
       }
+      if (pn && !s.botSil) { DI.silence(S, pn.id); s.botSil = true; }
+      for (const k of s.openK || []) DI.findHead(S, k);
       const g = DI.botGate(S, id); if (g) { g.p.target = 0; g.p.bot = true; if (g.p.open > 0.02) continue; }
-      if (!v.p.sdrain) { v.p.sdrain = 1; S.touch(); }
-      for (const pn of W.byType('panel')) if ([...W.parts.values()].every((d) => !(d.type === 'vesda' || d.type === 'smoke') || !(d.p.live > 0))) DI.panelReset(S, pn.id);
-      if (s.wat < 0.01 * s.vol + 0.2) { DI.replaceSprinklers(S, id); DI.resetValve(S, id); }
+      if (!v.p.sdrain) { v.p.sdrain = 1; S.touch(); s.botDr = true; continue; }
+      if (pre && pn && (v.p.sol || v.p.pull) && quiet) DI.panelReset(S, pn.id);               // detection has to drop out before the clapper can be reset
+      if (s.state === 'dry') DI.replaceSprinklers(S, id);
+      else if (s.wat < 0.01 * s.vol + 0.2) { DI.replaceSprinklers(S, id); DI.resetValve(S, id); s.botDr = false; }
     }
-    for (const g of gates) if (g.p.bot && [...S.ss.entries()].every(([id, s]) => W.parts.get(id).type === 'wetv' || DI.botGate(S, id) !== g || (s.state === 'dry' && s.set))) { g.p.target = 1; g.p.bot = false; }
-    if (W.byType('prev').some((v) => v.p.sol) && [...W.parts.values()].every((d) => !(d.type === 'vesda' || d.type === 'smoke') || !(d.p.live > 0))) for (const pn of W.byType('panel')) DI.panelReset(S, pn.id);
+    for (const g of gates) if (g.p.bot && [...S.ss.entries()].every(([id, s]) => W.parts.get(id).type === 'wetv' || DI.botGate(S, id) !== g || back(W.parts.get(id), s))) { g.p.target = 1; g.p.bot = false; }
+    if (W.byType('prev').some((v) => v.p.sol) && quiet) for (const pn of W.byType('panel')) DI.panelReset(S, pn.id);
   };
-  // nearest control valve upstream of a system valve (walk the supply pipe run)
-  DI.botGate = function (S, id) {
-    const W = S.W, v = W.parts.get(id), seen = new Set(), q = [[v.x, v.y, W.ports(v).i]];
-    for (let h = 0; h < q.length && h < 400; h++) {
-      const [x, y, d] = q[h]; if (!W.linked(x, y, d)) continue; const nx = x + DI.DX[d], ny = y + DI.DY[d], k = W.k(nx, ny); if (seen.has(k)) continue; seen.add(k);
-      const o = W.at(nx, ny); if (o) { if (o.type === 'gate') return o; continue; }
-      for (let e = 0; e < 4; e++) if (e !== DI.OPP[d]) q.push([nx, ny, e]);
-    }
-    return null;
-  };
-  DI.botRestore = function (S, maxSec) { const end = S.t + maxSec; while (S.t < end) { DI.botOps(S); S.step(0.5); if ([...S.ss.entries()].every(([id, s]) => S.W.parts.get(id).type === 'wetv' || (s.state === 'dry' && s.set)) && S.W.byType('gate').every((g) => g.p.open > 0.99)) break; } };
+  DI.botGate = (S, id) => DI.ctrlValve(S.W, id);       // nearest control valve upstream of a system valve
+  const inSvc = (S) => [...S.ss.entries()].every(([id, s]) => { const v = S.W.parts.get(id); return v.type === 'wetv' || (s.state === 'dry' && s.set && !(v.type === 'prev' && v.p.pLatch)); });
+  DI.botRestore = function (S, maxSec) { const end = S.t + maxSec; while (S.t < end) { DI.botOps(S); S.step(0.5); if (inSvc(S) && S.W.byType('gate').every((g) => g.p.open > 0.99)) break; } };
   DI.botCheck = function (S, sc) { S.rv = DI.review(S); S.calc = new Map(); for (const i of S.sysd.info.keys()) if (S.sysd.info.get(i).nSpk) S.calc.set(i, DI.hydCalc(S, i)); return sc.goals.map((q) => !!q.ok(S)); };
   DI.BOT = SOL;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -28,6 +28,9 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .sig { display:flex; gap:6px; padding:4px 8px; border-bottom:1px solid #18232e; font:11.5px var(--mono); cursor:pointer; }
 .sig b { flex:none; width:46px; } .sig.ALARM b { color:var(--red); } .sig.SUPV b { color:var(--amb); } .sig.TRBL b { color:var(--yel); }
 .sig.loc { opacity:.55; } .sig:hover { background:#17222d; }
+.sig.OPEN b { color:#c59bff; } .sig.sup { opacity:.5; } .sig.sup b { text-decoration:line-through; }
+#annState.op { color:#c59bff; } #annState.sil { animation:none; }
+.res .gov { color:#fff; font-weight:700; border-bottom:1px solid var(--amb); }
 #log { overflow:auto; flex:1; min-height:60px; max-height:220px; padding:3px 0; font:11px var(--mono); }
 #log div { padding:1px 8px; color:var(--dim); } #log .bad { color:#ff9488; } #log .warn { color:#ffcf73; } #log .good { color:#8ff0c1; } #log i { color:#4d6272; font-style:normal; margin-right:5px; }
 #side { position:fixed; right:10px; top:52px; width:318px; max-height:calc(100% - 150px); overflow:auto; background:rgba(13,20,27,.95); border:1px solid var(--line); border-radius:6px; z-index:4; padding:0 0 8px; }
@@ -67,7 +70,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .card { text-align:left; padding:11px 12px; border-radius:6px; background:var(--pan2); border:1px solid var(--line); } .card b { display:block; font-size:14px; letter-spacing:.05em; text-transform:uppercase; } .card small { color:var(--dim); display:block; margin-top:2px; } .card i { float:right; font-style:normal; color:var(--amb); letter-spacing:2px; }
 .card.lock { opacity:.42; } .card em { font:700 10px var(--mono); color:var(--dim); font-style:normal; letter-spacing:.12em; }
 .goal { display:flex; gap:8px; padding:6px 0; border-bottom:1px solid #1b2733; font-size:13.5px; } .goal i { flex:none; width:18px; font-style:normal; color:var(--dim); } .goal.ok i { color:var(--grn); } .goal.ok { color:#9fb3c1; } .goal small { display:block; color:var(--dim); margin-top:2px; }
-.find { padding:6px 8px; margin:5px 0; border-left:3px solid var(--amb); background:#0f1820; cursor:pointer; font-size:13px; } .find.fail { border-color:var(--red); } .find.ok { border-color:var(--grn); } .find small { display:block; color:var(--dim); font:11px var(--mono); margin-top:2px; }
+.find { padding:6px 8px; margin:5px 0; border-left:3px solid var(--amb); background:#0f1820; cursor:pointer; font-size:13px; } .find.fail { border-color:var(--red); } .find.ok { border-color:var(--grn); } .find.info { border-color:var(--wat); } .find small { display:block; color:var(--dim); font:11px var(--mono); margin-top:2px; }
 .mrow { display:flex; gap:8px; margin-top:16px; justify-content:flex-end; align-items:center; } .mrow button { padding:7px 16px; font-size:14px; }
 .man { display:grid; grid-template-columns:190px 1fr; gap:18px; } .man nav button { display:block; width:100%; text-align:left; margin-bottom:3px; border:0; background:none; color:#a9bac7; } .man nav button.on { background:#1c2a37; color:#fff; }
 .man table { border-collapse:collapse; margin:8px 0; font-size:13px; } .man td, .man th { border:1px solid var(--line); padding:4px 8px; text-align:left; color:#b6c6d2; } .man th { color:#fff; background:#0f1820; }

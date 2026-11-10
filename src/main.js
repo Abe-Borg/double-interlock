@@ -9,10 +9,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
   DI.startScenario = function (id, fresh) {
     const sc = DI.SCEN.find((s) => s.id === id), sv = fresh ? null : LS.get('di.save.' + id, null);
     let W, S;
-    if (sv) { W = DI.World.fromJSON(sv.world); for (const r of W.rooms) { const o = sv.world.rooms.find((q) => q.id === r.id); if (o) { r.exempt = o.exempt; } } S = new DI.Sim(W); S.restore(sv.sim); if (sc.start && sv.sim.leaks.length) S.dirty = true; }
-    else { W = new DI.World(sc.w, sc.h); sc.build(W); W.money = sc.money; S = new DI.Sim(W); S.commission(); if (sc.start) sc.start(S); }
+    if (sv) { W = DI.World.fromJSON(sv.world); for (const r of W.rooms) { const o = sv.world.rooms.find((q) => q.id === r.id); if (o) { r.exempt = o.exempt; } } S = new DI.Sim(W); S.contract = !sc.sandbox; S.restore(sv.sim); if (sc.start && sv.sim.leaks.length) S.dirty = true; }
+    else ({ W, S } = DI.buildScenario(sc));           // fresh map: the contract's fixed site settings (sc.cfg) are merged in
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
-    S.calc = new Map(); S.rv = DI.review(S); S.live = !!sc.sandbox;
+    S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
     let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0; for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
     for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
     g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
@@ -36,7 +36,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cv = DI.cv, c = DI.ctx; if (!cv) return;
     if (g.mode === 'play') {
       const S = g.S, sc = g.sc;
-      if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM')) g.warp = 0; }
+      if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM' && !o.sup)) g.warp = 0; }
       else if (g.speed > 0 && !DI.ui.modalOpen) {
         g.acc += dtR * g.speed;
         let busy = S.outFlow > 0.5 || S.fires.length > 0; if (!busy) for (const s of S.ss.values()) if (s.state === 'filling') { busy = true; break; }

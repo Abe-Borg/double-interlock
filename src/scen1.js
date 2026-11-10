@@ -30,7 +30,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     parts: ['gate', 'check', 'fdc', 'wetv', 'dryv', 'comp', 'panel'],
     brief: ['The staging area is sprinklered and warm. The loading dock next to it is neither. Dock doors stand open all winter, and water in pipe at 20 °F becomes a pipe bomb with a delay fuse.',
       'A dry pipe system keeps the dock piping full of compressed air. A differential clapper holds the water back with roughly one-sixth the pressure. When a sprinkler opens the air has to get out of the way first, and the fire keeps growing while it does. Everything about dry pipe design is managing that delay.'],
-    learn: ['Differential dry valve: trips near water pressure ÷ 5.5, so air is set ~20 psi above that', 'Delay costs area: design area +30%, no gridding, 60 s water delivery above 500 gal (750 with an accelerator)', 'Compressor must refill the system in 30 minutes', 'Impairment: what to do, in order, after a trip'],
+    learn: ['Differential dry valve: trips near water pressure ÷ 5.5, so air is set ~20 psi above that', 'Delay costs area: design area +30%, no gridding, 60 s water delivery above 500 gal of zone volume (750 with an accelerator)', 'Compressor must refill the system in 30 minutes', 'Impairment: what to do, in order, after a trip'],
     build(W) {
       const b = DI.mk(W); const rr = W.addRoom('riser', 8, 8, 4, 6); rr.exempt = true; W.addRoom('stor', 12, 6, 12, 10); W.addRoom('dock', 24, 6, 22, 10);
       b.p('city', 2, 11, 0, { stat: 78, resid: 60, flow: 1400, fixed: true }); b.h(3, 4, 11, 7);
@@ -44,7 +44,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'The dock is on a dry pipe valve, and review finds no code failures', ok: (S) => G.each(S, 'dock', (v) => v.type === 'dryv') && G.noFails(S), hint: 'Wet pipe may not pass through an unheated room. Dry systems may not be gridded: every branch line needs a dead end.' },
       { t: 'Compressor brings the system up to pressure in 30 minutes or less', ok: (S) => G.each(S, 'dock', (v, i, s) => s.set && s.fillTime > 0 && s.fillTime <= 1800), hint: 'Tube a compressor to the dry valve (Air tool, 4). Too slow? Bigger compressor or smaller system.' },
       { t: 'Hydraulic calc passes: 0.20 gpm/ft² over 1,950 ft² (1,500 + 30%) + 250 gpm hose', ok: (S) => G.calcOk(S, 'dock'), hint: 'All pipe is calculated at C = 100, and the dry design area is 30% bigger. Expect larger pipe than the wet side.' },
-      { t: 'Full-flow trip test passes', ok: (S) => G.test(S, 'trip', 'dock'), hint: 'Select the dry valve. Over 500 gal the water must reach the inspector’s test in 60 s. An accelerator raises the limit to 750 gal.' },
+      { t: 'Full-flow trip test passes', ok: (S) => G.test(S, 'trip', 'dock'), hint: 'Select the dry valve. Zone volume counts fittings and trim on top of the pipe. Over 500 gal the water must reach the inspector’s test in 60 s. An accelerator raises the limit to 750 gal.' },
       { t: 'Low air and waterflow report to the panel; system reset and back in service', ok: (S) => G.each(S, 'dock', (v, i, s, id) => !!S.W.panelOf(id) && s.state === 'dry' && s.set), hint: 'After the trip test: close the control valve, open the system drain, reset the clapper, let the air build, reopen the valve.' },
     ],
     drill: { name: 'Cold Snap', len: 7800, steps: () => [

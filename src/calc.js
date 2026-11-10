@@ -24,7 +24,12 @@ DI.hydCalc = function (S, id) {
   const inf = S.sysd.info.get(id); if (!inf || inf.remote < 0) return { ok: false, err: 'No sprinklers on this system.' };
   let worst = null; const rooms = inf.rooms.size ? [...inf.rooms] : [0];
   for (const rm of rooms) { const r = DI.hydCalcRoom(S, id, rm); if (!r.ok) return r; r.margin = r.minQ / r.need; if (!worst || r.margin < worst.margin) worst = r; }
-  worst.pass = worst.pass && worst.margin >= 0.999; return worst;
+  worst.pass = worst.pass && worst.margin >= 0.999;
+  // The calc checks hydraulics only. Coverage stays in plan review, so the result carries a flag and the UI
+  // never shows an unqualified PASS over a room that is not fully sprinklered.
+  worst.covOk = [...inf.rooms].every((rm) => { const room = S.W.rooms[rm - 1]; if (room.exempt || DI.ROOMS[room.type].open) return true; const c = DI.roomCoverage(S.W, S.sysd, room); return c.have >= c.need; });
+  worst.verdict = !worst.pass ? 'FAIL' : worst.covOk ? 'PASS' : 'PASS (hydraulics only); coverage FAIL, see plan review';
+  return worst;
 };
 
 DI.hydCalcRoom = function (S, id, rm) {
