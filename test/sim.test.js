@@ -538,11 +538,12 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     const W = new DI.World(40, 14); W.addRoom('office', 20, 2, 12, 8); W.addPart('city', 1, 6, 0); hline(W, 2, 13, 6, 6); const wv = W.addPart('wetv', 14, 6, 0); hline(W, 15, 19, 6, 6); W.setPipe(20, 6, 6, 0, true);
     const S = new DI.Sim(W); S.commission(); S.rv = DI.review(S); const c = DI.hydCalc(S, wv.id);
     ok('A30 one head in an uncovered room: the hydraulic calc is never an unqualified PASS', c.ok && c.pass && c.covOk === false && c.verdict === 'PASS (hydraulics only); coverage FAIL, see plan review' && fails(S, 'tiles have no sprinkler').length === 1, c.verdict);
-    for (let y = 2; y <= 9; y++) for (let x = 20; x <= 31; x++) if (!W.pd[W.k(x, y)]) W.setPipe(x, y, 1, 1, true); S.sync(); const c2 = DI.hydCalc(S, wv.id);
-    ok('A30 with the room covered the verdict is the plain hydraulic result', c2.covOk === true && (c2.verdict === 'PASS' || c2.verdict === 'FAIL') && c2.verdict === (c2.pass ? 'PASS' : 'FAIL'));
+    for (let y = 2; y <= 9; y++) W.setPipe(20, y, 6, 0, true);                // a main up the room, so every branch line reaches the riser
+    for (let y = 2; y <= 9; y++) for (let x = 21; x <= 31; x++) W.setPipe(x, y, 3, 1, true); S.sync(); const c2 = DI.hydCalc(S, wv.id);
+    ok('A30 with the room covered and every head on the riser the verdict is the plain hydraulic result', fails(S, 'not connected to any system riser').length === 0 && fails(S, 'tiles have no sprinkler').length === 0 && c2.covOk === true && (c2.verdict === 'PASS' || c2.verdict === 'FAIL') && c2.verdict === (c2.pass ? 'PASS' : 'FAIL'));
     // a head on every tile, but one of them capped off from every riser: review reports it, so the calc must qualify too
     W.setCut(30, 4, false, 1); W.setCut(31, 4, false, 1); S.sync(); const c3 = DI.hydCalc(S, wv.id);
-    ok('A30 a sprinkler connected to no riser is a coverage failure for the calc verdict as well', S.sysd.tileSys[W.k(31, 4)] === 0 && fails(S, 'not connected to any system riser').length === 1 && fails(S, 'tiles have no sprinkler').length === 0 && c3.covOk === false && c3.verdict !== 'PASS', c3.verdict);
+    ok('A30 a sprinkler connected to no riser is a coverage failure for the calc verdict as well', S.sysd.tileSys[W.k(31, 4)] === 0 && fails(S, 'not connected to any system riser').length === 1 && fails(S, 'tiles have no sprinkler').length === 0 && c2.verdict === 'PASS' && c3.pass && c3.covOk === false && c3.verdict === 'PASS (hydraulics only); coverage FAIL, see plan review', 'before: ' + c2.verdict + ', after: ' + c3.verdict);
   }
   // static checks on the sources
   {
