@@ -37,13 +37,13 @@ DI.PARTS = {
     props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1 } },
   prev: { name: 'Preaction Valve', cat: 'system', cost: 24000, ports: 2, key: '3',
     desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
-    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false, solOut: false } },
+    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false, solOut: false, mrzL: false } },   // mrzL: Manual Release zone release latched
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
-    props: { scfm: 5, on: false, runSec: 0, starts: 0 } },
+    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false } },
   n2: { name: 'Nitrogen Generator', cat: 'air', cost: 29000, ports: 0, key: 'N',
     desc: 'Membrane generator: 98%+ nitrogen as supervisory gas. Starves the oxygen corrosion that eats dry and preaction pipe.',
-    props: { scfm: 2.5, on: false, runSec: 0, starts: 0 } },
+    props: { scfm: 2.5, on: false, runSec: 0, starts: 0, fault: false } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
     desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
@@ -55,11 +55,31 @@ DI.PARTS = {
     desc: 'Manual station wired to the releasing panel. Typed DETECTION: operating it is the detection leg for every preaction valve that protects the room it is in, and water still needs P.', props: { on: false } },
 };
 
-// Listed sensitivity window of each detector model, %/ft obscuration. Fire 1 and Fire 2 (aspirating) and the
-// spot alarm threshold must sit inside the window of the device (plan review fails anything outside).
+// Listed sensitivity ranges, %/ft obscuration.
 //   smoke: 0.5 to 4.0 is the FA Lead's example window for a spot photoelectric detector (example data, not cited).
-//   vesda: ASSUMED placeholder 0.01 to 5.0 until the maker's listing for the aspirating detector is given.
-DI.LISTED = { vesda: { min: 0.01, max: 5.0, assumed: true }, smoke: { min: 0.5, max: 4.0 } };
+DI.LISTED = { smoke: { min: 0.5, max: 4.0 } };
+// Aspirating detector: the listing bounds every threshold per stage, per model. The ranges below are read from
+// the maker's own datasheets (FA Lead pull, 2026-11-10); the UL Product iQ listing itself was not readable, so
+// every range is shown with DI.ASD_SRC. Each range is [min, max] inclusive, in the stage order of DI.detThr
+// (Alert, Action, Fire 1, Fire 2). The sheets print setting ranges only, no default thresholds: the example
+// defaults (DI.VESDA_T) are owner-set values inside the range, ASSUMED and NEEDS PE REVIEW.
+// Recorded, not merged: the 2020 Honeywell VEP sheet (VESDA-E-VEP V.02, 04/20) prints the same metric ranges
+// with different imperial figures (0.0016 to 0.625 Alert / Action, 0.0031 to 0.625 Fire 1, 0.0063 to 6.25
+// Fire 2). The July 2025 UL 268 7th Ed. sheet governs for the US models.
+// Not in the table: VEA (discrete Fire 1 settings, no Alert / Action range), FAAST and TITANUS (see README).
+DI.ASD_SRC = '[HB, datasheet; UL Product iQ not checked]';
+DI.ASD_STAGES = [['alert', 'Alert'], ['action', 'Action'], ['fire1', 'Fire 1'], ['fire2', 'Fire 2']];
+DI.ASD_MODELS = {
+  VEP: { label: 'VESDA-E VEP', models: 'VEP-A00-1P-UL, VEP-A00-P-UL, VEP-A10-P-UL', doc: 'Xtralis Doc. 36106_07, Part AD36106-007, July 2025, p. 2', src: 'xtralis.com/file/12015',
+    range: { alert: [0.0015, 0.614], action: [0.0015, 0.614], fire1: [0.0030, 0.614], fire2: [0.0061, 6.575] } },
+  VEU: { label: 'VESDA-E VEU', models: 'VEU-A00-UL, VEU-A10-UL', doc: 'Xtralis Doc. 36107_05, Part AD36107-005, November 2024, p. 2', src: 'xtralis.com/file/12017',
+    range: { alert: [0.0003, 0.614], action: [0.0003, 0.614], fire1: [0.0003, 0.614], fire2: [0.0003, 6.575] } },
+};
+DI.ASD_DEFAULT = 'VEP';
+// site setting W.cfg.asdModel: the key if it is in the table, else the default (an old save has no key)
+DI.asdModel = (W) => { const k = W && W.cfg ? W.cfg.asdModel : undefined; return typeof k === 'string' && Object.prototype.hasOwnProperty.call(DI.ASD_MODELS, k) ? k : DI.ASD_DEFAULT; };
+// the four [min, max] pairs of the site's model, in DI.detThr order
+DI.asdRange = (W) => { const r = DI.ASD_MODELS[DI.asdModel(W)].range; return DI.ASD_STAGES.map(([k]) => r[k]); };
 
 // Site / project settings with a default (W.cfg, saved with the world). All ASSUMED and tunable.
 //   spotThr  spot detector alarm threshold, %/ft (example value)
@@ -74,7 +94,7 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // engineer elects it. A latched P is a release input whose class has not been elected: OPEN by default,
 // ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
 // Fixed classes, no setting: Fire 1, Fire 2, manual station and waterflow ALARM; low and high air SUPV;
-// panel and battery TRBL.
+// panel AC, low battery, loss of communication and loss of supply air TRBL (the last NEEDS PE REVIEW).
 DI.SIG_CLASS = { alert: ['SUPV', 'ALARM'], action: ['SUPV', 'ALARM'], pLatch: ['OPEN', 'ALARM', 'TRBL'] };
 DI.SIG_DEFAULT = { alert: 'SUPV', action: 'SUPV', pLatch: 'OPEN' };
 DI.sigClass = (W, key) => { const c = W && W.cfg && W.cfg.sigClass, v = c ? c[key] : undefined; return DI.SIG_CLASS[key].includes(v) ? v : DI.SIG_DEFAULT[key]; };

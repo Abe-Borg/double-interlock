@@ -1,7 +1,7 @@
 // Procedural sound (Web Audio): UI ticks plus continuous machinery that follows the simulation.
 var DI = globalThis.DI || (globalThis.DI = {});
 (function () {
-  let ac = null, master = null, on = true, loops = null, tBell = 0, tBeep = 0;
+  let ac = null, master = null, on = true, loops = null, tBell = 0, tBeep = 0, tOpen = 0, tTrbl = 0;
   function init() {
     if (ac) return true; const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return false;
     try { ac = new AC(); } catch (e) { return false; }
@@ -24,14 +24,26 @@ var DI = globalThis.DI || (globalThis.DI = {});
       else if (n === 'fail') tone(220, 0.45, 'sawtooth', 0.16, 110); else if (n === 'spk') tone(3200, 0.12, 'square', 0.07, 900);
     },
     tick(g) {
-      if (!ac || !on || !loops) return; const S = g.S, W = g.W; let pump = 0, comp = 0, al = 0, sv = 0;
+      if (!ac || !on || !loops) return; const S = g.S, W = g.W; let pump = 0, comp = 0, al = 0, sv = 0, op = 0, tr = 0;
       for (const p of W.parts.values()) { if ((p.type === 'epump' || p.type === 'dpump') && p.p.spd > pump) pump = p.p.spd; if ((p.type === 'comp' || p.type === 'n2' || p.type === 'jockey') && p.p.on) comp = 1; }
-      for (const o of S.sig.values()) { if (o.sup || DI.sigSilenced(W, o)) continue; if (o.type === 'ALARM') al = 1; else sv = 1; }      // a silenced panel keeps its own signals quiet until a new one arrives there
+      // One cue per signal class (presentation only, ASSUMED). A silenced panel keeps its own signals quiet until
+      // a new one arrives there. A dead panel sounds nothing (o.dark), and the supervising station's loss of
+      // communication (o.lost) is heard at the station, not on site.
+      for (const o of S.sig.values()) {
+        if (o.sup || o.dark || o.lost || DI.sigSilenced(W, o)) continue;
+        if (o.type === 'ALARM') al = 1; else if (o.type === 'OPEN') op = 1; else if (o.type === 'TRBL') tr = 1; else if (o.type === 'SUPV') sv = 1;
+      }
       const quiet = g.speed === 0 || DI.ui.modalOpen ? 0 : 1;
       set(loops.water, quiet * Math.min(0.22, (S.outFlow || 0) / 900)); let q = 0; for (const k of S.fires) q += S.fq[k]; set(loops.fire, quiet * Math.min(0.3, q / 4000));
       set(loops.pump.g, quiet * pump * 0.07); set(loops.pump2.g, quiet * pump * 0.02); loops.pump.o.frequency.value = 20 + 38 * pump; loops.pump2.o.frequency.value = 40 + 76 * pump; set(loops.comp.g, quiet * comp * 0.035);
-      if (quiet && al && g.now - tBell > 0.22) { tBell = g.now; tone(1850, 0.18, 'triangle', 0.07); tone(2760, 0.12, 'sine', 0.03); }
-      else if (quiet && !al && sv && g.now - tBeep > 2.4) { tBeep = g.now; tone(2900, 0.09, 'square', 0.03); }
+      // ALARM: bell. OPEN: two-tone chirp every 3 s. SUPV: short high beep every 2.4 s. TRBL: one low pulse
+      // every 2.4 s. The bell masks the rest; the others each keep their own cue.
+      if (quiet && al) { if (g.now - tBell > 0.22) { tBell = g.now; tone(1850, 0.18, 'triangle', 0.07); tone(2760, 0.12, 'sine', 0.03); } }
+      else if (quiet) {
+        if (op && g.now - tOpen > 3) { tOpen = g.now; tone(1500, 0.06, 'square', 0.03); setTimeout(() => tone(1100, 0.06, 'square', 0.03), 90); }
+        if (sv && g.now - tBeep > 2.4) { tBeep = g.now; tone(2900, 0.09, 'square', 0.03); }
+        if (tr && g.now - tTrbl > 2.4) { tTrbl = g.now + (sv ? 1.2 : 0); tone(1200, 0.12, 'sine', 0.03); }
+      }
     },
   };
   window.addEventListener('mousedown', () => { if (on) init(); }, { once: true });

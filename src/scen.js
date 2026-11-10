@@ -43,15 +43,18 @@ DI.G = {
   test: (S, kind, type) => DI.G.each(S, type, (v, inf, s, id) => { const r = DI.lastResult(S, kind, id); return !!r && r.pass; }),
   anyTest: (S, kind, ptype) => S.results.some((r) => r.kind === kind && r.pass && (!ptype || (S.W.parts.get(r.id) || {}).type === ptype)),
   wired: (S, types) => [...S.W.parts.values()].filter((p) => types.includes(p.type)).every((p) => S.W.panelOf(p.id)),
-  // the latest incident on every preaction system serving rooms of `type` was recovered completely and in order
-  recovered: (S, type) => DI.G.each(S, type, (v, inf, s, id) => { const r = DI.recoveryScore(S, id); return !!r && r.complete && r.inOrder; }),
 };
 // Recovery score of the first incident of the running drill, as report lines for DI.lossJudge (informational).
+// Only the drill's incident is scored; every other recovery (a trip test, a sandbox incident) is practice and
+// shows as a checklist on the valve. A zone that filled with every head closed because P was left latched is
+// reported as its own line: an unattended low-air failure, not a discharge.
 DI.drillRecovery = function (S, what) {
   const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), r = a ? DI.recoveryScore(S, a.id, S.drill.t0) : null; if (!r) return [];
   const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase());
-  return [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
+  const out = [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
     [r.time !== null && r.time <= DI.RECOVERY_TARGET, 'Time bonus: ' + (r.time !== null ? 'recovered in ' + DI.dur(r.time) : 'recovery not finished') + ', target ' + DI.dur(DI.RECOVERY_TARGET) + ' (ASSUMED, informational)', true]];
+  for (const z of S.acts) if (z.kind === 'zone-filled' && z.why === 'low-air' && z.t >= S.drill.t0) if (S.W.parts.get(z.id)) out.push([false, 'Water-filled zone: ' + DI.sysName(S, z.id) + ' filled because P was left latched (unattended low-air failure), no discharge', true]);
+  return out;
 };
 
 // --- drills: timed scripts of incidents. step = [secondsFromStart, fn(S), optional banner]

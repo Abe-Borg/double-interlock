@@ -38,7 +38,10 @@
     },
     c6(W, b) {
       b.p('n2', 18, 13, 0); const v = W.byType('prev')[0];
-      return { tests: [['leak', v.id]], after: (S, kind) => { const s = S.ss.get(v.id); if (s.holes) { W.money -= s.holes * 1800; s.holes = 0; s.corr = 0.25; v.p.vent = true; S.warp(16 * 86400); DI.startTest(S, 'leak', v.id); S.warp(86500); } },
+      // The first 24 h test is the baseline and fails (the zone leaks down below P trip, so P latches). After the
+      // repair the air comes back, and the panel is reset before the zone is called in service and tested again.
+      return { tests: [['leak', v.id]], after: (S, kind) => { const s = S.ss.get(v.id); if (s.holes) { W.money -= s.holes * 1800; s.holes = 0; s.corr = 0.25; v.p.vent = true; S.warp(16 * 86400);
+        if (v.p.pLatch) { DI.panelReset(S, W.panelOf(v.id).id); S.warp(60); } DI.startTest(S, 'leak', v.id); S.warp(86500 + DI.AIR_TEST.chargeMax); } },
         post: (S) => { for (let i = 0; i < 12; i++) { S.warp(DI.YEAR / 2); DI.SCEN.find((q) => q.id === 'c6').tick(S); } } };
     },
     c7(W, b) {
@@ -64,36 +67,62 @@
   };
   DI.worth = function (W) { let c = 0; for (let k = 0; k < W.pd.length; k++) { if (W.pd[k]) c += DI.PIPES[W.pd[k] - 1].cost + (W.spk[k] ? DI.SPK_COST : 0); if (W.air[k]) c += 25; } for (const p of W.parts.values()) if (!p.p.fixed) c += DI.partCost(p.type, p.p) + (p.p.vent ? 3200 : 0); return c; };
   DI.botBuild = function (S, id) { const W = S.W, b = DI.mk(W), c0 = DI.worth(W), out = SOL[id](W, b); W.money -= DI.worth(W) - c0; S.sync(); return out; };
-  // operator: put impaired dry / preaction systems back in service in the order the manual gives:
-  // silence, find the head, close the control valve, drain, replace the head, restore air, reset the trim, reset the panel
+  // Reference operator: puts an impaired dry / preaction system back in service in the scored recovery order
+  // (DI.RECOVERY): silence, find the head, close the control valve, isolate the air / N2 supply, open the drain
+  // and wait for 0 psi and no water, panel reset #1 if detection is latched, replace the head, reset the clapper
+  // at the riser if the valve tripped (drain still open), close the drain, restore the supply and wait for the
+  // air, reset the trim (El/Pn), panel reset #2, reopen the control valve through the reopen gate (DI.setGate).
+  // Phase 0 makes the pipe safe and repairs it; phase 1 puts it back. A new trip or head sends it back to 0.
   DI.botOps = function (S) {
     const W = S.W, gates = W.byType('gate');
     for (const p of W.byType('dpump')) if (p.p.batt < 0.5) { p.p.batt = 1; p.p.failed = false; p.p.crank = 0; }
-    for (const g of gates) if (g.p.target < 1 && !g.p.bot) g.p.target = 1;                    // somebody closed a valve: open it
+    for (const g of gates) if (g.p.target < 1 && !g.p.bot) DI.setGate(S, g.id, 1);            // somebody closed a valve: open it
     for (const d of W.parts.values()) if ((d.type === 'vesda') && d.p.lvl >= 1 && d.p.lvl < 3 && !S.tech) { const r = W.room(d.x, d.y); if (r) DI.sendTech(S, r.id); }
     if (S.fires.length) return;
     const quiet = [...W.parts.values()].every((d) => !(d.type === 'vesda' || d.type === 'smoke') || !(d.p.live > 0));
-    const back = (v, s) => s.state === 'dry' && s.set && !s.airLost && !(s.openK && s.openK.length) && !v.p.sdrain;     // air restored
+    const back = (v, s) => s.state === 'dry' && s.set && (v.type !== 'prev' || !s.airLost) && !(s.openK && s.openK.length) && !v.p.sdrain;     // air restored
     for (const [id, s] of S.ss) {
       const v = W.parts.get(id); if (v.type === 'wetv') { if (s.openK && s.openK.length && S.outFlow < 1) DI.replaceSprinklers(S, id); continue; }
-      const pre = v.type === 'prev', pn = W.panelOf(id), heads = s.openK && s.openK.length;
-      if (s.state === 'dry' && !heads) {
-        if (s.botDr && v.p.sdrain) { v.p.sdrain = 0; S.touch(); } s.botDr = false;            // head replaced on a system that never tripped: shut the drain
-        // air is back: clear the latched P where this trim holds it (actuator at the trim on el-pn), then the panel
-        if (pre && pn && back(v, s) && !v.p.sol && (v.p.pLatch || s.botSil)) { if (v.p.trim === 'el-pn' && v.p.pLatch) DI.resetTrimP(S, id); DI.panelReset(S, pn.id); }
-        if (!pre || back(v, s)) s.botSil = false;
-        continue;
+      const pre = v.type === 'prev', pn = W.panelOf(id), live = !!pn && pn.p.alive !== false, heads = s.openK ? s.openK.length : 0, inf = S.sysd.info.get(id), g = DI.botGate(S, id);
+      const latched = pre && (v.p.sol || v.p.pull || v.p.mrzL), hurt = heads > 0 || s.state !== 'dry';
+      if (!s.botOp) {
+        if (hurt) { s.botOp = true; s.botPh = 0; s.botSil = false; s.botR2 = false; }
+        else {
+          // a latched P with the air back and nothing else wrong: clear it where this trim holds it
+          if (pre && live && v.p.pLatch && back(v, s) && !latched) { if (v.p.trim === 'el-pn') DI.resetTrimP(S, id); DI.panelReset(S, pn.id); }
+          continue;
+        }
       }
-      if (pn && !s.botSil) { DI.silence(S, pn.id); s.botSil = true; }
-      for (const k of s.openK || []) DI.findHead(S, k);
-      const g = DI.botGate(S, id); if (g) { g.p.target = 0; g.p.bot = true; if (g.p.open > 0.02) continue; }
-      if (!v.p.sdrain) { v.p.sdrain = 1; S.touch(); s.botDr = true; continue; }
-      if (pre && pn && (v.p.sol || v.p.pull) && quiet) DI.panelReset(S, pn.id);               // detection has to drop out before the clapper can be reset
-      if (s.state === 'dry') DI.replaceSprinklers(S, id);
-      else if (s.wat < 0.01 * s.vol + 0.2) { DI.replaceSprinklers(S, id); DI.resetValve(S, id); s.botDr = false; }
+      if (hurt) s.botPh = 0;
+      if (s.botPh === 0) {
+        if (live && !s.botSil) { DI.silence(S, pn.id); s.botSil = true; }
+        for (const k of s.openK || []) DI.findHead(S, k);
+        if (g) { if (g.p.target > 0 || !g.p.bot) { DI.setGate(S, g.id, 0); g.p.bot = true; } if (g.p.open > 0.02) continue; }
+        if (inf.src.length && v.p.airValve) { v.p.airValve = 0; continue; }
+        if (!v.p.sdrain) { v.p.sdrain = 1; S.touch(); continue; }
+        if (s.state === 'wet' || s.wat > DI.dryLim(inf.vol) || s.P > DI.SAFE_PSI || (pre && !s.dz)) continue;      // wait: 0 psi and no water, confirmed in the log
+        if (latched) { if (live && quiet) DI.panelReset(S, pn.id); continue; }                          // reset #1: detection drops out
+        if (heads) { DI.replaceSprinklers(S, id); continue; }
+        if (s.state !== 'dry') { DI.resetValve(S, id); continue; }                                      // clapper reset, drain still open
+        s.botPh = 1; s.botR2 = false; continue;
+      }
+      if (v.p.sdrain) { v.p.sdrain = 0; S.touch(); continue; }
+      if (inf.src.length && !v.p.airValve) { v.p.airValve = 1; continue; }
+      if (!back(v, s)) continue;                                                                        // wait for the air
+      if (pre && live && !latched && !s.botR2) { if (v.p.trim === 'el-pn' && v.p.pLatch) DI.resetTrimP(S, id); DI.panelReset(S, pn.id); s.botR2 = true; continue; }     // trim (El/Pn), then reset #2
+      if (pre && live && (v.p.pLatch || latched)) { s.botR2 = false; continue; }                       // it latched again: wait, then reset again
+      if (g && g.p.bot) {
+        // one control valve can serve several zones: reopen it when every one of them is ready
+        const ready = [...S.ss.entries()].every(([oid, os]) => oid === id || W.parts.get(oid).type === 'wetv' || DI.botGate(S, oid) !== g || (!os.botOp && os.state === 'dry') || os.botPh === 1);
+        if (!ready || DI.setGate(S, g.id, 1)) continue;
+        g.p.bot = false;
+      }
+      if (g && g.p.open < 0.99) continue;
+      s.botOp = false; s.botSil = false;
     }
-    for (const g of gates) if (g.p.bot && [...S.ss.entries()].every(([id, s]) => W.parts.get(id).type === 'wetv' || DI.botGate(S, id) !== g || back(W.parts.get(id), s))) { g.p.target = 1; g.p.bot = false; }
-    if (W.byType('prev').some((v) => v.p.sol) && quiet) for (const pn of W.byType('panel')) DI.panelReset(S, pn.id);
+    // a false alarm that latched D on a healthy valve: reset the panel once detection is quiet. A valve under
+    // recovery gets its panel reset #1 in its own turn above (after the drain), not here.
+    if (W.byType('prev').some((v) => v.p.sol && !S.ss.get(v.id).botOp) && !W.byType('prev').some((v) => S.ss.get(v.id).botOp) && quiet) for (const pn of W.byType('panel')) if (pn.p.alive !== false) DI.panelReset(S, pn.id);
   };
   DI.botGate = (S, id) => DI.ctrlValve(S.W, id);       // nearest control valve upstream of a system valve
   const inSvc = (S) => [...S.ss.entries()].every(([id, s]) => { const v = S.W.parts.get(id); return v.type === 'wetv' || (s.state === 'dry' && s.set && !(v.type === 'prev' && v.p.pLatch)); });

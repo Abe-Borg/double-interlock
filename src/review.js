@@ -64,16 +64,14 @@ DI.review = function (S) {
     if (!W.panelOf(id)) add('warn', nm + ': waterflow alarm is not wired to a panel. Nobody off-site will know it is flowing.', R('Ch. 16, NFPA 72'), v.x, v.y);
   }
   // --- site settings
-  const thr = DI.detThr(W), LA = DI.LISTED.vesda, LS = DI.LISTED.smoke, spot = DI.spotThr(W), listed = 'Device listing; NFPA 72 Ch. 14 (ITM)';
-  if (!thr.every((t, i) => isFinite(t) && t > 0 && (i === 0 || t > thr[i - 1]))) add('fail', 'Aspirating detection thresholds are not strictly increasing (' + thr.join(' / ') + '). They must run Alert < Action < Fire 1 < Fire 2.', 'Site setting (example values)', 0, 0);
-  // Fire 1 and Fire 2 must sit inside the listed sensitivity window of the detector model
-  [['Fire 1', thr[2]], ['Fire 2', thr[3]]].forEach(([n, t]) => { if (!(t >= LA.min && t <= LA.max)) add('fail', 'Aspirating ' + n + ' threshold ' + t + ' %/ft is outside the listed window of the detector (' + LA.min + ' to ' + LA.max + ' %/ft' + (LA.assumed ? ', ASSUMED placeholder' : '') + ').', listed, 0, 0); });
+  const thr = DI.detThr(W), LS = DI.LISTED.smoke, spot = DI.spotThr(W), listed = 'Device listing; NFPA 72 Ch. 14 (ITM)';
+  if (!thr.every((t, i) => isFinite(t) && t > 0 && (i === 0 || t > thr[i - 1]))) add('fail', 'Aspirating detection thresholds are not strictly increasing (' + thr.join(' / ') + '). They must run Alert < Action < Fire 1 < Fire 2.', 'Site setting (owner-set values, ASSUMED, NEEDS PE REVIEW)', 0, 0);
+  // every stage must sit inside the listed range of that stage for the site's detector model (datasheet ranges)
+  for (const f of DI.asdFindings(W)) add('fail', f.text, f.ref, 0, 0);
   if (!(spot >= LS.min && spot <= LS.max)) add('fail', 'Spot detector alarm threshold ' + spot + ' %/ft is outside the listed window of the detector (' + LS.min + ' to ' + LS.max + ' %/ft, example data).', listed, 0, 0);
-  if (J.nfpa76Adopted) {
-    const P76 = DI.PRESETS.nfpa76;
-    if (thr[0] > P76.alert) add('fail', 'NFPA 76 is adopted on this site: Alert must be ' + P76.alert + ' %/ft or less (it is ' + thr[0] + ').', 'NFPA 76-2024 §8.5.3.1.2.5', 0, 0);
-    if (thr[2] > P76.fire1) add('fail', 'NFPA 76 is adopted on this site: Fire 1 must be ' + P76.fire1 + ' %/ft or less (it is ' + thr[2] + ').', 'NFPA 76-2024 §8.5.3.1.2.5', 0, 0);
-  }
+  // NFPA 76, where adopted: the alarm-to-stage mapping is held OPEN and the conflict with the listing is flagged,
+  // never silently applied. Warnings stay visible; a fail needs an Alert over the limit or an elected stage over it.
+  for (const f of DI.n76Flags(W)) add(f.sev, f.text, DI.N76_REF + ' (' + f.code + ')', 0, 0);
   // signal classes: a latched P may be OPEN (not elected), alarm or trouble, never supervisory
   const sc = (W.cfg && W.cfg.sigClass) || {};
   for (const k of Object.keys(DI.SIG_CLASS)) if (sc[k] !== undefined && !DI.SIG_CLASS[k].includes(sc[k]))

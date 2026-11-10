@@ -1,9 +1,16 @@
 // Commissioning / ITM test procedures. Each one drives the real simulation and reads the real gauges.
 var DI = globalThis.DI || (globalThis.DI = {});
 
-// 24 h dry air leakage test: about 40 psi test pressure, allowed drop 1.5 psi in 24 h.
-// VERIFY the section and the values against the enforced edition before citing them in game text.
-DI.AIR_TEST = { psi: 40, drop: 1.5 };
+// 24 h air test, dry and double interlock (FP Lead): 40 psi air held 24 h; a loss over 1.5 psi must be
+// corrected. Pass = end reading at least 38.5 psi. Same values in every edition; the section is
+// DI.juris.ref.airTest (2025 held; 2019 and 2022 ASSUMED, VERIFY).
+//   psi     test pressure            endMin  lowest passing end reading        drop  allowed loss (report line)
+//   tol     ASSUMED: the clock starts once the zone is within this of the test pressure (the gauge reads 40.0).
+//           It is small on purpose: "end reading at least 38.5" equals "loss of 1.5 or less" only from a 40.0
+//           start, and a 0.1 psi shortfall at the start would be the whole pass margin of a just-repaired zone.
+//   chargeMax  ASSUMED: seconds allowed to reach the test pressure before the test fails
+// Simplification: the game charges the zone to 40 psi itself; a real test is charged and held by the contractor.
+DI.AIR_TEST = { psi: 40, endMin: 38.5, drop: 1.5, tol: 0.005, chargeMax: 1800 };
 
 DI.startTest = function (S, kind, id) {
   const W = S.W, v = W.parts.get(id), s = S.ss.get(id);
@@ -29,12 +36,23 @@ DI.startTest = function (S, kind, id) {
     for (const o of W.parts.values()) if ((o.type === 'epump' || o.type === 'dpump') && o.id !== id) { pr.others.push([o.id, o.p.mode]); o.p.mode = 'off'; }
     pr.mode0 = v.p.mode; v.p.mode = 'hand'; h.p.open = 0; S.say('Pump flow test started: churn, 100%, 150%', '');
   } else if (kind === 'leak') {
+    const A = DI.AIR_TEST;
     if (!s || s.state !== 'dry' || !s.set) return 'System must be pressurized first.';
-    pr.p0 = s.P; v.p.airValve = 0; S.say('24-hour air test started at ' + DI.fmt(s.P, 1) + ' psi (air supply isolated)', '');
+    if (s.P > A.psi + 0.5) return 'Test pressure is ' + A.psi + ' psi. This zone is at ' + DI.fmt(s.P, 1) + ' psi: lower the normal pressure or bleed it at the drain first.';
+    if (s.P < A.psi - A.tol) {       // stage 0: the supply stays open and the regulator holds the test pressure (DI.airTarget)
+      if (!v.p.airValve) return 'The air / N2 supply to this zone is isolated. Restore it so the zone can be charged to ' + A.psi + ' psi.';
+      S.say('24-hour air test: charging from ' + DI.fmt(s.P, 1) + ' psi to the ' + A.psi + ' psi test pressure', '');
+    } else DI.airTestHold(S, pr, v, s);
   } else if (kind === 'run') {
     pr.mode0 = v.p.mode; v.p.mode = 'hand'; pr.need = v.type === 'dpump' ? 1800 : 600; S.say('No-flow (churn) run started: ' + pr.need / 60 + ' minutes', '');
   } else return 'Unknown test.';
   S.procs.push(pr); S.testUntil = S.t + 1e9; S.touch(); return '';
+};
+
+// the 24 h clock starts: record the start reading and isolate the supply
+DI.airTestHold = function (S, pr, v, s) {
+  pr.stage = 1; pr.ts = S.t; pr.p0 = s.P; v.p.airValve = 0; s.av = 0;
+  S.say('24-hour air test started at ' + DI.fmt(s.P, 1) + ' psi (air supply isolated)', '');
 };
 
 DI.testStep = function (S, dt) {
@@ -95,11 +113,19 @@ DI.testStep = function (S, dt) {
       }
       if (res) { if (h) h.p.open = 0; v.p.mode = pr.mode0; v.p.on = false; for (const [oid, m] of pr.others) { const o = W.parts.get(oid); if (o) o.p.mode = m; } }
     } else if (pr.kind === 'leak') {
-      if (el >= 86400 || s.state !== 'dry') {
-        const loss = pr.p0 - s.P; v.p.airValve = 1;
-        // the report is about air only: start, end and the drop against the allowed loss. A latched release
-        // input is a panel matter and goes to the panel event log, not here.
-        res = { pass: s.state === 'dry' && loss <= DI.AIR_TEST.drop, title: '24-hour air leakage test', val: loss, lines: ['Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi', 'Drop: ' + DI.fmt(loss, 2) + ' psi in 24 h, allowed ' + DI.AIR_TEST.drop + ' psi'] };
+      const A = DI.AIR_TEST;
+      if (pr.stage === 0) {
+        if (s.state === 'dry' && s.P >= A.psi - A.tol) DI.airTestHold(S, pr, v, s);
+        else if (el > A.chargeMax || s.state !== 'dry') res = { pass: false, title: '24-hour air leakage test', val: -1, end: s.P, say: 1, lines: ['Test pressure: ' + A.psi + ' psi',
+          'Could not reach ' + A.psi + ' psi in ' + A.chargeMax / 60 + ' min: the supply is too small or the leaks are too big.', 'Reached: ' + DI.fmt(s.P, 1) + ' psi'] };
+      } else if (S.t - pr.ts >= 86400 || s.state !== 'dry') {
+        const loss = pr.p0 - s.P; v.p.airValve = 1; s.av = 1;
+        // the report is about air only: test pressure, start, end and the pass line. A latched release input
+        // is a panel matter and goes to the panel event log, not here. The test never sets or clears it.
+        res = { pass: s.state === 'dry' && s.P >= A.endMin, title: '24-hour air leakage test', val: loss, end: s.P, say: 1, gov: 2, lines: ['Test pressure: ' + A.psi + ' psi',
+          'Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi',
+          'Pass: end reading at least ' + A.endMin + ' psi (loss of ' + A.drop + ' psi or less in 24 h) [' + DI.setJuris(W).ref.airTest + ']',
+          'Drop: ' + DI.fmt(loss, 2) + ' psi in 24 h'] };
       }
     } else if (pr.kind === 'run') {
       if (v.p.failed || (el > 40 && v.p.spd < 0.5)) res = { pass: false, title: 'Weekly churn run', lines: ['Pump failed to start.'] };
@@ -109,7 +135,7 @@ DI.testStep = function (S, dt) {
     if (res) {
       res.kind = pr.kind; res.id = pr.id; res.t = S.t; res.name = s ? DI.sysName(S, pr.id) : DI.PARTS[v.type].name + ' #' + v.id;
       S.results.push(res); S.procs.splice(i, 1); S.testUntil = S.procs.length ? S.t + 1e9 : S.t + 90; if (pr.kind === 'pump' || pr.kind === 'run') S.lastTestT = S.t;
-      S.say(res.title + ': ' + (res.pass ? 'PASS' : 'FAIL') + ' - ' + res.lines[res.lines.length > 2 ? 2 : 0], res.pass ? 'good' : 'bad'); DI.bus.emit('result', res);
+      S.say(res.title + ': ' + (res.pass ? 'PASS' : 'FAIL') + ' - ' + res.lines[res.say !== undefined ? res.say : res.lines.length > 2 ? 2 : 0], res.pass ? 'good' : 'bad'); DI.bus.emit('result', res);
     }
   }
 };

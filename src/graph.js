@@ -68,7 +68,10 @@ DI.buildGraph = function (W, S) {
       if (p.type === 'wetv') { if (p.p.drain && r[1] >= 0) em.push({ raw: r[1], K: 32 * p.p.drain, kind: 'drain', k, sys: p.id }); }
       else {
         if (p.p.drain && r[0] >= 0) em.push({ raw: r[0], K: 32 * p.p.drain, kind: 'mdrain', k, sys: 0 });
-        if (p.p.sdrain && r[1] >= 0) em.push({ raw: r[1], K: 32 * p.p.sdrain, kind: 'drain', k, sys: p.id });
+        // the system drain passes water only while water is at it. Air out an open drain is air: the gas model
+        // vents it (DI.gasPre), and it never counts as water flow or gpm.
+        const ds = st(p.id), drainWet = !!ds && (ds.state === 'wet' || (ds.state === 'filling' && ds.wat > DI.dryLim(inf.vol)));
+        if (p.p.sdrain && r[1] >= 0 && drainWet) em.push({ raw: r[1], K: 32 * p.p.sdrain, kind: 'drain', k, sys: p.id });
       }
     } else if (p.type === 'testhdr' && r[0] >= 0) em.push({ raw: r[0], K: 62 * Math.max(p.p.open, 0.001), kind: 'hdr', k: W.k(p.x, p.y), sys: 0, pid: p.id });
   }

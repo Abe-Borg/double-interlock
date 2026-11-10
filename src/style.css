@@ -29,6 +29,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .sig b { flex:none; width:46px; } .sig.ALARM b { color:var(--red); } .sig.SUPV b { color:var(--amb); } .sig.TRBL b { color:var(--yel); }
 .sig.loc { opacity:.55; } .sig:hover { background:#17222d; }
 .sig.OPEN b { color:#c59bff; } .sig.sup { opacity:.5; } .sig.sup b { text-decoration:line-through; }
+.sig.stn { background:#1a1a0c; } .sig.stn em { font-style:normal; color:var(--yel); margin-right:4px; }
 #annState.op { color:#c59bff; } #annState.sil { animation:none; }
 .res .gov { color:#fff; font-weight:700; border-bottom:1px solid var(--amb); }
 #log { overflow:auto; flex:1; min-height:60px; max-height:220px; padding:3px 0; font:11px var(--mono); }

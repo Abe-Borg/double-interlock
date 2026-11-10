@@ -2,6 +2,18 @@
 // Order each tick: fire -> alarm/release -> valve trip logic -> controllers -> solve -> accounting.
 var DI = globalThis.DI || (globalThis.DI = {});
 
+DI.ACTS_MAX = 600;                        // ASSUMED: size of the operator log (S.acts), in memory and in a save
+// Trim the operator log to DI.ACTS_MAX. Closed history goes first: everything before the earliest incident that
+// is still open. The opening `incident` entry of an open incident is never dropped, so its score stays readable.
+DI.trimActs = function (S) {
+  const A = S.acts; let over = A.length - DI.ACTS_MAX; if (over <= 0) return;
+  const keep = new Set();
+  for (const [id, s] of S.ss) if (s.inc) for (let i = A.length - 1; i >= 0; i--) if (A[i].kind === 'incident' && A[i].id === id) { keep.add(A[i]); break; }
+  let cut = A.findIndex((a) => keep.has(a)); if (cut < 0) cut = A.length;
+  const n = Math.min(over, cut); if (n > 0) { A.splice(0, n); over -= n; }
+  for (let i = 0; i < A.length && over > 0;) { if (keep.has(A[i])) i++; else { A.splice(i, 1); over--; } }
+};
+
 DI.Sim = class {
   constructor(W) {
     const n = W.w * W.h;
@@ -20,7 +32,7 @@ DI.Sim = class {
     DI.fireInit(this);
     this.sync();
   }
-  act(kind, id, x) { this.acts.push(Object.assign({ t: this.t, kind, id }, x || {})); if (this.acts.length > 400) this.acts.shift(); }
+  act(kind, id, x) { this.acts.push(Object.assign({ t: this.t, kind, id }, x || {})); if (this.acts.length > DI.ACTS_MAX) DI.trimActs(this); }
   say(text, cls) { this.log.push({ t: this.t, text, cls: cls || '' }); if (this.log.length > 200) this.log.shift(); DI.bus.emit('log', text, cls); }
   // re-discover systems after any map edit; keep state of valves that still exist
   sync() {
@@ -116,6 +128,8 @@ DI.Sim = class {
         const was = q.open;
         if (q.open !== q.target) q.open = q.target > q.open ? Math.min(q.target, q.open + dt / 4) : Math.max(q.target, q.open - dt / 4);
         if (was > 0.02 && q.open <= 0.02) this.act('close-valve', p.id);
+        // back in service: logged only for a reopening that went through the reopen gate (DI.setGate)
+        if (was < 0.99 && q.open >= 0.99 && q.viaGate) { q.viaGate = false; this.act('open-valve', p.id, { flow: Math.max(0, ...DI.gateValves(this, p.id).map(([, , s]) => Math.abs(s.flow || 0))) }); }
       } else if (p.type === 'tank') {
         if (q.gal < q.cap && q.fill > 0) q.gal = Math.min(q.cap, q.gal + q.fill * dt / 60);
       }
@@ -138,6 +152,54 @@ DI.Sim = class {
   pin(id) { const m = this.pP.get(id); return m ? m[0] : 0; }
   pout(id) { const m = this.pP.get(id); return m ? m[1] : 0; }
   sysP(id) { const s = this.ss.get(id); if (!s) return 0; return s.state === 'dry' ? s.P : this.pout(id); }
+};
+
+// ---------- reopening a zone control valve (FP Lead: generic practice, the maker's IOM governs specifics)
+// Dry and preaction valves whose nearest upstream control valve is this gate: [id, valve, state].
+// Simplification: only the control valve nearest upstream is gated; wet systems are not gated.
+DI.gateValves = function (S, gateId) {
+  const o = []; for (const [id, s] of S.ss) { const v = S.W.parts.get(id); if (!v || v.type === 'wetv') continue; const g = DI.ctrlValve(S.W, id); if (g && g.id === gateId) o.push([id, v, s]); }
+  return o;
+};
+// An incident on valve `id` is open from its first incident or trip until its control valve is back open.
+DI.incidentOpen = function (S, id, gateId) {
+  for (let i = S.acts.length - 1; i >= 0; i--) { const a = S.acts[i]; if (a.kind === 'open-valve' && a.id === gateId) return false; if ((a.kind === 'incident' || a.kind === 'trip') && a.id === id) return true; }
+  return false;
+};
+// Why one zone is not ready to take water again: '' or { msg, soft }. A zone goes back in service only when
+// (a) the panel is reset with the solenoid de-energized (D, the Manual Release zone and P all clear) and the
+// clapper is reset, and (b) the pipe air is above low air. Otherwise opening the valve re-trips it.
+// soft: a dead panel cannot release anything, so it is a warning and never a refusal.
+DI.zoneReady = function (S, id) {
+  const W = S.W, v = W.parts.get(id), s = S.ss.get(id), pre = v.type === 'prev', pn = pre ? W.panelOf(id) : null;
+  if (pre && (v.p.sol || v.p.pull || v.p.mrzL)) return { msg: 'Reset the panel first: D / the solenoid is still latched.' };
+  if (s.state !== 'dry' || (pre && v.p.mech)) return { msg: 'Reset the riser valve first: it is still tripped.' };
+  if (s.P < v.p.loAir) return { msg: 'Restore air first: ' + DI.fmt(s.P, 1) + ' psi is below low air (' + v.p.loAir + ' psi).' };
+  if (pre && v.p.pLatch) return { msg: v.p.trim === 'el-pn' ? 'Reset the actuator at the trim: P is still latched.' : 'Reset the panel: P is still latched.' };
+  if (pn && pn.p.alive === false) return { msg: 'The releasing panel is dead: this zone has no automatic release until power is back.', soft: true };
+  return null;
+};
+// '' when every zone behind this control valve is ready, else the first message (a zone in an open incident first).
+DI.reopenCheck = function (S, gateId) {
+  let warn = null;
+  for (const [id] of DI.gateValves(S, gateId)) {
+    const r = DI.zoneReady(S, id); if (!r) continue;
+    if (!r.soft && DI.incidentOpen(S, id, gateId)) return { msg: r.msg, refuse: true };
+    if (!warn) warn = r;
+  }
+  return warn ? { msg: warn.msg, refuse: false } : { msg: '', refuse: false };
+};
+DI.reopenGate = (S, gateId) => DI.reopenCheck(S, gateId).msg;
+// Operate a control valve (the inspector button and the reference operator use this). Closing is always
+// allowed. Opening is refused while a recovery incident is open on a zone behind it that is not ready, and is
+// allowed with a logged warning outside an incident. Returns '' or the reason it was refused.
+DI.setGate = function (S, id, want) {
+  const g = S.W.parts.get(id); if (!g || g.type !== 'gate') return 'No control valve.';
+  if (!(want > 0.5)) { g.p.target = 0; g.p.viaGate = false; return ''; }
+  const r = DI.reopenCheck(S, id);
+  if (r.msg && r.refuse) return r.msg;
+  if (r.msg) S.say('Control valve #' + id + ' reopened on a zone that is not ready. ' + r.msg, 'bad');
+  g.p.target = 1; g.p.viaGate = true; return '';
 };
 
 // Bring every system to its normal standby condition (water in wet pipe, air on dry pipe,
@@ -173,7 +235,7 @@ DI.Sim.prototype.commission = function (keep) {
 DI.Sim.prototype.warp = function (sec, maxMs) {
   const end = this.t + sec, t0 = Date.now();
   while (this.t < end) {
-    let busy = this.outFlow > 0.5 || this.fires.length > 0 || this.procs.some((p) => p.kind !== 'leak');
+    let busy = this.outFlow > 0.5 || this.fires.length > 0 || this.procs.some((p) => p.kind !== 'leak' || p.stage === 0);      // a 24 h air test is quiet once it is charged
     if (!busy) for (const s of this.ss.values()) if (s.state === 'filling' || (s.openK && s.openK.length)) { busy = true; break; }
     if (!busy) for (const p of this.W.parts.values()) if ((p.type === 'epump' || p.type === 'dpump') && p.p.spd > 0 && p.p.spd < 1) { busy = true; break; }
     const idle = sec > 40 * 86400 ? 3600 : sec > 2 * 86400 ? 600 : 20;
@@ -186,10 +248,10 @@ DI.Sim.prototype.warp = function (sec, maxMs) {
 };
 
 // Save / load of the dynamic state that matters (pressures re-settle on load).
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr'];
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
-  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(-300), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
+  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
 };
 DI.Sim.prototype.restore = function (j) {
   for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) Object.assign(s, o); }
