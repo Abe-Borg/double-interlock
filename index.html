@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Double Interlock</title>
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div id="top">
+  <div class="tl"><button id="bMenu" title="Contracts">&#9776;</button><div id="scName"></div><button id="bGoals" class="pill">Goals <span id="goalN"></span></button></div>
+  <div class="tc">
+    <div id="clock">00:00:00</div>
+    <button class="sp" data-sp="0" title="Pause (Space)">&#10073;&#10073;</button><button class="sp on" data-sp="1">1&times;</button><button class="sp" data-sp="4">4&times;</button><button class="sp" data-sp="20">20&times;</button><button class="sp" data-sp="120">120&times;</button>
+    <button id="bSkip" title="Skip ahead">Skip &#9662;</button>
+    <div id="wx"></div>
+  </div>
+  <div class="tr"><div id="money"></div><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
+</div>
+<div id="ann"><div class="hd">FIRE ALARM ANNUNCIATOR <span id="annState">NORMAL</span></div><div id="sigs"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
+<div id="side"></div>
+<div id="tools"></div>
+<div id="banner"></div>
+<div id="tip"></div>
+<div id="pop"></div>
+<div id="modal"><div id="mbox"></div></div>
+<script src="src/core.js"></script>
+<script src="src/data.js"></script>
+<script src="src/world.js"></script>
+<script src="src/solver.js"></script>
+<script src="src/systems.js"></script>
+<script src="src/graph.js"></script>
+<script src="src/links.js"></script>
+<script src="src/gas.js"></script>
+<script src="src/fire.js"></script>
+<script src="src/alarm.js"></script>
+<script src="src/sim.js"></script>
+<script src="src/calc.js"></script>
+<script src="src/review.js"></script>
+<script src="src/proc.js"></script>
+<script src="src/scen.js"></script>
+<script src="src/scen1.js"></script>
+<script src="src/scen2.js"></script>
+<script src="src/scen3.js"></script>
+<script src="src/manual.js"></script>
+<script src="src/audio.js"></script>
+<script src="src/glyphs.js"></script>
+<script src="src/render.js"></script>
+<script src="src/inspect.js"></script>
+<script src="src/ui.js"></script>
+<script src="src/input.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>
