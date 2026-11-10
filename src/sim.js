@@ -42,6 +42,7 @@ DI.Sim = class {
     }
     for (const id of [...this.ss.keys()]) if (!this.sysd.info.has(id)) this.ss.delete(id);
     this.leaks = this.leaks.filter((l) => W.pd[l.k]);
+    for (const l of this.leaks) l.sys = this.sysd.tileSys[l.k] || 0;      // a break belongs to whichever system its tile is on now
     // NFPA 20: the pressure sensing line connects downstream of the pump discharge check valve.
     // If the player put a check valve on the pipe run leaving a pump, sense on its outlet.
     for (const p of W.parts.values()) {

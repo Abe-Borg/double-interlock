@@ -302,6 +302,14 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     ok('A18 the setting is saved with the world', W2.cfg.edition === 'US-2022' && DI.setJuris(W2).nfpa13 === 2022);
     DI.setJuris(new DI.World(4, 4));
   }
+  // a broken pipe follows the tile, not the valve id it was broken under
+  {
+    const r = rig(); DI.X.pipeBreak('hall')(r.S); run(r.S, 60, 0.25);
+    r.W.removePart(r.v.id); const v2 = r.W.addPart('prev', 14, 6, 0); r.W.wire(r.pn.id, v2.id); run(r.S, 900, 1);
+    const s2 = r.S.ss.get(v2.id);
+    ok('pipe break still vents after the valve is replaced: the new system cannot pressurize', r.S.leaks[0].sys === v2.id && s2.P < 5 && !s2.set, 'P=' + s2.P.toFixed(1));
+    smoke(r.S, 0.2, 10); ok('and an unset valve does not release on detection', s2.state === 'dry' && s2.wat === 0);
+  }
   // trip test needs a live panel (the test operates detection through it)
   {
     const r = rig(); r.W.unwire(r.v.id);
