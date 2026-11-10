@@ -475,6 +475,13 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     air(a); ok('A26 air restored, P still latched: not yet in service', a.v.p.pLatch === true && score(a).steps.find((q) => q.kind === 'restore-air').done && !score(a).closed);
     DI.panelReset(a.S, a.pn.id); run(a.S, 2, 0.25); const sa = score(a);
     ok('A26 El/El in order: 8 of 8 (no actuator to reset at the trim), in order, back in service', sa.done === 8 && sa.complete && sa.inOrder && sa.closed && sa.time > 0 && sa.steps.find((q) => q.kind === 'reset-trim').na && a.v.p.pLatch === false, sa.steps.map((q) => q.kind + (q.na ? ' n/a' : '@' + Math.round(q.t))).join(' '));
+    {  // silence belongs to one panel: a second panel's signals stay audible, and its new alarm is not muted by the first
+      const m = rig({ gate: true }), p2 = m.W.addPart('panel', 18, 4, 0); m.W.wire(p2.id, m.g.id); breakHead(m);
+      DI.silence(m.S, m.pn.id); m.g.p.target = 0; run(m.S, 6, 0.25);
+      const pl = m.S.sig.get('pl' + m.v.id), tm = m.S.sig.get('tm' + m.g.id);
+      ok('A26 silencing one panel does not silence a signal on another panel', !!pl && !!tm && m.pn.p.silenced === true && DI.sigSilenced(m.W, pl) === true && DI.sigSilenced(m.W, tm) === false && !p2.p.silenced);
+      m.W.unwire(m.g.id); run(m.S, 1, 0.25); ok('A26 a signal that reaches no panel cannot be silenced', DI.sigSilenced(m.W, m.S.sig.get('tm' + m.g.id)) === false && m.S.sig.get('tm' + m.g.id).mon === false);
+    }
     ok('A26 silence is acknowledged at the panel and a new signal resounds it', a.pn.p.silenced === false && a.S.log.some((l) => l.text.startsWith('Panel silenced')));
     const b = start(); DI.replaceSprinklers(b.S, b.v.id); DI.findHead(b.S, b.head); shut(b); drain(b, 1); drain(b, 0); DI.silence(b.S, b.pn.id); air(b); DI.panelReset(b.S, b.pn.id); run(b.S, 2, 0.25);
     ok('A26 the same steps done out of order do not score as a clean recovery', score(b).complete === false || score(b).inOrder === false, score(b).done + '/8 ' + score(b).inOrder);

@@ -178,6 +178,12 @@ DI.silence = function (S, panelId) {
   pn.p.silenced = true; S.act('silence', panelId); S.say('Panel silenced. Signals stay on the annunciator until they clear.', '');
   return '';
 };
+// Is this signal silenced? Only by the panel that owns it: silencing one panel never quiets another panel's
+// signals, and a signal that reaches no panel (local only) cannot be silenced at all.
+DI.sigSilenced = function (W, o) {
+  const p = W.parts.get(o.part), pn = p ? (p.type === 'panel' ? p : W.panelOf(p.id)) : null;
+  return !!(pn && pn.p.silenced);
+};
 // The operator has found an operated or broken head (selecting its tile in the UI).
 DI.findHead = function (S, k) {
   const sid = S.sysd.tileSys[k]; if (!(S.W.spk[k] >= 2) || !sid) return false;

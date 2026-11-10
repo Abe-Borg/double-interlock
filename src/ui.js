@@ -68,13 +68,13 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
     // Annunciator: alarm, then OPEN (release input, class not elected), then supervisory, then trouble. A detector
     // stage that a higher stage has superseded stays listed as the record of the crossing and is not counted.
-    let h = '', al = 0, sv = 0, tr = 0, op = 0; const ORD = DI.SIG_ORDER;
+    let h = '', al = 0, sv = 0, tr = 0, op = 0, loud = 0; const ORD = DI.SIG_ORDER;
     const list = [...S.sig.values()].sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
-    for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; }
+    for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; if (!DI.sigSilenced(W, o)) loud++; }
       h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? '' : ' <em>(local only)</em>') + '</span></div>'; }
     if ($('sigs').dataset.h !== h) { $('sigs').innerHTML = h || '<div class="sig"><span style="color:var(--dim)">All systems normal.</span></div>'; $('sigs').dataset.h = h; }
     // ASSUMED presentation: the banner reads OPEN ITEM only when nothing but OPEN is present
-    const st = $('annState'), sil = (al || sv || tr || op) && W.byType('panel').some((p) => p.p.silenced);
+    const st = $('annState'), sil = (al || sv || tr || op) && !loud;       // SILENCED only when every active signal's own panel is silenced
     st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
     DI.inspect.render(false);
   };
