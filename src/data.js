@@ -40,12 +40,12 @@ DI.PARTS = {
     props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false, solOut: false, mrzL: false } },   // mrzL: Manual Release zone release latched
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
-    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false } },
+    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false, cutOut: 0 } },      // cutOut: psi, 0 = none; a sizing input only (DI.sizingP)
   n2: { name: 'Nitrogen Generator', cat: 'air', cost: 29000, ports: 0, key: 'N',
     desc: 'Membrane generator: 98%+ nitrogen as supervisory gas. Starves the oxygen corrosion that eats dry and preaction pipe.',
     props: { scfm: 2.5, on: false, runSec: 0, starts: 0, fault: false } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
-    desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. 24 h standby battery.', props: { silenced: false } },
+    desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. 24 h standby battery.', props: { silenced: false, chan: [1, 1] } },     // chan: the two DACT channels, 1 = up (used on the DACT path only)
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
     desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
@@ -101,23 +101,68 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // Signal classes (W.cfg.sigClass). Alert and Action are pre-alarm: supervisory by default, alarm if the
 // engineer elects it. A latched P is a release input whose class has not been elected: OPEN by default,
 // ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
-// Fixed classes, no setting (DI.SIG_FIXED): Fire 1, Fire 2, manual station, Manual Release zone, release circuit
-// and waterflow ALARM; low and high air, valve tamper and a contract impairment SUPV; panel AC, low battery, loss
-// of communication and loss of supply air TRBL. Loss of supply air is TRBL [PRACTICE] (FA Lead, 2026-11-10
-// 3:01 PM PT): a compressor or N2 power or controller fault is equipment trouble, its own signal; the pressure
-// drop it causes is still reported by the separate low-air supervisory.
-// DI.inClass is the one reader: every add(...) in DI.alarmStep and the cause-and-effect matrix (cause.js) use it.
+// Fixed classes, no setting (DI.SIG_FIXED): Fire 1, Fire 2, manual station, Manual Release zone, release circuit,
+// waterflow and a spot detector ALARM; low and high air, valve tamper and a contract impairment SUPV; panel AC, low
+// battery, loss of communication, a failed DACT channel and loss of supply air TRBL. Loss of supply air is TRBL
+// [PRACTICE] (FA Lead, 2026-11-10 3:01 PM PT): a compressor or N2 power or controller fault is equipment trouble,
+// its own signal; the pressure drop it causes is still reported by the separate low-air supervisory.
+// The fire pump, tank and low-temperature signals keep the classes they always had (PRACTICE, not in the FA Lead's
+// table: ASSUMED).
+// The registry is the whole list: every signal the game raises has a key here or in DI.SIG_CLASS. DI.inClass is
+// the one reader of a class. add(...) in DI.alarmStep takes the registry key, never a class, and the
+// cause-and-effect matrix and the signal schedule (cause.js) read the same keys.
 DI.SIG_FIXED = { fire1: 'ALARM', fire2: 'ALARM', manual: 'ALARM', mrz: 'ALARM', release: 'ALARM', waterflow: 'ALARM', lowAir: 'SUPV', highAir: 'SUPV', tamper: 'SUPV',
-  supplyAir: 'TRBL', acFail: 'TRBL', lowBatt: 'TRBL', lostComm: 'TRBL', impair: 'SUPV' };
+  supplyAir: 'TRBL', acFail: 'TRBL', lowBatt: 'TRBL', lostComm: 'TRBL', impair: 'SUPV',
+  spot: 'ALARM', pumpRun: 'SUPV', pumpMode: 'SUPV', pumpPower: 'SUPV', pumpFail: 'TRBL', pumpFuel: 'SUPV', pumpBatt: 'TRBL', tankLow: 'SUPV', lowTemp: 'SUPV', dactChan: 'TRBL' };
+// Fire-department dispatch (FA Lead signal schedule). Alarm signals go to the fire department [CODE, section not
+// pulled]: the keys below. Everything else goes to the supervising station only [PRACTICE]: every supervisory and
+// trouble signal, the pre-alarm stages (Alert, Action) and a latched P even where the owner elects them ALARM, and
+// the release circuit, which is an output of the panel and not an input.
+DI.SIG_FD = { fire1: 1, fire2: 1, manual: 1, mrz: 1, waterflow: 1, spot: 1 };
 DI.SIG_CLASS = { alert: ['SUPV', 'ALARM'], action: ['SUPV', 'ALARM'], pLatch: ['OPEN', 'ALARM', 'TRBL'] };
 DI.SIG_DEFAULT = { alert: 'SUPV', action: 'SUPV', pLatch: 'OPEN' };
 DI.sigClass = (W, key) => { const c = W && W.cfg && W.cfg.sigClass, v = c ? c[key] : undefined; return DI.SIG_CLASS[key].includes(v) ? v : DI.SIG_DEFAULT[key]; };
 DI.inClass = (W, key) => (Object.prototype.hasOwnProperty.call(DI.SIG_CLASS, key) ? DI.sigClass(W, key) : DI.SIG_FIXED[key]);
+// The signal schedule (DI.signalSchedule, cause.js): label and tag of every registry key, in the FA Lead's table
+// order (the first thirteen), then the keys the Lead's table does not list. The tag is the Lead's wording where
+// the table has the row; the rest are marked as ours.
+(function () {
+  const stn = 'station only [PRACTICE]', ours = 'PRACTICE / not in FA Lead table (ASSUMED)';
+  DI.SIG_META = {
+    fire1: { label: 'Fire 1 (detection, D)', tag: '[CODE, alarm signals go to the communications center; section not pulled]' },
+    fire2: { label: 'Fire 2 (escalation)', tag: '[CODE, alarm signals go to the communications center; section not pulled]' },
+    manual: { label: 'Manual station (typed DETECTION)', tag: '[CODE, alarm signals go to the communications center; section not pulled]' },
+    waterflow: { label: 'Waterflow', tag: '[CODE, alarm signals go to the communications center; section not pulled]' },
+    tamper: { label: 'Control valve tamper', tag: 'Class [CODE]; ' + stn },
+    lowAir: { label: 'Low air', tag: 'Class [CODE], section not pulled; ' + stn },
+    highAir: { label: 'High air', tag: 'Class [CODE], section not pulled; ' + stn },
+    supplyAir: { label: 'Loss of supply air (compressor / N2 source)', tag: '[PRACTICE, per FP Lead’s call]' },
+    lowBatt: { label: 'Panel low battery', tag: 'Class [PRACTICE]; no voltage threshold in held Ch.10; ' + stn },
+    acFail: { label: 'Panel AC failure', tag: 'Class [CODE 10.6.9.1.1]; ' + stn },
+    alert: { label: 'Aspirating Alert (pre-alarm)', tag: '[OWNER]' },
+    action: { label: 'Aspirating Action (pre-alarm)', tag: '[OWNER]' },
+    pLatch: { label: 'P latched (release input)', tag: 'Class OPEN (R04, R17)' },
+    mrz: { label: 'Manual Release zone (9(c) bypass)', tag: ours },
+    spot: { label: 'Spot smoke detector', tag: ours },
+    release: { label: 'Release circuit active (a panel output)', tag: ours },
+    impair: { label: 'Impairment: Manual Release zone bypass (contract)', tag: ours },
+    lostComm: { label: 'Loss of communication (panel dead, or a missed DACT test)', tag: ours },
+    dactChan: { label: 'DACT channel failed', tag: ours },
+    pumpRun: { label: 'Fire pump running', tag: ours },
+    pumpMode: { label: 'Fire pump controller not in auto', tag: ours },
+    pumpPower: { label: 'Electric fire pump loss of power', tag: ours },
+    pumpFail: { label: 'Diesel fire pump failed to start', tag: ours },
+    pumpFuel: { label: 'Diesel fire pump low fuel', tag: ours },
+    pumpBatt: { label: 'Diesel fire pump battery failure', tag: ours },
+    tankLow: { label: 'Fire water tank low level', tag: ours },
+    lowTemp: { label: 'Low room temperature', tag: ours },
+  };
+})();
 // annunciator order and labels
 DI.SIG_ORDER = { ALARM: 0, OPEN: 1, SUPV: 2, TRBL: 3 };
 DI.OPEN_LABEL = 'RELEASE INPUT - CLASS NOT ELECTED';
 
-// ---------- releasing panel power and the supervising station (NFPA 72 Ch. 10 and Ch. 26; citations in DI.juris.ref72)
+// ---------- releasing panel power and the supervising station (NFPA 72 Ch. 10 and Ch. 26; citations in DI.REF72, read with DI.ref72(W))
 // Standby battery: a flat 24 h of standby plus alarm (Simplification).
 // Low battery: the code states no low-battery threshold. It requires the voltage to be monitored and a trouble on
 // failure; the 24 h standby sets capacity, not the trouble setpoint. The trouble here is the listed manufacturer's
@@ -134,13 +179,18 @@ DI.AC_DELAY_MIN = [60, 90, 120, 150, 180];
 DI.acDelay = (W) => { const m = W && W.cfg ? W.cfg.acDelayMin : undefined; return (typeof m === 'number' && m >= 60 && m <= 180 ? m : 60) * 60; };
 // Path to the supervising station (site setting W.cfg.commPath, OWNER): how long after a panel dies the station
 // annunciates the loss of communication. ip: a single performance-based path, 60 min (IP as the default is
-// PRACTICE). multi: multiple paths, 6 h (the 2025 annunciation sentence was not found: VERIFY). dact: the 6 h
-// test-signal interval, used as the delay because no deadline for a missed test is held (ASSUMED, VERIFY).
-// ref = the key into DI.juris.ref72. Two-way RF and the DACT 4-minute channel-failure rule are not modelled.
+// PRACTICE). multi: multiple paths, 6 h (2025 has no annunciation time for a failed path: ASSUMED). dact: the 6 h
+// test-signal interval, used as the delay because the annunciation time of a missed test is not in held text
+// (ASSUMED); the missed test itself is a trouble [CODE].
+// ref = the key into DI.ref72(W). Two-way RF is not modelled.
+// DACT channel failure [CODE]: "the failure of either channel shall send a trouble signal on the other channel
+// within 4 minutes" (2019 §26.6.4.1.4(B)(3); 2022 and 2025 §26.6.4.2.4.2(3)). DI.DACT_CHAN_S is that time. The two
+// channels are panel props (chan: [1, 1], 1 = up) and matter on the DACT path only; failing one is a sandbox fault.
+DI.DACT_CHAN_S = 240;
 DI.COMM_PATH = {
-  ip: { label: 'Single path (IP, performance-based)', short: 'IP path', delay: 3600, ref: 'commIp' },
-  multi: { label: 'Multiple paths', short: 'multiple paths', delay: 21600, ref: 'commMulti' },
-  dact: { label: 'DACT (dial-up)', short: 'DACT', delay: 21600, ref: 'commDact' },
+  ip: { label: 'Single path (IP, performance-based)', short: 'IP path', delay: 3600, ref: 'ipFail' },
+  multi: { label: 'Multiple paths', short: 'multiple paths', delay: 21600, ref: 'multiFail' },
+  dact: { label: 'DACT (dial-up)', short: 'DACT', delay: 21600, ref: 'dactMissed' },
 };
 DI.COMM_DEFAULT = 'ip';
 DI.commPath = (W) => { const k = W && W.cfg ? W.cfg.commPath : undefined; return typeof k === 'string' && Object.prototype.hasOwnProperty.call(DI.COMM_PATH, k) ? k : DI.COMM_DEFAULT; };
@@ -169,6 +219,7 @@ DI.CATS = [
 DI.PUMP_GPM = [500, 750, 1000, 1500, 2000, 2500];
 DI.PUMP_PSI = [80, 100, 125, 150, 175];
 DI.COMP_SCFM = [2, 5, 10, 20];
+DI.COMP_CUTOUT = [0, 45, 50, 55, 60];   // ASSUMED choices for the compressor cut-out pressure, psi (0 = none). Sizing input only: see DI.sizingP
 DI.N2_SCFM = [1, 2.5, 5];
 DI.SPK_K = 5.6;                     // standard spray sprinkler K-factor (gpm/psi^0.5)
 DI.SPK_COST = 140;                  // $ per sprinkler tile (head + branch pipe is priced separately)

@@ -16,6 +16,9 @@ DI.migratePart = function (p) {
     if (q.mrzL === undefined) q.mrzL = false;
   } else if (p.type === 'comp' || p.type === 'n2') {
     if (q.fault === undefined) q.fault = false;
+    if (p.type === 'comp' && !(q.cutOut >= 0)) q.cutOut = 0;          // compressor cut-out: none
+  } else if (p.type === 'panel') {
+    if (!Array.isArray(q.chan) || q.chan.length !== 2) q.chan = [1, 1];   // both DACT channels up
   } else if (p.type === 'dryv') {
     const win = 10;                       // the supervisory window older saves used on either side of normal
     if (q.hiAir === undefined) q.hiAir = q.airSet + win;
@@ -43,7 +46,7 @@ DI.World = class {
     this.money = 0;
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
-    // site / project settings: edition, nfpa76Adopted, pipeCut, detThr, spotThr, asdModel, sigClass, fitPct, trimGal,
+    // site / project settings: edition, ed72, nfpa76Adopted, pipeCut, detThr, spotThr, asdModel, sigClass, fitPct, trimGal,
     // insurer, manualReleaseBypassP, commPath, acDelayMin and the two hook elections of cause.js. Read them through
     // the DI helpers, which supply the defaults. (An old save may still carry the retired NFPA 76 stage key: nothing reads it.)
     this.cfg = {};
@@ -103,6 +106,7 @@ DI.World = class {
     const k = this.k(x, y);
     if (this.partAt[k] || this.pd[k]) return null;
     const p = { id: this.nextId++, type, x, y, rot: rot || 0, p: Object.assign({}, DI.PARTS[type].props, props || {}) };
+    if (type === 'panel') p.p.chan = (props && Array.isArray(props.chan) ? props.chan : [1, 1]).slice();      // its own array, not the catalogue's
     if (type === 'dpump') p.p.fuel = 1;
     this.parts.set(p.id, p); this.partAt[k] = p.id; this.ver++;
     return p;
@@ -140,7 +144,7 @@ DI.World = class {
   toJSON() {
     const rle = (a) => { const o = []; let i = 0; while (i < a.length) { let j = i; while (j < a.length && a[j] === a[i]) j++; o.push(a[i], j - i); i = j; } return o; };
     return { w: this.w, h: this.h, rooms: this.rooms, pd: rle(this.pd), pk: rle(this.pk), spk: rle(this.spk), air: rle(this.air), cut: rle(this.cut),
-      parts: [...this.parts.values()], wires: this.wires, nextId: this.nextId, money: this.money, outTemp: this.outTemp, cfg: this.cfg };
+      parts: [...this.parts.values()], wires: this.wires, nextId: this.nextId, money: this.money, outTemp: this.outTemp, power: this.power, cfg: this.cfg };
   }
   static fromJSON(j) {
     const W = new DI.World(j.w, j.h);
@@ -150,6 +154,7 @@ DI.World = class {
     for (const p of j.parts) { DI.migratePart(p); W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
     W.cfg = Object.assign({}, j.cfg || {}); delete W.cfg.pipePolicy;      // the role-based schedule policy is gone: an old save gets the default size cut
     W.wires = j.wires || []; W.nextId = j.nextId; W.money = j.money; W.outTemp = j.outTemp === undefined ? 70 : j.outTemp;
+    W.power = j.power !== false;          // utility power is saved with the world; a save from before that has no field and reads on
     return W;
   }
 };

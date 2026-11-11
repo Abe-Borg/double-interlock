@@ -45,25 +45,34 @@ DI.SAFE_PSI = 0.5;                      // ASSUMED: "about 0 psi" on the system 
 // water left in a pipe that counts as drained (the same threshold the riser reset uses)
 DI.dryLim = (V) => 0.2 + 0.01 * V;
 // maintenance regulator target: normal pressure, raised to the test pressure while a 24 h air test is charging
+// (the greater of 40 psi or the zone's normal: DI.airTestPsi, proc.js)
 DI.airCharging = (S, id) => S.procs.length > 0 && S.procs.some((q) => q.kind === 'leak' && q.id === id && q.stage === 0);
-DI.airTarget = (S, id, v) => (DI.airCharging(S, id) ? Math.max(v.p.airSet, DI.AIR_TEST.psi) : v.p.airSet);
-// ---------- air refill (FP Lead): the air supply must bring a zone back to normal pressure within 30 min.
-// The clock runs from the first gas in with the zone closed up (no open head, drain or inspector's test) to the
-// moment the zone is back at normal (the same "set" point the game uses everywhere: normal minus 3.2 psi). It
-// runs after a trip and riser reset (the valve is not set yet) and also on a zone that lost its air without
-// tripping (s.rfill: below low air, then filling).
-// Nothing may key a goal, a review fail or a drill result to it: on a shared compressor the game refills
-// every zone at once (Simplification), so fills on a shared compressor can run over (the commissioning fills of
-// the contract 5 reference build do). The 60 min limit for refrigerated
-// spaces below 5 F is not modelled: there is no freezer room type.
+DI.airTarget = (S, id, v) => { const q = S.procs.find((x) => x.kind === 'leak' && x.id === id && x.stage === 0); return q ? q.psi || DI.airTestPsi(v) : v.p.airSet; };
+// ---------- air refill (FP Lead): the air supply must restore normal pressure in each system within 30 min.
+// The CODE CHECK is DI.airSizing: the largest single zone on the supply, filled ALONE with the full capacity from
+// 0 psig to its restore pressure, in 30 min or less. That is a plan review fail when it is not met.
+// The MEASURED CLOCK is informational. It runs from the first gas in with the zone closed up (no open head, drain
+// or inspector's test) to the moment the zone is back at normal (the practical "set" point the game uses
+// everywhere: normal minus 3.2 psi; that figure is not a sizing basis). It runs after a trip and riser reset (the
+// valve is not set yet) and also on a zone that lost its air without tripping (s.rfill: below low air, then
+// filling; that timer starts at the low-air crossing and is informational too).
+// Nothing may key a goal, a review fail or a drill result to the measured clock: on a shared compressor the game
+// fills every zone at the same time (DI.PARALLEL_SPLIT), so fills on a shared compressor can run over (the
+// commissioning fills of the contract 5 reference build do) while the code check passes.
+// s.fill1 = the first measured fill of the zone (commissioning), set once; s.fillTime = the last refill.
+// The 60 min limit for refrigerated spaces below 5 F is recorded in juris.js and not modelled: no freezer room type.
 DI.REFILL_LIMIT = 1800;                 // seconds, all editions
 DI.GAL_FT3 = 7.48052;                   // gallons per cubic foot
-// ASSUMED practice margin on the arithmetic minimum (DI.airSizing); minutes = the refill limit
+// minutes = the refill limit; margin = ASSUMED practice margin on the bare minimum, NEEDS PE REVIEW, not an NFPA factor
 DI.AIR_SIZING = { minutes: 30, margin: 1.25 };
-// the citation for the refill limit on this zone: the N2-only section where every source is a nitrogen generator
-DI.refillRef = function (W, inf) {
+DI.PARALLEL_SPLIT = 'SIMPLIFICATION: parallel split; real ECS per-riser AVC/restrictors feed concurrently';
+// The citation for the refill limit on this zone: the N2-only section where every source is a nitrogen generator.
+// 2025 has no N2-only subsection pulled: its refill section is applied as the conservative reading (ASSUMED).
+// annex: add the Annex note that one compressor serving several systems is sized on the single largest system.
+DI.refillRef = function (W, inf, annex) {
   const R = DI.setJuris(W).ref, n2 = !!inf && inf.src.length > 0 && inf.src.every((id) => { const p = W.parts.get(id); return p && p.type === 'n2'; });
-  return n2 ? (R.refillN2 || R.refill + ' (2025 N2-only subsection not pulled)') : R.refill;
+  return (n2 ? (R.refillN2 || R.refill + ' (N2-only source: ASSUMED, ' + R.refill.split(' ').slice(2).join(' ') + ' applied as the conservative reading; the 2025 N2-only subsection is not pulled)') : R.refill) +
+    (annex ? '; ' + R.refillAnnex + ' (one source serving several systems is sized on the single largest system)' : '');
 };
 // an opening that lets the air straight out: the refill clock does not run against one
 DI.zoneOpen = (v, s) => !!((s.openK && s.openK.length) || v.p.sdrain || v.p.itc);
@@ -72,36 +81,72 @@ DI.refilling = function (S, id) {
   const v = S.W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id);
   return !!(v && s && inf && v.type !== 'wetv' && s.state === 'dry' && (!s.set || s.rfill) && v.p.airValve && inf.src.length && !DI.zoneOpen(v, s));
 };
-// { t, limit, over, running, ref }: t = seconds on the clock now (running) or of the last refill (null: none yet)
+// The measured clock of zone `id`, informational: { t, first, limit, over, running, tAlone, shared, ref }.
+//   t       seconds on the clock now (running) or of the last refill (null: none yet)
+//   first   the first measured fill, commissioning (null: none yet)
+//   tAlone  minutes the largest zone on this supply needs when it is filled alone (the code check, DI.airSizing)
+//   shared  how many other zones share a source with this one
 DI.refillState = function (S, id) {
   const W = S.W, v = W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id); if (!v || !s || !inf || v.type === 'wetv') return null;
-  const running = s.state === 'dry' && (!s.set || !!s.rfill) && s.fillT0 >= 0, t = running ? S.t - s.fillT0 : s.fillTime > 0 ? s.fillTime : null;
-  return { t, limit: DI.REFILL_LIMIT, over: t !== null && t > DI.REFILL_LIMIT, running, ref: DI.refillRef(W, inf) };
+  const running = s.state === 'dry' && (!s.set || !!s.rfill) && s.fillT0 >= 0, t = running ? S.t - s.fillT0 : s.fillTime > 0 ? s.fillTime : null, az = DI.airSizing(S, id);
+  return { t, first: s.fill1 > 0 ? s.fill1 : null, limit: DI.REFILL_LIMIT, over: t !== null && t > DI.REFILL_LIMIT, running, tAlone: az ? az.tAlone : null, shared: az ? az.shared : 0, ref: DI.refillRef(W, inf) };
 };
-// the inspector row: [text, class]
-DI.refillText = function (S, id) {
-  const r = DI.refillState(S, id); if (!r || r.t === null) return ['-', ''];
-  const m = DI.fmt(r.t / 60, 1), lim = DI.fmt(r.limit / 60);
-  if (r.running) return [m + ' of ' + lim + ' min', r.over ? 'bad' : 'warn'];
-  return r.over ? ['FAIL: ' + m + ' min over the ' + lim + ' min limit', 'bad'] : [m + ' min of the ' + lim + ' min limit: OK', 'good'];
+// The inspector rows: [text, class]. first = the "First fill (commissioning)" row, else the "Last refill" row (which
+// is the running clock while the zone is filling). A time over the limit is amber, never a fail: where the zones
+// share a compressor and the largest one alone passes the code check, the row says why it ran over.
+DI.refillText = function (S, id, first) {
+  const r = DI.refillState(S, id), t = r ? (first ? r.first : r.t) : null; if (t === null) return ['-', ''];
+  const m = DI.fmt(t / 60, 1), lim = DI.fmt(r.limit / 60), over = t > r.limit;
+  const why = over && r.shared && r.tAlone !== null && r.tAlone <= r.limit / 60 ? ' - zones fill together on a shared compressor (SIMPLIFICATION: parallel split); the largest zone alone: ' + DI.fmt(r.tAlone, 1) + ' min' : '';
+  if (!first && r.running) return [m + ' of ' + lim + ' min' + why, 'warn'];
+  return over ? [m + ' min, over the ' + lim + ' min limit' + why, 'warn'] : [m + ' min of the ' + lim + ' min limit: OK', 'good'];
 };
-// Compressor sizing for zone `id` (FP Lead): scfm_min = V_ft3 x (P_normal / 14.7) / 30, taken on the largest zone
-// that shares any of this zone's sources (one compressor serving several systems is sized on the single largest).
-// have = the sum of the ratings of this zone's own sources (an N2 generator counts: Simplification).
+// The pressure a zone's air supply is sized for (FP Lead): the zone's normal set point, or the cut-out of a
+// compressor on it if that is higher. The cut-out (compressor prop cutOut, psi, 0 = none, ASSUMED) is a sizing
+// input only: the regulator in DI.gasPre still holds the zone at normal (SIMPLIFICATION).
+DI.sizingP = function (S, id) {
+  const W = S.W, v = W.parts.get(id), inf = S.sysd.info.get(id); let P = v.p.airSet;
+  for (const q of inf.src) { const c = W.parts.get(q); if (c && c.p.cutOut > P) P = c.p.cutOut; }
+  return P;
+};
+// Air supply sizing for zone `id` (FP Lead): an ideal-gas screen, not a quoted NFPA equation.
+//   min    = V_ft3 x (P / 14.7) / 30 on the governing zone: the bare minimum scfm
+//   margin = min x 1.25 (ASSUMED practice, NEEDS PE REVIEW)
+//   P      = DI.sizingP of the governing zone
+//   gov    = the zone with the largest minimum among the zones that share any of this zone's sources: one compressor
+//            serving several systems is sized on the single largest system (Annex)
+//   have   = the sum of the ratings of this zone's own sources (an N2 generator counts: Simplification)
+//   tAlone = minutes to fill the governing zone alone from 0 psig to P with the full capacity. THE CODE CHECK:
+//            tAlone over 30 min (the same thing as have < min) is `below`, a plan review FAIL.
+//   tight  = not below, and under the margin: a plan review warning.
 // Returns null for a wet riser or a zone with no source.
 DI.airSizing = function (S, id) {
   const W = S.W, inf = S.sysd.info.get(id), v = W.parts.get(id); if (!v || !inf || v.type === 'wetv' || !inf.src.length) return null;
-  const need = (zid) => { const z = S.sysd.info.get(zid), zv = W.parts.get(zid), gal = DI.zoneVolume(W, z); return { id: zid, gal, ft3: gal / DI.GAL_FT3, min: gal / DI.GAL_FT3 * (zv.p.airSet / DI.ATM) / DI.AIR_SIZING.minutes }; };
+  const need = (zid) => { const z = S.sysd.info.get(zid), gal = DI.zoneVolume(W, z), ft3 = gal / DI.GAL_FT3, P = DI.sizingP(S, zid); return { id: zid, gal, ft3, P, min: ft3 * (P / DI.ATM) / DI.AIR_SIZING.minutes }; };
   let gov = need(id), shared = 0;
   for (const [zid, z] of S.sysd.info) {
     if (zid === id || z.type === 'wetv' || !z.src.some((q) => inf.src.includes(q))) continue;
     shared++; const n = need(zid); if (n.min > gov.min) gov = n;
   }
-  const have = inf.src.reduce((a, q) => a + (W.parts.get(q).p.scfm || 0), 0);
-  return { have, min: gov.min, margin: gov.min * DI.AIR_SIZING.margin, gov: gov.id, gal: gov.gal, ft3: gov.ft3, shared, below: have < gov.min, tight: have >= gov.min && have < gov.min * DI.AIR_SIZING.margin };
+  const have = inf.src.reduce((a, q) => a + (W.parts.get(q).p.scfm || 0), 0), margin = gov.min * DI.AIR_SIZING.margin, below = have < gov.min;
+  return { have, P: gov.P, min: gov.min, margin, tAlone: have > 0 ? gov.ft3 * (gov.P / DI.ATM) / have : Infinity, limit: DI.REFILL_LIMIT / 60, gov: gov.id, gal: gov.gal, ft3: gov.ft3, shared, below, tight: !below && have < margin };
 };
-// After a 24 h air test on a zone whose normal pressure is below the test pressure the pipe is left high. The
-// operator bleeds it at the trim (a small bleed, not the 2 in. drain) down to normal: a practice step, never scored.
+// The pending "return to normal set point" step of zone `id` after a 24 h air test: null, or { mode, text }.
+//   bleed    the pipe is more than 1 psi above normal: bleed at the trim (the button). Not the main drain, and never
+//            the control valve: that is the water supply side.
+//   refill   the pipe is below its normal band (a normal raised after the test, or an old save): the open supply
+//            brings it up and the step clears by itself. No button.
+//   confirm  in the normal band, and something DI.gasPre checks is still off.
+DI.returnStep = function (S, id) {
+  const v = S.W.parts.get(id), s = S.ss.get(id); if (!v || !s || !s.ret || v.type === 'wetv') return null;
+  const q = v.p, pre = v.type === 'prev';
+  if (s.P > q.airSet + 1) return { mode: 'bleed', text: 'return to normal set point: bleed to ' + q.airSet + ' psi at the trim (test bleed), not the main drain; never open the control valve to bleed air; then confirm above low air (' + q.loAir + ' psi)' + (pre ? ', above the P set point (' + q.pTrip + ' psi)' : '') + ', supply in auto, supervisory clear.' };
+  if (s.P < q.airSet - 3.2) return { mode: 'refill', text: 'refill to ' + q.airSet + ' psi: leave the air supply open' };
+  return { mode: 'confirm', text: 'at ' + DI.fmt(s.P, 1) + ' psi: open the air supply, close every drain and clear the air supervisory to finish the return to normal' };
+};
+// After a 24 h air test the zone is returned to its normal set point (FP Lead). Above normal, the operator bleeds
+// it at the trim air / test bleed: a small bleed, not the 2 in. drain and never the control valve. This function is
+// that bleed and touches the gas in the pipe only. A practice step, never scored.
 DI.bleedToNormal = function (S, id) {
   const v = S.W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id);
   if (!v || !s || v.type === 'wetv' || s.state !== 'dry') return 'Nothing to bleed: the valve is not set with gas in the pipe.';
@@ -216,12 +261,17 @@ DI.gasPre = function (S, dt) {
       if (!s.rfill && s.P < Math.min(v.p.loAir, v.p.airSet - 3.2)) { s.rfill = true; s.fillT0 = -1; s.fillTime = -1; }
       if (s.rfill) {
         if (DI.zoneOpen(v, s)) s.fillT0 = -1; else if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
-        if (s.P >= v.p.airSet - 3.2) { s.rfill = false; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; }
+        if (s.P >= v.p.airSet - 3.2) { s.rfill = false; if (s.fillT0 >= 0) { s.fillTime = S.t - s.fillT0; if (!(s.fill1 > 0)) s.fill1 = s.fillTime; } }
       }
     }
-    // after a 24 h air test on a zone whose normal is below the test pressure: back to normal, above low air, closed up
-    if (s.ret && s.P <= v.p.airSet + 1 && s.P >= v.p.loAir && !v.p.sdrain && v.p.airValve && !S.procs.some((q) => q.kind === 'leak' && q.id === id)) {
-      s.ret = false; S.act('return-normal', id); S.say(DI.sysName(S, id) + ' is back at normal pressure after the air test (' + DI.fmt(s.P, 1) + ' psi, above low air).', 'good');
+    // After a 24 h air test: return to the normal set point (s.ret, a practice step). It clears when the zone is in
+    // its normal band (not above normal + 1 psi, not under the "set" point), above low air and not above high air
+    // (supervisory clear), above the P release set point with margin (preaction), with the air supply open (the
+    // game's stand-in for the AVC / air maintenance device back in auto), every drain closed and no test running.
+    if (s.ret && s.P <= v.p.airSet + 1 && s.P >= v.p.airSet - 3.2 && s.P >= v.p.loAir && s.P <= v.p.hiAir && !s.lowAir && (!pre || s.P > v.p.pTrip + DI.P_MARGIN) &&
+      v.p.airValve && !v.p.sdrain && !v.p.drain && !S.procs.some((q) => q.kind === 'leak' && q.id === id)) {
+      s.ret = false; S.act('return-normal', id);
+      S.say(DI.sysName(S, id) + ': Returned to normal set point: ' + DI.fmt(s.P, 1) + ' psi, above low air' + (pre ? ' and the P set point' : '') + ', supervisory clear.', 'good');
     }
     // P sensor (PSL-REL switch or PA-REL actuator): a pure threshold on pipe pressure. No outlet-type test and
     // no rate term: a sprinkler, an open inspector's test and a broken pipe all look the same to it, and a
@@ -244,7 +294,7 @@ DI.gasPre = function (S, dt) {
     if (!why) {
       if (!s.set) {
         if (DI.zoneOpen(v, s)) s.fillT0 = -1; else if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
-        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)' + (pre && v.p.pLatch ? '. P is still latched: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + '.' : ''), pre && v.p.pLatch ? 'warn' : 'good'); }
+        if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) { s.fillTime = S.t - s.fillT0; if (!(s.fill1 > 0)) s.fill1 = s.fillTime; } S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)' + (pre && v.p.pLatch ? '. P is still latched: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + '.' : ''), pre && v.p.pLatch ? 'warn' : 'good'); }
         continue;
       }
       // trip logic, evaluated only while the valve is set and pressurized
@@ -281,6 +331,14 @@ DI.gasPost = function (S, dt) {
     const v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v || inf.vol <= 0) { s.flow = 0; continue; }
     const V = inf.vol, l = G.partLink.get(id), qIn = l && l.open ? l.q : 0, qOut = outBy.get(id) || 0;
     s.flow = qIn; s.qOut = qOut;
+    // Practice only: a control valve was reopened (DI.setGate) with a head open on a zone that would not hold. The
+    // warning let it happen; once water is actually leaving through the head the log says why, once per reopen.
+    // The watch ends when the valve is closed again (DI.setGate) or the zone is ready before any water flows.
+    if (s.floodW !== undefined) {
+      const head = !!(s.openK && s.openK.length);
+      if (head && qOut > 1) { S.say('Water entered the zone through the open head because the valve was still tripped / P latched. In a data hall this is water on the IT load.', 'warn'); S.act('reopen-flood', id); delete s.floodW; }
+      else if (!head && !DI.zoneReady(S, id)) delete s.floodW;
+    }
     const nd = G.partNode.get(id), po = nd && nd[1] >= 0 ? net.P[nd[1]] : 0;
     if (s.state === 'filling') {
       s.wat += (qIn - qOut) * dt / 60;

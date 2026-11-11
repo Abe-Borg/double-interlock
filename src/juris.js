@@ -10,42 +10,63 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   double-interlock system meet 60 s (it does not extend the 500 gal), delivery = the section-level pointer,
 //   airTest = the 24 h air test (40 psi, loss over 1.5 psi to be corrected),
 //   refill = the air supply restores normal pressure within 30 min, refillN2 = the same for an N2-only source
-//   (not pulled for 2025: the key is absent there and the text says so, see DI.refillRef).
-// 2025: held. 2022 keeps the 2019 numbering (the renumber to §8.2.4 is 2025). Verified for 2022: Table 8.2.3.6.1,
-// §8.2.3.7, §8.3.2.3.1.1 to .4, §8.3.2.3.2 and the air test §29.2.2.1. Still carried from 2019 for 2022 and marked
-// (ASSUMED, VERIFY): §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6 and §8.2.3.8. 2019: as given by the Lead; the air
-// test §28.2.2.1 is verified, the calc route still needs verification.
+//   (2025: the N2-only subsection is not pulled; the key is absent there and DI.refillRef applies the 2025 refill
+//   section as the conservative reading, marked ASSUMED),
+//   refillAnnex = the Annex note that one compressor serving several systems is sized on the single largest system
+//   (2025: it also covers a shared N2 source),
+//   refillCold / refillN2Cold = 60 min for refrigerated spaces below 5 F. Recorded as text only: not modelled, there
+//   is no freezer room type (2025 N2-only: not pulled, key absent).
+// 2025: held. 2022 keeps the 2019 numbering (the renumber to §8.2.4 is 2025). Verified for 2022 (FP Lead, raw
+// 13-FP006-2022-8.2.3.txt and earlier pulls): §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6, Table 8.2.3.6.1, §8.2.3.7,
+// §8.2.3.8, §8.3.2.3.1.1 to .4, §8.3.2.3.2, the air test §29.2.2.1 and the refill sections. 2019: as given by the
+// Lead; the air test §28.2.2.1 and the refill sections are verified, the calc route still needs verification.
+// Not in the table: the 2025 acceptance wording for the refill time, §29.2.3.2.4.1 (VERIFY, from a search, not
+// verbatim).
 //
-// NFPA 72 timing references (ref72, FA Lead pull of 2026-11-10). ASSUMED: the NFPA 72 edition follows the site's
-// NFPA 13 edition; a real AHJ adopts them separately.
-//   commIp / commMulti / commDact = when the supervising station annunciates the loss of a path, per path type
-//   (DI.COMM_PATH), acDelay = the delayed transmission of a primary power failure, trouble = trouble signals at the
-//   panel within 200 s, lowBatt = what the code says about a low battery (no threshold).
+// NFPA 72 references (DI.REF72, FA Lead pulls of 2026-11-10). They are keyed by the NFPA 72 edition, which is its
+// own site setting (W.cfg.ed72: 'auto' | '2019' | '2022' | '2025', read with DI.ed72): adoption is by the AHJ and
+// can differ from the NFPA 13 edition (PRACTICE). Auto follows the NFPA 13 row. Every edition carries every key:
+//   ipFail      a single performance-based path: failure annunciated within 60 min
+//   multiFail   multiple paths: failure of any path annunciated within 6 h. 2025 has no counterpart: its
+//               §26.6.3.4(1) is a 6 h supervision interval, so the 6 h there is ASSUMED
+//   dactTest    the 6 h DACT test-signal interval
+//   dactMissed  a missed DACT test is a trouble [CODE]; its annunciation time is not in held text (ASSUMED 6 h)
+//   dactChan    failure of either DACT channel: trouble on the other channel within 4 minutes [CODE]
+//   acDelay     the delayed transmission of a primary power failure (60 to 180 min)
+//   acTrouble   a primary power failure is a trouble signal
+//   panelTrouble  trouble signals at the panel within 200 s
+//   lowBatt     what the code says about a low battery (no threshold)
 (function () {
-  const AV = ' (ASSUMED, VERIFY)';
-  const r72 = (yr, ip, multi, dact) => { const p = 'NFPA 72-' + yr + ' '; return { commIp: p + ip, commMulti: p + multi, commDact: p + dact + ' (6 h test interval used as the delay: ASSUMED, VERIFY)',
-    acDelay: p + '§10.6.9.3', trouble: p + '§10.15.1', lowBatt: 'no low-battery threshold held (' + p + '§10.6.9.1, §10.6.10.6)' }; };
+  const r72 = (yr, o) => { const p = 'NFPA 72-' + yr + ' '; return { ipFail: p + o.ip, multiFail: p + o.multi, dactTest: p + o.test,
+    dactMissed: p + o.missed + ' (a missed test is a trouble [CODE]; the 6 h annunciation time is ASSUMED, taken from the test interval ' + o.test + ')', dactChan: p + o.chan,
+    acDelay: p + '§10.6.9.3', acTrouble: p + '§10.6.9.1.1', panelTrouble: p + '§10.15.1', lowBatt: 'no low-battery threshold held (' + p + '§10.6.9.1, §10.6.10.6)' }; };
+  DI.REF72 = {
+    2019: r72(2019, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.1.5(6)', missed: '§26.6.4.2.2(H)', chan: '§26.6.4.1.4(B)(3)' }),
+    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)' }),
+    2025: r72(2025, { ip: '§26.6.3.3.2(2) (annunciated per §10.15)', multi: '§26.6.3.4(1) (a 6 h supervision interval, not a failure-annunciation time: ASSUMED 6 h; 2025 annunciation time not found)',
+      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)' }),
+  };
+  DI.ED72 = ['auto', '2019', '2022', '2025'];
   const r19 = { area: 'NFPA 13-2019 §4.5', delivery: 'NFPA 13-2019 §8.2.3', timedTest: 'NFPA 13-2019 §8.2.3.2', noQod: 'NFPA 13-2019 §8.2.3.3', qod: 'NFPA 13-2019 §8.2.3.4',
     calc: 'NFPA 13-2019 §8.2.3.5 to .6 (VERIFY)', table: 'NFPA 13-2019 Table 8.2.3.6.1', di: 'NFPA 13-2019 §8.3.2.3.1.1', diQod: 'NFPA 13-2019 §8.3.2.3.2', airTest: 'NFPA 13-2019 §28.2.2.1',
-    refill: 'NFPA 13-2019 §8.2.6.3.2', refillN2: 'NFPA 13-2019 §8.2.6.8.4' };
+    refill: 'NFPA 13-2019 §8.2.6.3.2', refillN2: 'NFPA 13-2019 §8.2.6.8.4', refillAnnex: 'NFPA 13-2019 A.8.2.6.3.2', refillCold: 'NFPA 13-2019 §8.2.6.3.3', refillN2Cold: 'NFPA 13-2019 §8.2.6.8.5' };
   const d19 = ['Dry water delivery is §8.2.3.2 to §8.2.3.4 / Table 8.2.3.6.1 (2025: §8.2.4 / Table 8.2.4.3.2).', 'System area limit is §4.5 (2025: §4.4).',
     'The 24 h air test is cited as §28.2.2.1 (2025: §29.2.2.1).', 'The 30 min air refill is §8.2.6.3.2 (2025: §8.2.7.3).'];
-  const t19 = r72(2019, '§26.6.3.3(2)', '§26.6.3.4(2)', '§26.6.4.1.5(6), §26.6.4.2.2(H)');
   DI.JURIS = {
     'US-2025': { country: 'US', nfpa13: 2025, nfpa72: 2025, area: 52000, nfpa76Adopted: false,
       ref: { area: 'NFPA 13-2025 §4.4.1', delivery: 'NFPA 13-2025 §8.2.4', timedTest: 'NFPA 13-2025 §8.2.4.2', noQod: 'NFPA 13-2025 §8.2.4.2.1', qod: 'NFPA 13-2025 §8.2.4.2.2',
         calc: 'NFPA 13-2025 §8.2.4.3.1', table: 'NFPA 13-2025 Table 8.2.4.3.2', manifold: 'NFPA 13-2025 §8.2.4.4', otherTimes: 'NFPA 13-2025 §8.2.4.5',
-        di: 'NFPA 13-2025 §8.3.2.3.1.1', diQod: 'NFPA 13-2025 §8.3.2.3.2', airTest: 'NFPA 13-2025 §29.2.2.1', refill: 'NFPA 13-2025 §8.2.7.3' },
-      ref72: r72(2025, '§26.6.3.3.2(2) (annunciated per §10.15)', '§26.6.3.4(1) (6 h supervision interval; annunciation time not found in 2025, VERIFY)', '§26.6.4.2.5(6), §26.6.4.3.2.8'), delta: [] },
-    'US-2022': { country: 'US', nfpa13: 2022, nfpa72: 2022, area: 52000, nfpa76Adopted: false, verify: true,
-      ref: { area: 'NFPA 13-2022 §4.4', delivery: 'NFPA 13-2022 §8.2.3', timedTest: 'NFPA 13-2022 §8.2.3.2' + AV, noQod: 'NFPA 13-2022 §8.2.3.3' + AV, qod: 'NFPA 13-2022 §8.2.3.4' + AV,
-        calc: 'NFPA 13-2022 §8.2.3.5 to .6' + AV, table: 'NFPA 13-2022 Table 8.2.3.6.1', manifold: 'NFPA 13-2022 §8.2.3.7', otherTimes: 'NFPA 13-2022 §8.2.3.8' + AV,
-        di: 'NFPA 13-2022 §8.3.2.3.1.1 to .4', diQod: 'NFPA 13-2022 §8.3.2.3.2', airTest: 'NFPA 13-2022 §29.2.2.1', refill: 'NFPA 13-2022 §8.2.6.3.2', refillN2: 'NFPA 13-2022 §8.2.6.8.4' },
-      ref72: r72(2022, '§26.6.3.3(2)', '§26.6.3.4(2)', '§26.6.4.2.5(6), §26.6.4.3.2.8'),
-      delta: ['2022 keeps the 2019 numbering for delivery (§8.2.3.x); the renumber to §8.2.4 is 2025. Verified for 2022: Table 8.2.3.6.1, §8.2.3.7, §8.3.2.3.1.1 to .4, §8.3.2.3.2 and the air test §29.2.2.1. Still carried from 2019 and marked ASSUMED, VERIFY: §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6 and §8.2.3.8.', 'The 30 min air refill is §8.2.6.3.2 (2025: §8.2.7.3).'] },
-    'US-2019': { country: 'US', nfpa13: 2019, nfpa72: 2019, area: 52000, nfpa76Adopted: false, ref: r19, ref72: t19, delta: d19 },
-    // Canada: data row only, never offered in the menu. Same references as US-2019.
-    'CA-2019': { country: 'CA', nfpa13: 2019, nfpa72: 2019, area: 52000, nfpa76Adopted: false, hidden: true, ref: r19, ref72: t19, delta: d19,
+        di: 'NFPA 13-2025 §8.3.2.3.1.1', diQod: 'NFPA 13-2025 §8.3.2.3.2', airTest: 'NFPA 13-2025 §29.2.2.1', refill: 'NFPA 13-2025 §8.2.7.3',
+        refillAnnex: 'NFPA 13-2025 A.8.2.7.3', refillCold: 'NFPA 13-2025 §8.2.7.4' }, delta: [] },
+    'US-2022': { country: 'US', nfpa13: 2022, nfpa72: 2022, area: 52000, nfpa76Adopted: false,
+      ref: { area: 'NFPA 13-2022 §4.4', delivery: 'NFPA 13-2022 §8.2.3', timedTest: 'NFPA 13-2022 §8.2.3.2', noQod: 'NFPA 13-2022 §8.2.3.3', qod: 'NFPA 13-2022 §8.2.3.4',
+        calc: 'NFPA 13-2022 §8.2.3.5 to .6', table: 'NFPA 13-2022 Table 8.2.3.6.1', manifold: 'NFPA 13-2022 §8.2.3.7', otherTimes: 'NFPA 13-2022 §8.2.3.8',
+        di: 'NFPA 13-2022 §8.3.2.3.1.1 to .4', diQod: 'NFPA 13-2022 §8.3.2.3.2', airTest: 'NFPA 13-2022 §29.2.2.1', refill: 'NFPA 13-2022 §8.2.6.3.2', refillN2: 'NFPA 13-2022 §8.2.6.8.4',
+        refillAnnex: 'NFPA 13-2022 A.8.2.6.3.2', refillCold: 'NFPA 13-2022 §8.2.6.3.3', refillN2Cold: 'NFPA 13-2022 §8.2.6.8.5' },
+      delta: ['2022 keeps the 2019 numbering for delivery (§8.2.3.x); the renumber to §8.2.4 is 2025. Verified for 2022: §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6, Table 8.2.3.6.1, §8.2.3.7, §8.2.3.8, §8.3.2.3.1.1 to .4, §8.3.2.3.2 and the air test §29.2.2.1.', 'The 30 min air refill is §8.2.6.3.2 (2025: §8.2.7.3).'] },
+    'US-2019': { country: 'US', nfpa13: 2019, nfpa72: 2019, area: 52000, nfpa76Adopted: false, ref: r19, delta: d19 },
+    // Canada: data row only, never offered in the menu. Same references as US-2019. Its NFPA 72 setting is ignored (auto).
+    'CA-2019': { country: 'CA', nfpa13: 2019, nfpa72: 2019, area: 52000, nfpa76Adopted: false, hidden: true, ref: r19, delta: d19,
       note: 'ASSUMED: NFPA 13-2019 via NBC 2020 / BCBC 2024; verify before ship' },
   };
 })();
@@ -65,6 +86,13 @@ DI.setJuris = function (W) {
   DI.juris = c.nfpa76Adopted ? Object.assign({}, row, { nfpa76Adopted: true }) : row;
   return DI.juris;
 };
+// NFPA 72 edition of the site: the stored year, or (auto, an old save, an unknown value, or a Canadian row, where the
+// setting is ignored) the NFPA 72 year paired with the active NFPA 13 row. DI.ref72(W) is that edition's citations.
+DI.ed72 = function (W) {
+  const c = (W && W.cfg) || {}, row = DI.JURIS[c.edition] || DI.JURIS[DI.EDITION_DEFAULT];
+  return row.country === 'US' && c.ed72 !== 'auto' && DI.ED72.includes(c.ed72) ? +c.ed72 : row.nfpa72;
+};
+DI.ref72 = (W) => DI.REF72[DI.ed72(W)];
 // citation helper: 'NFPA 13-<edition> <tail>'
 DI.ref13 = (tail) => 'NFPA 13-' + DI.juris.nfpa13 + (tail ? ' ' + tail : '');
 

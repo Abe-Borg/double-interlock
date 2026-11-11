@@ -28,6 +28,7 @@ const hline = (W, x0, x1, y, size) => { for (let x = x0; x <= x1; x++) W.setPipe
   ok('24 h air test report: test pressure, start and end, the pass line with the edition section, the drop', r.lines.length === 4 && r.lines[0] === 'Test pressure: 40 psi' && r.lines[1] === 'Start: 40.0 psi, end: 39.1 psi' &&
     r.lines[2] === 'Pass: end reading at least 38.5 psi (loss of 1.5 psi or less in 24 h) [NFPA 13-2025 §29.2.2.1]' && r.lines[3] === 'Drop: 0.94 psi in 24 h' && r.end >= DI.AIR_TEST.endMin && r.val <= DI.AIR_TEST.drop, r.lines.join(' | '));
   ok('24 h air test constants: 40 psi, end reading 38.5 psi or more, the clock starts at 40.0 on the gauge (0.005 psi), 30 min to charge', DI.AIR_TEST.psi === 40 && DI.AIR_TEST.endMin === 38.5 && DI.AIR_TEST.drop === 1.5 && DI.AIR_TEST.tol === 0.005 && DI.AIR_TEST.chargeMax === 1800);
+  ok('24 h air test pressure: at a 40 psi normal it is the 40 psi baseline (the greater of 40 psi or normal), pass line 38.5', DI.airTestPsi(v) === DI.AIR_TEST.psi && DI.airTestEnd(v) === DI.AIR_TEST.endMin && v.p.airSet === 40 && r.psi === 40 && DI.airTestPsi({ p: { airSet: 50 } }) === 50 && DI.airTestPsi({ p: { airSet: 30 } }) === 40);
   DI.startTest(S, 'drain', v.id); S.warp(60); r = DI.lastResult(S, 'drain');
   ok('main drain test records static/residual', r && r.pass && r.val > 20 && r.val < 80, r && r.lines.join(' | '));
   DI.startTest(S, 'trip', v.id); S.warp(260); r = DI.lastResult(S, 'trip');

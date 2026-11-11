@@ -43,7 +43,7 @@ DI.Sim = class {
       let s = this.ss.get(id);
       if (!s) {
         s = { state: inf.type === 'wetv' ? 'filling' : 'dry', wat: 0, G: DI.ATM * Math.max(inf.vol, 1), o2g: 0.209 * DI.ATM * Math.max(inf.vol, 1),
-          P: 0, set: false, tripT: -1, openT: -1, waterT: -1, fillT0: -1, fillTime: -1, ref: 0, corr: 0, moist: 0.1, vol: inf.vol, flowT: 0, alarm: false, lowAir: false };
+          P: 0, set: false, tripT: -1, openT: -1, waterT: -1, fillT0: -1, fillTime: -1, fill1: -1, ref: 0, corr: 0, moist: 0.1, vol: inf.vol, flowT: 0, alarm: false, lowAir: false };
         this.ss.set(id, s);
       } else if (Math.abs(s.vol - inf.vol) > 0.01) {       // piping changed: new pipe arrives at the system's present condition
         if (s.state === 'wet') s.wat = inf.vol;
@@ -221,10 +221,15 @@ DI.reopenWarn = (gateId, items) => 'Control valve #' + gateId + ' reopened with 
 // entry in the operator log. Returns '' or the reason it was refused.
 DI.setGate = function (S, id, want) {
   const g = S.W.parts.get(id); if (!g || g.type !== 'gate') return 'No control valve.';
-  if (!(want > 0.5)) { g.p.target = 0; g.p.viaGate = false; return ''; }
+  if (!(want > 0.5)) { g.p.target = 0; g.p.viaGate = false; for (const [, , s] of DI.gateValves(S, id)) delete s.floodW; return ''; }
   const r = DI.reopenCheck(S, id);
   if (r.refuse) return r.msg;
-  if (r.items.length) { S.say(DI.reopenWarn(id, r.items), 'bad'); S.act('reopen-warn', id, { items: r.items.slice() }); }
+  if (r.items.length) {
+    S.say(DI.reopenWarn(id, r.items), 'bad'); S.act('reopen-warn', id, { items: r.items.slice() });
+    // practice: the valve opens anyway. A zone behind it with an open head, a tripped riser or a latched P is watched
+    // (s.floodW), and DI.gasPost explains in the log if water then leaves through the head.
+    for (const [, v, s] of DI.gateValves(S, id)) if ((s.openK && s.openK.length) || s.state !== 'dry' || (v.type === 'prev' && (v.p.mech || v.p.pLatch))) s.floodW = S.t;
+  }
   g.p.target = 1; g.p.viaGate = true; return '';
 };
 
@@ -237,7 +242,7 @@ DI.Sim.prototype.commission = function (keep) {
     const v = W.parts.get(id), inf = this.sysd.info.get(id), V = Math.max(inf.vol, 1);
     if (v.type === 'wetv') { s.state = 'wet'; s.wat = inf.vol; s.G = 0; }
     else if (!v.p.tripped && inf.src.length) {
-      s.state = 'dry'; s.wat = 0; s.G = (v.p.airSet + DI.ATM) * V; s.o2g = (inf.hasN2 ? DI.N2_O2 : 0.209) * s.G; s.P = v.p.airSet; s.set = true; s.ref = s.P; s.fillTime = -1;
+      s.state = 'dry'; s.wat = 0; s.G = (v.p.airSet + DI.ATM) * V; s.o2g = (inf.hasN2 ? DI.N2_O2 : 0.209) * s.G; s.P = v.p.airSet; s.set = true; s.ref = s.P; s.fillTime = -1; s.fill1 = -1;
       if (v.type === 'prev') v.p.pLatch = false;
     }
   }
@@ -276,13 +281,16 @@ DI.Sim.prototype.warp = function (sec, maxMs, until) {
 };
 
 // Save / load of the dynamic state that matters (pressures re-settle on load).
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret'];
+// sig: the first-seen time of every active signal (t0), whether the supervising station has it (tx) and whether it
+// came in on test. Without it every delay clock (AC failure, a failed DACT channel) would restart at a load.
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
-  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };
+  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null,
+    sig: [...this.sig].map(([k, o]) => [k, { t0: o.t0, tx: o.tx, test: o.test }]) };
 };
 DI.Sim.prototype.restore = function (j) {
-  for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) Object.assign(s, o); }
+  for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) for (const k of Object.keys(o)) if (o[k] !== undefined) s[k] = o[k]; }
   this.acts = j.acts || [];
   // a save from before the maker-trim setpoints: bring a set system up to its new normal pressure so the
   // migrated valve does not come back sitting on its P trip point
@@ -292,5 +300,16 @@ DI.Sim.prototype.restore = function (j) {
     const x = s.G > 0 ? s.o2g / s.G : 0.209; s.G = (v.p.airSet + DI.ATM) * Math.max(this.sysd.info.get(id).vol, 1); s.o2g = x * s.G; s.P = v.p.airSet; s.ref = s.P;
   }
   this.results = j.results || []; this.leaks = j.leaks || []; this.dirty = true;
+  // The settle below runs the alarm step on a clock that starts at 0, so it would re-raise every signal with a new
+  // first-seen time and re-sound a silenced panel. A save that carries `sig` puts both back afterwards: a signal
+  // that was active at the save keeps its t0 / tx / test, and one that only comes back once the clock is right (the
+  // station's loss-of-communication line) finds them in S.sigSeen at the first step. An older save has no `sig`
+  // and loads as it always did.
+  const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced, p.p.battH]) : [];
   this.commission(j.t || 0.001); this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
+  if (j.sig) {
+    this.sigSeen = new Map(j.sig);
+    for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; } }
+    for (const [p, sil, bh] of panels) { p.p.silenced = !!sil; if (bh !== undefined) p.p.battH = bh; }
+  }
 };

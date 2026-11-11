@@ -79,7 +79,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     for (const o of all) if (o.lost) { lost++; h += '<div class="sig TRBL stn" data-p="' + o.part + '"><b>TRBL</b><span><em>SUPERVISING STATION</em> ' + esc(o.text) + '</span></div>'; }
     const list = all.filter((o) => !o.lost && !o.dark).sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
     for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; if (!DI.sigSilenced(W, o)) loud++; }
-      h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? (o.delay && !o.tx ? ' <em>(not yet sent to the supervising station: ' + DI.delayText(o.delay) + ' delay)</em>' : '') : ' <em>(local only)</em>') + '</span></div>'; }
+      h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? (o.delay && !o.tx ? (isFinite(o.delay) ? ' <em>(not yet sent to the supervising station: ' + DI.delayText(o.delay) + ' delay)</em>' : ' <em>(cannot be sent to the supervising station)</em>') : '') : ' <em>(local only)</em>') + '</span></div>'; }
     // an empty list under a dead panel is a dark display, not "normal"
     const deadP = W.byType('panel').some((q) => q.p.alive === false), none = deadP ? 'Display dark: the panel is dead. Nothing is shown or sent.' : 'All systems normal.';
     if ($('sigs').dataset.h !== h + none) { $('sigs').innerHTML = h || '<div class="sig"><span style="color:var(--dim)">' + none + '</span></div>'; $('sigs').dataset.h = h + none; }
@@ -143,7 +143,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // supervising station: the path type sets when a dead panel is annunciated; the AC-fail transmission delay is 60 to 180 min
     else if (key === 'path') { if (!Object.prototype.hasOwnProperty.call(DI.COMM_PATH, val)) return false; c.commPath = val; }
     else if (key === 'acd') { if (!DI.AC_DELAY_MIN.includes(+val)) return false; c.acDelayMin = +val; }
-    // cause-and-effect hooks: displayed in the matrix only, the engine never acts on them
+    // the NFPA 72 edition is its own setting (adoption is by the AHJ and can differ from NFPA 13); Auto stores nothing
+    else if (key === 'ed72') { if (!DI.ED72.includes(val)) return false; if (val === 'auto') delete c.ed72; else c.ed72 = val; }
+    // cause-and-effect hooks: displayed in the matrix only, the engine never acts on them. HVAC = the trigger stage.
     else if (key === 'hvac') { if (!Object.prototype.hasOwnProperty.call(DI.HVAC_HOOKS, val)) return false; if (val === 'none') delete c.hvacHook; else c.hvacHook = val; }
     else if (key === 'epo') { if (val === '1') c.epoHook = true; else delete c.epoHook; }
     // a threshold is stored exactly as typed: out of range or out of order shows red and fails plan review, it is never clamped
@@ -163,12 +165,18 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const inp = (key, val, step, w) => '<input data-n="' + key + '" type="number" step="' + step + '" min="0" value="' + val + '"' + (ro ? ' disabled' : '') + ' style="width:' + (w || 74) + 'px;background:#0c1218;color:#e6eef3;border:1px solid #2f4254;border-radius:4px;padding:5px 6px;font:13px Consolas,monospace">';
     const A = ' <b style="color:var(--amb)">ASSUMED</b>', PE = '<b style="color:var(--amb)">NEEDS PE REVIEW</b>', CLS = { SUPV: 'Supervisory', ALARM: 'Alarm', TRBL: 'Trouble', OPEN: 'Not elected' };
     const LS = DI.LISTED.smoke, D = DI.DELIVERY, mk = DI.asdModel(W), M = DI.ASD_MODELS[mk], RG = DI.asdRange(W), af = DI.asdFmt;
-    const badStage = new Set(DI.asdFindings(W).map((x) => x.stage)), flags = DI.n76Flags(W), note76 = DI.n76Note(W), R72 = J.ref72, cp = DI.COMM_PATH[DI.commPath(W)], hv = DI.hvacHook(W), epo = DI.epoHook(W);
-    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2>';
+    const badStage = new Set(DI.asdFindings(W).map((x) => x.stage)), flags = DI.n76Flags(W), note76 = DI.n76Note(W), R72 = DI.ref72(W), cp = DI.COMM_PATH[DI.commPath(W)], hv = DI.hvacHook(W), epo = DI.epoHook(W);
+    // the NFPA 72 edition row is US only: a Canadian row ignores the setting and the row is not shown
+    const us = J.country === 'US', e72 = DI.ED72.includes(c.ed72) ? c.ed72 : 'auto';
+    let h = '<h4>SITE SETTINGS</h4><h2>Project and company rules</h2><div class="mrow" style="justify-content:flex-start;margin:0 0 8px"><button id="mSched" title="Read-only: every signal, its class, and whether it goes to the supervising station only or on to the fire department.">Signal schedule</button></div>';
     if (ro) h += '<p id="siteRO" style="border-left:3px solid var(--amb);padding-left:10px"><b>Basis of design is fixed in a contract: set by the AHJ, the owner and the insurer.</b> These settings are read-only here. They can be changed in the Sandbox.</p>';
     h += '<p>ASSUMED marks a value the company has not fixed: it is a tunable default. NEEDS PE REVIEW marks a choice an engineer of record has to make.</p>';
     h += '<h4>ENFORCED EDITION OF NFPA 13 (US)</h4>' + rowL(DI.editionChoices().map((k) => opt('ed', k, 'NFPA 13-' + DI.JURIS[k].nfpa13, ed === k)).join(''));
     h += '<p id="siteDelta">' + (J.delta.length ? '<b>Edition delta vs 2025:</b> ' + J.delta.map(esc).join(' ') + ' ' : '') + 'Citations in plan review and on test reports follow the edition. Pass and fail do not differ by edition in this version.</p>';
+    if (us) {
+      h += '<h4>ENFORCED EDITION OF NFPA 72 (US)</h4>' + rowL(lab('NFPA 72 edition (site setting; adoption is by the AHJ and can differ from NFPA 13)') + opt('ed72', 'auto', 'Auto (follows NFPA 13)', e72 === 'auto') + DI.ED72.filter((k) => k !== 'auto').map((k) => opt('ed72', k, 'NFPA 72-' + k, e72 === k)).join(''));
+      h += '<p id="ed72Note">In force here: <b>NFPA 72-' + DI.ed72(W) + '</b>. The supervising-station, panel-power and DACT citations follow it; NFPA 13 citations do not change. Separate settings because the two are adopted separately (PRACTICE).</p>';
+    }
     h += '<h4>HAZEN-WILLIAMS C</h4><p>C = ' + DI.HW_C + ' for all sprinkler pipe: wet, dry, preaction, interior, yard and underground. Company rule. Nitrogen earns no credit.<br><span style="color:var(--dim)">Comparison only: the NFPA table value is 120 for wet steel. It has no effect on any calculation here.</span></p>';
     h += '<h4>PIPE SCHEDULE: SIZE CUT</h4>' + rowL(lab('Largest size on threaded Schedule 40') + DI.PIPE_CUTS.map((i) => opt('cut', i, DI.PIPES[i].n.replace('"', ' in.'), cut === i)).join(''));
     h += '<p>' + esc(DI.PIPES[cut].n.replace('"', ' in.')) + ' and smaller is threaded Schedule 40; every larger size is roll-grooved Schedule 10, main or branch alike.' + A + ' (default 2 in.). It sets the inside diameter and volume of every pipe. Cost per size is the same for both schedules (ASSUMED).</p>';
@@ -193,16 +201,18 @@ var DI = globalThis.DI || (globalThis.DI = {});
     h += '<h4>SIGNAL CLASSES</h4>' + [['alert', 'Aspirating Alert'], ['action', 'Aspirating Action'], ['pLatch', 'Latched P (release input)']].map(([k, n]) => rowL(lab(n) + DI.SIG_CLASS[k].map((v) => opt(k, v, CLS[v], DI.sigClass(W, k) === v)).join(''))).join('');
     h += '<p>' + PE + A + ' Alert and Action are supervisory unless the engineer elects alarm. A latched P is a release input whose class has not been elected: it shows as an OPEN item until it is elected alarm or trouble. Supervisory is blocked for it. Fixed: Fire 1, Fire 2, manual station and waterflow are alarm; low and high air and valve tamper are supervisory; panel AC failure, low battery, loss of communication with a dead panel and loss of supply air are trouble. Loss of supply air is equipment trouble, its own signal (PRACTICE); the pressure drop it causes is still reported by the low-air supervisory.</p>';
     h += '<h4>SUPERVISING STATION AND PANEL POWER (NFPA 72)</h4>' + rowL(lab('Supervising-station path (OWNER)') + Object.keys(DI.COMM_PATH).map((k) => opt('path', k, DI.COMM_PATH[k].label, DI.commPath(W) === k)).join(''));
-    h += '<p id="pathNote">A dead panel shows and sends nothing. On this path the supervising station annunciates the loss of communication after <b>' + DI.delayText(cp.delay) + '</b> [' + esc(R72[cp.ref]) + ']. A single IP path as the default is PRACTICE. The DACT figure is its 6 h test-signal interval, used as the delay' + A + '; two-way radio paths and the DACT 4-minute channel-failure rule are not modelled.</p>';
+    h += '<p id="pathNote">A dead panel shows and sends nothing. On this path the supervising station annunciates the loss of communication after <b>' + DI.delayText(cp.delay) + '</b> [' + esc(R72[cp.ref]) + ']. A single IP path as the default is PRACTICE. The DACT figure is its 6 h test-signal interval [' + esc(R72.dactTest) + '], used as the delay' + A + '. On the DACT path the failure of one of the two channels is a trouble sent on the other channel within ' + DI.delayText(DI.DACT_CHAN_S) + ' [' + esc(R72.dactChan) + ']: fail a channel from the panel in the Sandbox. Two-way radio paths are not modelled.</p>';
     h += rowL(lab('AC-fail transmission delay (OWNER / AHJ)') + DI.AC_DELAY_MIN.map((m) => opt('acd', m, m + ' min', DI.acDelay(W) === m * 60)).join(''));
-    h += '<p id="acdNote">' + PE + ' The panel shows an AC failure at once (the ceiling for a trouble at the panel is ' + DI.TROUBLE_PANEL_S + ' s, ' + esc(R72.trouble) + ') and transmits it to the supervising station only after this delay, 60 to 180 min (' + esc(R72.acDelay) + '). Power back inside the delay: nothing is sent. Low battery: ' + esc(R72.lowBatt) + '. The trouble shown here is ' + esc(DI.LOWBATT_NOTE) + ', and it is transmitted at once' + A + '. The NFPA 72 edition follows the NFPA 13 edition chosen above' + A + '.</p>';
-    h += '<h4>CAUSE-AND-EFFECT HOOKS</h4>' + rowL(lab('HVAC shutdown / damper hook (OWNER, NEEDS PE REVIEW)') + opt('hvac', 'none', 'None', hv === 'none') + opt('hvac', 'crah', 'CRAH / AHU shutdown', hv === 'crah') + opt('hvac', 'damper', 'Damper', hv === 'damper'));
+    h += '<p id="acdNote">' + PE + ' The panel shows an AC failure at once (the ceiling for a trouble at the panel is ' + DI.TROUBLE_PANEL_S + ' s, ' + esc(R72.panelTrouble) + '; it is a trouble signal, ' + esc(R72.acTrouble) + ') and transmits it to the supervising station only after this delay, 60 to 180 min (' + esc(R72.acDelay) + '). Power back inside the delay: nothing is sent. Low battery: ' + esc(R72.lowBatt) + '. The trouble shown here is ' + esc(DI.LOWBATT_NOTE) + ', and it is transmitted at once' + A + '. Citations are NFPA 72-' + DI.ed72(W) + ', the NFPA 72 edition set above.</p>';
+    h += '<h4>CAUSE-AND-EFFECT HOOKS</h4>' + rowL(lab('HVAC shutdown / damper hook: trigger (OWNER, NEEDS PE REVIEW)') + opt('hvac', 'none', 'None', hv === 'none') + opt('hvac', 'fire1', 'Fire 1', hv === 'fire1') + opt('hvac', 'fire2', 'Fire 2', hv === 'fire2') + opt('hvac', 'waterflow', 'Waterflow', hv === 'waterflow'));
     h += rowL(lab('EPO / power isolation hook (OWNER, NEEDS PE REVIEW; NEC 645, FM DS 5-32 election)') + opt('epo', '0', 'OFF', !epo) + opt('epo', '1', 'ON', epo));
-    h += '<p>' + PE + ' Hook only, never automatic. An elected hook appears in the cause-and-effect matrix of each preaction zone (open it from the valve or the panel) as an output contact for others to wire. The game shuts down no fan, damper or power. Which rows carry a hook is' + A + ': HVAC where an alarm is annunciated, EPO where the valve opens.</p>';
+    h += '<p id="hookNote">' + PE + ' HVAC: never on Alert or Action; with Fire 1 elected, manual and waterflow also trip it. EPO: waterflow only, because waterflow proves water is in the system and, on El/Pn, is the only way the panel knows the valve opened. Hook only: the game switches nothing. An elected hook appears in the cause-and-effect matrix of each preaction zone (open it from the valve or the panel) as an output contact for others to wire. With Fire 2 elected the hook sits on the Fire 2 row only' + A + '.</p>';
+    h += '<p>Duct-detector shutdown (IMC) is a separate device, outside this matrix.</p>';
     h += '<h4>MANUAL RELEASE ZONE</h4>' + rowL(lab('Manual Release zone bypasses P') + opt('byp', '0', 'OFF', !c.manualReleaseBypassP) + opt('byp', '1', 'ON', !!c.manualReleaseBypassP));
     h += '<p>' + PE + ' (owner/insurer exception, footnote 9(c)). OFF: the manual station is typed DETECTION, sits inside D, and water still needs P. ON: the station is typed MANUAL RELEASE and alone releases water on an electric / electric trim. That is a separate release path, not detection: Release = (D AND P) OR (bypass AND Manual Release zone). It does not latch D, and it latches its own release until the panel is reset. On an electric / pneumatic trim the pneumatic leg sits at the valve, so P is still needed. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve.</p>';
     const keep = ui.modalOpen ? $('mbox').scrollTop : 0;
     ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mGo').onclick = () => { ui.siteNote = ''; ui.close(); }; $('mbox').scrollTop = keep;      // a redraw keeps the reader's place
+    $('mSched').onclick = () => ui.showSchedule(() => ui.showSite());       // read-only, so it also works in a contract
     if (ro) return;
     const set = (k, v) => { if (k !== 'pre') ui.siteNote = ''; ui.siteSet(k, v); ui.showSite(); };
     $('mbox').querySelectorAll('button[data-s]').forEach((b) => { b.onclick = () => set(b.dataset.s, b.dataset.v); });
@@ -214,7 +224,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   // when something changed, so the dialog follows the plant while it is open.
   ui.showCE = function (id, refresh) {
     const m = DI.ceMatrix(g().S, id); if (!m) { if (!refresh) ui.banner('Only a preaction valve has a cause-and-effect matrix.'); return; }
-    let h = '<h4>CAUSE AND EFFECT MATRIX &middot; READ-ONLY</h4><h2>' + esc(m.name) + '</h2><div class="sub" id="ceHead">' + m.head.map(esc).join(' &middot; ') + '</div>';
+    let h = '<h4>CAUSE AND EFFECT MATRIX &middot; READ-ONLY</h4><h2>' + esc(m.name) + '</h2><div class="sub" id="ceHead">' + m.head.map(esc).join(' &middot; ') + '</div><div class="mrow" style="justify-content:flex-start;margin:6px 0"><button id="mSched">Signal schedule</button></div>';
     h += m.imp.map((t) => '<p class="impTag">' + esc(t) + '</p>').join('');
     h += '<table class="ce"><tr>' + m.cols.map((c) => '<th>' + esc(c) + '</th>').join('') + '</tr>' + m.rows.map((r) => '<tr data-k="' + esc(r.key) + '" class="' + (r.applies ? '' : 'off') + (r.live ? ' live' : '') + '">' +
       r.cells.map((c, i) => '<td>' + esc(c) + (i === 0 && r.live ? '<b class="now">' + esc(m.liveLabel) + '</b>' : '') + '</td>').join('') + '</tr>').join('') + '</table>';
@@ -222,6 +232,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if (refresh && ui.ceH === h) return;
     const keep = refresh ? $('mbox').scrollTop : 0;
     ui.modal(h + '<div class="mrow"><button id="mGo" class="go">Close</button></div>'); $('mbox').classList.add('wide'); ui.ce = id; ui.ceH = h; $('mGo').onclick = ui.close; $('mbox').scrollTop = keep;
+    $('mSched').onclick = () => ui.showSchedule(() => ui.showCE(id));
+  };
+  // Signal schedule: read-only. Every word of it comes from DI.signalSchedule and the DI.SCHED_* texts (cause.js),
+  // which read the same registry the alarm code does. `back` reopens the dialog it was opened from.
+  ui.showSchedule = function (back) {
+    const W = g().W, rows = DI.signalSchedule(W);
+    let h = '<h4>SIGNAL SCHEDULE &middot; READ-ONLY</h4><h2>Where each signal goes</h2><table class="ce" id="sched"><tr>' + DI.SCHED_COLS.map((c) => '<th>' + esc(c) + '</th>').join('') + '</tr>' +
+      rows.map((r) => '<tr data-k="' + esc(r.key) + '">' + [r.label, r.class, r.ss, r.fd, r.tag].map((c) => '<td>' + esc(c) + '</td>').join('') + '</tr>').join('') + '</table>';
+    h += '<p id="schedFoot">' + esc(DI.SCHED_FOOT) + '</p><p style="color:var(--dim)">' + esc(DI.SCHED_NOTE) + '</p>';
+    ui.modal(h + '<div class="mrow"><button id="mGo" class="go">' + (back ? 'Back' : 'Close') + '</button></div>'); $('mbox').classList.add('wide'); $('mGo').onclick = back || ui.close;
   };
   // r.gov = index of the governing-limit line of a trip test: it is highlighted
   ui.resHtml = (r) => '<div class="res ' + (r.pass ? 'pass' : 'fail') + '"><b>' + (r.pass ? 'PASS' : 'FAIL') + ' · ' + esc(r.title) + '</b>' + r.lines.map((l, i) => (i === r.gov ? '<span class="gov">' + esc(l) + '</span>' : esc(l))).join('<br>') + '</div>';

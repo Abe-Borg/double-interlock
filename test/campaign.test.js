@@ -41,7 +41,9 @@ for (const sc of DI.SCEN) {
       const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), q = a && DI.recoveryScore(S, a.id, S.drill.t0);
       if (!q || !q.complete || !q.inOrder || q.total !== 13) { fail++; console.log('   UNEXPECTED: the c5 drill recovery should be 13 of 13 in order'); }
       else console.log('   drill recovery #' + a.id + ' (scored): ' + q.done + '/' + q.total + ' in order; operator steps ' + Math.round(q.opTime) + ' s (informational target ' + DI.RECOVERY_TARGET + ' s' + (q.opTime > DI.RECOVERY_TARGET ? ', MISSED by the reference operator' : ', met') +
-        '), air refill ' + DI.dur(q.refill) + ' of the ' + DI.REFILL_LIMIT / 60 + ' min limit (' + (q.refill <= DI.REFILL_LIMIT ? 'OK' : 'FAIL, informational') + '), total ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s)');
+        '), recovery rating ' + DI.recoveryTier(q) + ' of 3 stars, air refill ' + DI.dur(q.refill) + ' of the ' + DI.REFILL_LIMIT / 60 + ' min limit (' + (q.refill <= DI.REFILL_LIMIT ? 'OK' : 'over, informational') + '), total ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s)');
+      // Cycle 5: the report carries the recovery rating and the Tutor's refill wording, and never the word FAIL
+      if (!r || !r.lines.some((l) => l.includes('Recovery rating:')) || r.lines.some((l) => /FAIL|Time bonus/.test(l))) { fail++; console.log('   UNEXPECTED: the c5 drill report should carry "Recovery rating:" and no FAIL'); }
     }
     console.log('   DRILL', r && r.pass ? 'PASS' : 'FAIL', r ? r.lines.join(' | ') : 'timeout', '| fire', DI.money(S.stats.fireLoss), 'water', DI.money(S.stats.waterLoss), 'smoke', DI.money(S.stats.smokeLoss), '| spent', DI.money(sc.money - W.money));
   }
