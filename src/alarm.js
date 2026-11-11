@@ -65,23 +65,35 @@ DI.alarmStep = function (S, dt) {
   const H = DI.PANEL_STANDBY_H;
   for (const p of panels) {
     if (p.p.battH === undefined) p.p.battH = H;
-    if (W.power) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
+    // (the settle of a load is not game time: it neither charges nor drains the battery, see Sim.restore)
+    if (S.settling) { /* hold */ } else if (W.power) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
     p.p.alive = W.power || p.p.battH > 0;
     // deadT: when the panel died. The supervising station learns of it one supervision interval later (DI.commDelay).
     if (p.p.alive) { if (p.p.deadT !== undefined) delete p.p.deadT; } else if (!(p.p.deadT >= 0)) p.p.deadT = S.t;
   }
   // lost = the supervising station reports the loss of the panel itself (the panel can no longer send anything).
   // dark = the signal belongs to a dead panel: nothing is displayed, sounded or transmitted.
-  // mon  = wired to a live panel: it will be transmitted.  delay = seconds the transmission is held back (AC failure).
+  // mon  = wired to a live panel: it will be transmitted.  delay = seconds the transmission is held back (AC failure,
+  //        a failed DACT channel; Infinity = it cannot be sent at all).
   // tx   = the supervising station has it: monitored, and the delay has run since the signal first appeared.
-  const add = (key, type, text, part, lost, delay) => {
-    const pn = part ? (part.type === 'panel' ? part : W.panelOf(part.id)) : null;
-    const prev = old.get(key), dark = !lost && !!pn && !pn.p.alive, t0 = prev ? prev.t0 : S.t, dl = delay || 0, mon = !!lost || !!(pn && pn.p.alive);
-    const o = { key, type, text, part: part ? part.id : 0, mon, lost: !!lost, dark, t0, delay: dl, tx: mon && S.t - t0 >= dl, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
+  // reg  = the signal's key in the registry (DI.SIG_FIXED / DI.SIG_CLASS). add() takes that key, never a class: the
+  //        class is read here, in one place, with DI.inClass.
+  // fd   = an alarm signal of the kind that is sent on to the fire department (DI.SIG_FD). Alert, Action and a
+  //        latched P are never fd, whatever class the owner elects for them.
+  // cut  = the panel is alive and annunciates the signal, but its path to the supervising station is down: both
+  //        DACT channels have failed, so the panel cannot send anything, alarms included. Nothing is transmitted and
+  //        the fire department is not dispatched from it. What the station itself reports (lost) is never cut.
+  // After a load, S.sigSeen holds the first-seen time of every signal that was active when the game was saved, so
+  // a delay clock carries across save and load and nothing is announced twice. It is used once and dropped.
+  const dact = DI.commPath(W) === 'dact', pathDown = (pn) => dact && Array.isArray(pn.p.chan) && !pn.p.chan[0] && !pn.p.chan[1];
+  const add = (key, regKey, text, part, lost, delay) => {
+    const pn = part ? (part.type === 'panel' ? part : W.panelOf(part.id)) : null, type = DI.inClass(W, regKey);
+    const prev = old.get(key) || (S.sigSeen && S.sigSeen.get(key)), dark = !lost && !!pn && !pn.p.alive, t0 = prev ? prev.t0 : S.t, dl = delay || 0, mon = !!lost || !!(pn && pn.p.alive), cut = !lost && mon && pathDown(pn);
+    const o = { key, reg: regKey, fd: !!DI.SIG_FD[regKey], type, text, part: part ? part.id : 0, mon, lost: !!lost, dark, cut, t0, delay: dl, tx: mon && !cut && S.t - t0 >= dl, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
     sig.set(key, o);
     if (dl > 0 && o.tx && prev && !prev.tx) S.say('Supervising station notified: ' + text, 'warn');
     if (!prev && pn && !dark) pn.p.silenced = false;          // a new signal resounds a silenced panel
-    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
+    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : cut ? '  [both DACT channels down: not transmitted]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
   };
   // detection
   for (const p of W.parts.values()) {
@@ -96,30 +108,30 @@ DI.alarmStep = function (S, dt) {
       // records Alert, Action, Fire 1 and Fire 2 one after the other at the same sim time. The detector
       // reports one status: its highest stage. The rows below it stay on the annunciator as the record of
       // the crossing (sup = superseded) and are not active signals at the panel or the supervising station.
-      for (let i = 1; i <= p.p.lvl; i++) { add('v' + p.id + '.' + i, DI.inClass(W, DI.ASD_STAGES[i - 1][0]), 'VESDA ' + DI.VESDA_N[i] + ' - ' + rn, p); if (i < p.p.lvl) sig.get('v' + p.id + '.' + i).sup = true; }
+      for (let i = 1; i <= p.p.lvl; i++) { add('v' + p.id + '.' + i, DI.ASD_STAGES[i - 1][0], 'VESDA ' + DI.VESDA_N[i] + ' - ' + rn, p); if (i < p.p.lvl) sig.get('v' + p.id + '.' + i).sup = true; }
       p.p.rel = p.p.lvl >= DI.FIRE1;
     } else {
-      if (p.p.lvl >= 1) add('s' + p.id, 'ALARM', 'SMOKE DETECTION - ' + rn, p);
+      if (p.p.lvl >= 1) add('s' + p.id, 'spot', 'SMOKE DETECTION - ' + rn, p);
       p.p.rel = p.p.lvl >= 1 && DI.canRelease(W, p);
     }
   }
   // manual release stations: a wired device on the releasing panel. Operated, it is an alarm and the manual
   // input of every preaction valve on that panel that protects the room it is in (handled per valve below).
-  for (const p of W.byType('mstn')) if (p.p.on) { const room = W.room(p.x, p.y); add('mn' + p.id, DI.inClass(W, 'manual'), 'MANUAL STATION OPERATED - ' + (room ? room.name : 'outdoors'), p); }
+  for (const p of W.byType('mstn')) if (p.p.on) { const room = W.room(p.x, p.y); add('mn' + p.id, 'manual', 'MANUAL STATION OPERATED - ' + (room ? room.name : 'outdoors'), p); }
   // system valves: waterflow, air, release solenoid
   for (const [id, s] of S.ss) {
     const v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v) continue;
     const nm = DI.sysName(S, id);
-    if (s.alarm) add('wf' + id, DI.inClass(W, 'waterflow'), 'WATERFLOW - ' + nm, v);
+    if (s.alarm) add('wf' + id, 'waterflow', 'WATERFLOW - ' + nm, v);
     if (v.type !== 'wetv') {
-      if (s.lowAir && s.state === 'dry') add('la' + id, DI.inClass(W, 'lowAir'), 'LOW AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
-      if (s.state === 'dry' && s.P > v.p.hiAir) add('ha' + id, DI.inClass(W, 'highAir'), 'HIGH AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
+      if (s.lowAir && s.state === 'dry') add('la' + id, 'lowAir', 'LOW AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
+      if (s.state === 'dry' && s.P > v.p.hiAir) add('ha' + id, 'highAir', 'HIGH AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
       // Loss of supply air: every air / N2 source on the zone's tubing is unpowered or faulted. A trouble of its
       // own beside the pressure supervisory (TRBL, PRACTICE: equipment trouble). Shutting the zone's own supply
       // valve is a deliberate isolation and does not raise it (it shows as an impairment tag, DI.impairments);
       // nor does a 24 h air test.
       if (inf.src.length && !S.procs.some((q) => q.kind === 'leak' && q.id === id) && inf.src.every((sid) => { const c = W.parts.get(sid); return !c || c.p.fault || !S.powered(c); }))
-        add('sa' + id, DI.inClass(W, 'supplyAir'), 'LOSS OF SUPPLY AIR - ' + nm + ' (compressor / N2 source unavailable)', v);
+        add('sa' + id, 'supplyAir', 'LOSS OF SUPPLY AIR - ' + nm + ' (compressor / N2 source unavailable)', v);
     }
     if (v.type === 'prev') {
       const pn = W.panelOf(id);
@@ -142,43 +154,57 @@ DI.alarmStep = function (S, dt) {
         }
       }
       const rs = DI.relState(W, v);
-      if (rs.sol) add('rl' + id, DI.inClass(W, 'release'), 'RELEASE CIRCUIT ACTIVE - ' + nm, v);
-      if (v.p.pull || rs.mrz) add('ms' + id, DI.inClass(W, rs.mrz ? 'mrz' : 'manual'), (rs.mrz ? 'MANUAL RELEASE ZONE (BYPASSES P)' : 'MANUAL STATION (DETECTION)') + ' - ' + nm, v);
+      if (rs.sol) add('rl' + id, 'release', 'RELEASE CIRCUIT ACTIVE - ' + nm, v);
+      if (v.p.pull || rs.mrz) add('ms' + id, rs.mrz ? 'mrz' : 'manual', (rs.mrz ? 'MANUAL RELEASE ZONE (BYPASSES P)' : 'MANUAL STATION (DETECTION)') + ' - ' + nm, v);
       // A latched P is a release input whose signal class has not been elected: OPEN by default, alarm or
       // trouble if the engineer elects it, never supervisory. Same signal on both trims (PSL-REL and PA-REL).
-      if (v.p.pLatch) { const cls = DI.inClass(W, 'pLatch'); add('pl' + id, cls, (cls === 'OPEN' ? DI.OPEN_LABEL + ': ' : '') + 'P LATCHED (' + DI.trimOf(v).sensor + ') - ' + nm, v); }
+      if (v.p.pLatch) { const cls = DI.inClass(W, 'pLatch'); add('pl' + id, 'pLatch', (cls === 'OPEN' ? DI.OPEN_LABEL + ': ' : '') + 'P LATCHED (' + DI.trimOf(v).sensor + ') - ' + nm, v); }
       // In a contract the Manual Release zone bypass is never a free setting: it shows as an impairment.
-      if (S.contract && DI.stationType(W, v) === 'MANUAL RELEASE') add('im' + id, DI.inClass(W, 'impair'), 'IMPAIRMENT - Manual Release zone bypasses P (' + nm + ')', v);
+      if (S.contract && DI.stationType(W, v) === 'MANUAL RELEASE') add('im' + id, 'impair', 'IMPAIRMENT - Manual Release zone bypasses P (' + nm + ')', v);
     }
   }
   for (const p of W.parts.values()) {
     const q = p.p;
-    if (p.type === 'gate' && q.open < 0.8) add('tm' + p.id, DI.inClass(W, 'tamper'), 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
+    if (p.type === 'gate' && q.open < 0.8) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
     else if (p.type === 'epump' || p.type === 'dpump') {
       const nm = (p.type === 'dpump' ? 'DIESEL' : 'ELECTRIC') + ' FIRE PUMP #' + p.id;
-      if (q.spd > 0.5) add('pr' + p.id, 'SUPV', nm + ' RUNNING', p);
-      if (q.mode !== 'auto') add('pm' + p.id, 'SUPV', nm + ' CONTROLLER NOT IN AUTO', p);
-      if (p.type === 'epump' && !S.powered(p)) add('pp' + p.id, 'SUPV', nm + ' LOSS OF POWER', p);
-      if (p.type === 'dpump') { if (q.failed) add('pf' + p.id, 'TRBL', nm + ' FAILED TO START', p); if (q.fuel < 0.667) add('fu' + p.id, 'SUPV', nm + ' LOW FUEL (below 2/3)', p); if (q.batt < 0.5) add('pb' + p.id, 'TRBL', nm + ' BATTERY FAILURE', p); }
-    } else if (p.type === 'tank' && q.gal < 0.9 * q.cap) add('tl' + p.id, 'SUPV', 'FIRE WATER TANK LOW LEVEL (' + DI.fmt(100 * q.gal / q.cap) + '%)', p);
+      if (q.spd > 0.5) add('pr' + p.id, 'pumpRun', nm + ' RUNNING', p);
+      if (q.mode !== 'auto') add('pm' + p.id, 'pumpMode', nm + ' CONTROLLER NOT IN AUTO', p);
+      if (p.type === 'epump' && !S.powered(p)) add('pp' + p.id, 'pumpPower', nm + ' LOSS OF POWER', p);
+      if (p.type === 'dpump') { if (q.failed) add('pf' + p.id, 'pumpFail', nm + ' FAILED TO START', p); if (q.fuel < 0.667) add('fu' + p.id, 'pumpFuel', nm + ' LOW FUEL (below 2/3)', p); if (q.batt < 0.5) add('pb' + p.id, 'pumpBatt', nm + ' BATTERY FAILURE', p); }
+    } else if (p.type === 'tank' && q.gal < 0.9 * q.cap) add('tl' + p.id, 'tankLow', 'FIRE WATER TANK LOW LEVEL (' + DI.fmt(100 * q.gal / q.cap) + '%)', p);
     else if (p.type === 'panel') {       // 24 h standby plus alarm is a simplification
       if (q.alive) {
         // Both show at the panel at once (inside the 200 s ceiling, DI.TROUBLE_PANEL_S). The AC failure is
         // transmitted only after the site's delay (DI.acDelay, 60 to 180 min): power back inside it, nothing is
         // sent. Low battery is the listed voltage setpoint (DI.lowBattH) and is transmitted at once (ASSUMED).
-        if (!W.power) add('ac' + p.id, DI.inClass(W, 'acFail'), 'PANEL AC FAIL - on standby battery (' + DI.fmt(q.battH, 1) + ' h)', p, false, DI.acDelay(W));
-        if (q.battH <= DI.lowBattH()) add('lb' + p.id, DI.inClass(W, 'lowBatt'), 'LOW BATTERY - panel #' + p.id + ' (battery below its listed low-voltage setpoint)' + (W.power ? ' (charging)' : ''), p);
+        if (!W.power) add('ac' + p.id, 'acFail', 'PANEL AC FAIL - on standby battery (' + DI.fmt(q.battH, 1) + ' h)', p, false, DI.acDelay(W));
+        if (q.battH <= DI.lowBattH()) add('lb' + p.id, 'lowBatt', 'LOW BATTERY - panel #' + p.id + ' (battery below its listed low-voltage setpoint)' + (W.power ? ' (charging)' : ''), p);
+        // DACT path only: the two channels (q.chan, 1 = up). One channel down: a trouble at the panel at once, sent on
+        // the other channel within 4 minutes (DI.DACT_CHAN_S) [CODE]. Both down: the panel cannot send, so the trouble
+        // stays at the panel (delay Infinity) and the supervising station reports a missed test one test interval
+        // after the second channel failed (q.chanT; DI.commDelay, the 6 h interval: that annunciation time is ASSUMED).
+        const down = DI.commPath(W) === 'dact' && Array.isArray(q.chan) ? (q.chan[0] ? 0 : 1) + (q.chan[1] ? 0 : 1) : 0;
+        if (down < 2) { if (q.chanT !== undefined) delete q.chanT; } else if (!(q.chanT >= 0)) q.chanT = S.t;
+        if (down === 1) add('dc' + p.id, 'dactChan', 'DACT CHANNEL FAILED - panel #' + p.id + ' (trouble sent on the other channel within ' + DI.delayText(DI.DACT_CHAN_S) + ')', p, false, DI.DACT_CHAN_S);
+        else if (down === 2) {
+          add('dc' + p.id, 'dactChan', 'DACT CHANNELS FAILED - panel #' + p.id + ' (both channels down: the panel cannot send)', p, false, Infinity);
+          if (S.t - q.chanT >= DI.commDelay(W)) add('pc' + p.id, 'lostComm', 'LOSS OF COMMUNICATION - panel #' + p.id + ' (both DACT channels down; the supervising station reports a missed test)', p, true);
+        }
       }
       // The dead panel itself shows and sends nothing. The supervising station annunciates the loss of the path
       // only after its supervision interval (DI.commDelay: 60 min on a single IP path): this signal is that event.
-      else if (S.t - q.deadT >= DI.commDelay(W)) add('pd' + p.id, DI.inClass(W, 'lostComm'), 'LOSS OF COMMUNICATION - panel #' + p.id + ' (no signal, supervising station reports trouble)', p, true);
+      else if (S.t - q.deadT >= DI.commDelay(W)) add('pd' + p.id, 'lostComm', 'LOSS OF COMMUNICATION - panel #' + p.id + ' (no signal, supervising station reports trouble)', p, true);
     }
   }
-  if (panels.length) for (const room of W.rooms) if (room.temp < 40 && room.type !== 'gen') add('lt' + room.id, 'SUPV', 'LOW TEMPERATURE - ' + room.name + ' (' + DI.fmt(room.temp) + ' F)', panels[0]);
-  S.sig = sig;
-  // fire department
+  if (panels.length) for (const room of W.rooms) if (room.temp < 40 && room.type !== 'gen') add('lt' + room.id, 'lowTemp', 'LOW TEMPERATURE - ' + room.name + ' (' + DI.fmt(room.temp) + ' F)', panels[0]);
+  S.sig = sig; if (S.sigSeen) S.sigSeen = null;
+  // Fire department: only an alarm signal of the dispatch list (o.fd, DI.SIG_FD). A supervisory or trouble signal goes
+  // to the supervising station only, and so does Alert, Action or a latched P that the owner has elected ALARM: they
+  // sound the panel and never call the fire department by themselves. A panel whose path is down (o.cut) sends
+  // nothing, so its alarms dispatch nobody: the late passer-by call below is all that is left.
   const fd = S.fd; let monAlarm = false;
-  for (const o of sig.values()) if (o.type === 'ALARM' && o.mon && !o.sup && !o.test) monAlarm = true;
+  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.cut && !o.sup && !o.test) monAlarm = true;
   const live = S.live || (S.drill && !S.drill.done);        // while the site is under construction nothing is transmitted
   if (live && fd.called < 0 && (S.fires.length || !S.fd.log || S.t - S.fd.log.t > 1800) && (monAlarm || (S.fires.length && S.fires.some((k) => S.fq[k] > 300) && S.t - S.fireT0 > 900))) {
     fd.called = S.t; fd.log = { t: S.t, auto: monAlarm }; S.say(monAlarm ? 'Alarm transmitted. Fire department dispatched.' : 'A passer-by called 911. Fire department dispatched (late).', 'warn');
@@ -252,7 +278,7 @@ DI.impairments = function (S) {
     const v = W.parts.get(id), inf = S.sysd.info.get(id);
     if (!v || v.type === 'wetv' || !inf || !inf.src.length || v.p.airValve) continue;
     if (S.procs.some((q) => q.kind === 'leak' && q.id === id)) continue;
-    out.push({ key: 'air-isolated:' + id, id, text: 'IMPAIRMENT - Air / N2 supply isolated: ' + DI.sysName(S, id) + '. The zone cannot hold or refill air. Restore the supply.' });
+    out.push({ key: 'air-isolated:' + id, id, text: 'IMPAIRMENT: Air / N2 supply isolated to ' + DI.sysName(S, id) + '. The zone cannot hold or refill air and will drift to low air. Restore the supply.' });
   }
   return out;
 };
@@ -278,9 +304,20 @@ DI.findHead = function (S, k) {
 DI.RECOVERY = [['silence', 'Silence the panel'], ['find-head', 'Find the operated head'], ['close-valve', 'Close the zone control valve (supervisory)'],
   ['isolate-air', 'Isolate the air / N₂ supply'], ['drain-zero', 'Open the drain; confirm 0 psi and no water'], ['reset-panel-1', 'Panel reset #1: clear D, solenoid off'],
   ['replace-head', 'Replace the head: same type, K, temperature, response'], ['reset-valve', 'Reset the DI valve (clapper) at the riser, drain still open'], ['drain-close', 'Close the drain(s)'],
-  ['restore-air', 'Restore air / N₂ and confirm it holds above low air'], ['reset-trim', 'Reset the trim (electric / pneumatic only)'], ['reset-panel', 'Panel reset #2: clear P and troubles'],
-  ['open-valve', 'Slowly open the control valve fully; confirm no flow, all normal']];
-DI.RECOVERY_TARGET = 300;      // ASSUMED: time bonus target for contract 5, seconds of operator-step time (total time less the air refill)
+  ['restore-air', 'Restore air / N₂ and confirm it holds above low air'], ['reset-trim', 'Reset the trim (electric / pneumatic only)'], ['reset-panel', 'Panel reset #2: clear the pressure-loss (P) latch and troubles; panel reads normal.'],
+  ['open-valve', 'Slowly open the control valve fully; confirm no flow, panel normal, supervision restored.']];
+// Recovery rating of the scored incident (contract 5), on operator-step time only: the air refill is compressor time
+// and is never counted. ASSUMED, informational: 180 s rewards an operator who knows the sequence cold (about 8x the
+// reference operator's 24 s); 300 s stays the first-play line (DI.RECOVERY_TARGET, the two-star line).
+DI.RECOVERY_TARGET = 300;      // ASSUMED: seconds of operator-step time (total time less the air refill)
+DI.RECOVERY_TIERS = [{ stars: 3, s: 180 }, { stars: 2, s: DI.RECOVERY_TARGET }];
+// 0 = not complete or not in order; else 3, 2 or 1 stars by operator-step time. It is its own report line: contract
+// stars do not read it.
+DI.recoveryTier = function (r) {
+  if (!r || !r.complete || !r.inOrder || r.opTime === null || r.opTime === undefined) return 0;
+  for (const q of DI.RECOVERY_TIERS) if (r.opTime <= q.s) return q.stars;
+  return 1;
+};
 // Score the latest incident on system `id`, or the first one at or after sim time `from`.
 // time   = first step to last, the whole recovery (null while incomplete).
 // refill = the part of it the zone spent closed up and filling, with nothing left for the operator to do: from the

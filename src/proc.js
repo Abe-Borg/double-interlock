@@ -2,18 +2,23 @@
 var DI = globalThis.DI || (globalThis.DI = {});
 
 // 24 h air test, dry and double interlock (FP Lead): 40 psi air held 24 h; a loss over 1.5 psi must be
-// corrected. Pass = end reading at least 38.5 psi. Same values in every edition; the section is
-// DI.juris.ref.airTest (verified: 2019 §28.2.2.1, 2022 and 2025 §29.2.2.1).
-// After the test the supply is restored. Where the zone's normal pressure is the 40 psi test pressure (or above)
-// nothing more is needed. Where it is lower the pipe is left high, and the operator returns it to normal:
-// s.ret, a practice step (DI.gasPre clears it and logs return-normal).
-//   psi     test pressure            endMin  lowest passing end reading        drop  allowed loss (report line)
+// corrected. Same values in every edition; the section is DI.juris.ref.airTest (verified: 2019 §28.2.2.1, 2022 and
+// 2025 §29.2.2.1).
+// Test pressure: the NFPA text names 40 psi. The game tests at the greater of 40 psi or the zone's normal
+// pressure (DI.airTestPsi): company practice, NEEDS PE REVIEW (FP Lead). A normal below 40 still tests at 40. The
+// pass line is a loss of 1.5 psi or less at every test pressure (DI.airTestEnd): 38.5 psi at 40.
+// After the test the supply is restored and the zone is returned to its normal set point. Where the pipe is left
+// more than 1 psi above normal (a normal below the test pressure) the operator bleeds it at the trim: s.ret, a
+// practice step (DI.gasPre clears it and logs return-normal). A zone left below normal refills by itself.
+//   psi     the 40 psi baseline      endMin  lowest passing end reading at 40  drop  allowed loss (report line)
 //   tol     ASSUMED: the clock starts once the zone is within this of the test pressure (the gauge reads 40.0).
 //           It is small on purpose: "end reading at least 38.5" equals "loss of 1.5 or less" only from a 40.0
 //           start, and a 0.1 psi shortfall at the start would be the whole pass margin of a just-repaired zone.
 //   chargeMax  ASSUMED: seconds allowed to reach the test pressure before the test fails
-// Simplification: the game charges the zone to 40 psi itself; a real test is charged and held by the contractor.
+// Simplification: the game charges the zone to the test pressure itself; a real test is charged and held by the contractor.
 DI.AIR_TEST = { psi: 40, endMin: 38.5, drop: 1.5, tol: 0.005, chargeMax: 1800 };
+DI.airTestPsi = (v) => Math.max(DI.AIR_TEST.psi, v.p.airSet);
+DI.airTestEnd = (v) => DI.airTestPsi(v) - DI.AIR_TEST.drop;
 
 DI.startTest = function (S, kind, id) {
   const W = S.W, v = W.parts.get(id), s = S.ss.get(id);
@@ -41,10 +46,11 @@ DI.startTest = function (S, kind, id) {
   } else if (kind === 'leak') {
     const A = DI.AIR_TEST;
     if (!s || s.state !== 'dry' || !s.set) return 'System must be pressurized first.';
-    if (s.P > A.psi + 0.5) return 'Test pressure is ' + A.psi + ' psi. This zone is at ' + DI.fmt(s.P, 1) + ' psi: lower the normal pressure or bleed it at the drain first.';
-    if (s.P < A.psi - A.tol) {       // stage 0: the supply stays open and the regulator holds the test pressure (DI.airTarget)
-      if (!v.p.airValve) return 'The air / N2 supply to this zone is isolated. Restore it so the zone can be charged to ' + A.psi + ' psi.';
-      S.say('24-hour air test: charging from ' + DI.fmt(s.P, 1) + ' psi to the ' + A.psi + ' psi test pressure', '');
+    const T = pr.psi = DI.airTestPsi(v);        // the greater of 40 psi or normal, fixed for the whole test
+    if (s.P > T + 0.5) return 'Test pressure is ' + T + ' psi. This zone is at ' + DI.fmt(s.P, 1) + ' psi: bleed it at the trim first.';
+    if (s.P < T - A.tol) {       // stage 0: the supply stays open and the regulator holds the test pressure (DI.airTarget)
+      if (!v.p.airValve) return 'The air / N2 supply to this zone is isolated. Restore it so the zone can be charged to ' + T + ' psi.';
+      S.say('24-hour air test: charging from ' + DI.fmt(s.P, 1) + ' psi to the ' + T + ' psi test pressure', '');
     } else DI.airTestHold(S, pr, v, s);
   } else if (kind === 'run') {
     pr.mode0 = v.p.mode; v.p.mode = 'hand'; pr.need = v.type === 'dpump' ? 1800 : 600; S.say('No-flow (churn) run started: ' + pr.need / 60 + ' minutes', '');
@@ -116,26 +122,28 @@ DI.testStep = function (S, dt) {
       }
       if (res) { if (h) h.p.open = 0; v.p.mode = pr.mode0; v.p.on = false; for (const [oid, m] of pr.others) { const o = W.parts.get(oid); if (o) o.p.mode = m; } }
     } else if (pr.kind === 'leak') {
-      const A = DI.AIR_TEST;
+      const A = DI.AIR_TEST, T = pr.psi || DI.airTestPsi(v), endMin = T - A.drop;
+      // above the 40 psi the code names, the report says whose rule the test pressure is
+      const basis = T > A.psi ? ['Tested at the zone’s normal pressure, the greater of ' + A.psi + ' psi or normal: company practice, NEEDS PE REVIEW'] : [];
       if (pr.stage === 0) {
-        if (s.state === 'dry' && s.P >= A.psi - A.tol) DI.airTestHold(S, pr, v, s);
-        else if (el > A.chargeMax || s.state !== 'dry') res = { pass: false, title: '24-hour air leakage test', val: -1, end: s.P, say: 1, lines: ['Test pressure: ' + A.psi + ' psi',
-          'Could not reach ' + A.psi + ' psi in ' + A.chargeMax / 60 + ' min: the supply is too small or the leaks are too big.', 'Reached: ' + DI.fmt(s.P, 1) + ' psi'] };
+        if (s.state === 'dry' && s.P >= T - A.tol) DI.airTestHold(S, pr, v, s);
+        else if (el > A.chargeMax || s.state !== 'dry') res = { pass: false, title: '24-hour air leakage test', val: -1, end: s.P, say: 1, psi: T, lines: ['Test pressure: ' + T + ' psi',
+          'Could not reach ' + T + ' psi in ' + A.chargeMax / 60 + ' min: the supply is too small or the leaks are too big.', 'Reached: ' + DI.fmt(s.P, 1) + ' psi'] };
       } else if (S.t - pr.ts >= 86400 || s.state !== 'dry') {
         const loss = pr.p0 - s.P; v.p.airValve = 1; s.av = 1;
         // the report is about air only: test pressure, start, end and the pass line. A latched release input
         // is a panel matter and goes to the panel event log, not here. The test never sets or clears it.
-        res = { pass: s.state === 'dry' && s.P >= A.endMin, title: '24-hour air leakage test', val: loss, end: s.P, say: 1, gov: 2, lines: ['Test pressure: ' + A.psi + ' psi',
+        res = { pass: s.state === 'dry' && s.P >= endMin, title: '24-hour air leakage test', val: loss, end: s.P, say: 1, gov: 2, psi: T, lines: ['Test pressure: ' + T + ' psi',
           'Start: ' + DI.fmt(pr.p0, 1) + ' psi, end: ' + DI.fmt(s.P, 1) + ' psi',
-          'Pass: end reading at least ' + A.endMin + ' psi (loss of ' + A.drop + ' psi or less in 24 h) [' + DI.setJuris(W).ref.airTest + ']',
-          'Drop: ' + DI.fmt(loss, 2) + ' psi in 24 h'] };
+          'Pass: end reading at least ' + endMin + ' psi (loss of ' + A.drop + ' psi or less in 24 h) [' + DI.setJuris(W).ref.airTest + ']',
+          'Drop: ' + DI.fmt(loss, 2) + ' psi in 24 h'].concat(basis) };
       }
     } else if (pr.kind === 'run') {
       if (v.p.failed || (el > 40 && v.p.spd < 0.5)) res = { pass: false, title: 'Weekly churn run', lines: ['Pump failed to start.'] };
       else if (v.p.ranFor >= pr.need) res = { pass: true, title: (v.type === 'dpump' ? 'Diesel' : 'Electric') + ' pump churn run', lines: ['Ran ' + pr.need / 60 + ' min at churn: suction ' + DI.fmt(S.pin(pr.id)) + ' psi, discharge ' + DI.fmt(S.pout(pr.id)) + ' psi', v.type === 'dpump' ? 'Fuel remaining: ' + DI.fmt(v.p.fuel * 100) + '%' : 'Motor ran normally'] };
       if (res) { v.p.mode = pr.mode0; v.p.on = false; v.p.lastTest = S.t; }
     }
-    if (res && pr.kind === 'leak' && s && s.state === 'dry' && v.p.airSet < DI.AIR_TEST.psi - DI.AIR_TEST.drop && s.P > v.p.airSet + 1) s.ret = true;
+    if (res && pr.kind === 'leak' && s && s.state === 'dry' && s.P > v.p.airSet + 1) s.ret = true;      // left above normal: the return-to-normal step
     if (res) {
       res.kind = pr.kind; res.id = pr.id; res.t = S.t; res.name = s ? DI.sysName(S, pr.id) : DI.PARTS[v.type].name + ' #' + v.id;
       S.results.push(res); S.procs.splice(i, 1); S.testUntil = S.procs.length ? S.t + 1e9 : S.t + 90; if (pr.kind === 'pump' || pr.kind === 'run') S.lastTestT = S.t;

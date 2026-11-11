@@ -31,15 +31,17 @@ DI.review = function (S) {
     if (dry) {
       if (inf.gridded) add('fail', nm + ': piping is gridded (looped). Dry and double-interlock preaction systems must not be gridded - air cannot be driven out one way. Give every branch line a dead end (Cap tool, 6).', R(J.nfpa13 === 2025 ? '§8.2.1, §8.3' : '§8.2, §8.3'), v.x, v.y);
       if (!inf.src.length) add('fail', nm + ': no air compressor or nitrogen generator is tubed to the valve.', R('§8.2 / §8.3'), v.x, v.y);
-      // Air supply sizing (FP Lead): enough scfm to bring the largest zone on these sources to normal pressure in
-      // 30 min, plus an ASSUMED x1.25 margin. A warning only: the measured refill clock on the valve is the
-      // authority. One finding per set of sources, placed on the zone that governs it.
+      // Air supply sizing (FP Lead). The code check: the largest zone on these sources, filled alone from 0 psig
+      // with the full capacity, must reach its restore pressure in 30 min. Below that bare minimum is a FAIL; between
+      // it and the x1.25 margin is a warning (the margin is ASSUMED practice, NEEDS PE REVIEW, not an NFPA factor).
+      // The measured refill clock on the valve is informational and is never read here. One finding per set of
+      // sources, placed on the zone that governs it.
       const az = DI.airSizing(S, id);
       if (az && az.gov === id && (az.below || az.tight)) {
         const srcs = inf.src.map((q) => (W.parts.get(q).type === 'n2' ? 'N₂ generator' : 'compressor') + ' #' + q).join(' + '), zone = az.shared ? 'the largest zone they serve (this one, ' + DI.fmt(az.gal) + ' gal)' : 'this zone (' + DI.fmt(az.gal) + ' gal)';
-        add('warn', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') ' + (az.below ? 'is below the ' + DI.fmt(az.min, 1) + ' scfm minimum to bring ' + zone + ' to normal pressure in ' + DI.AIR_SIZING.minutes + ' min.'
-          : 'meets the ' + DI.fmt(az.min, 1) + ' scfm minimum for ' + zone + ' but is below the x' + DI.AIR_SIZING.margin + ' margin (' + DI.fmt(az.margin, 1) + ' scfm, ASSUMED).') + ' Recovery time is mostly compressor time: watch the refill clock on the valve.',
-          DI.refillRef(W, inf) + (az.shared ? ' (one source serving several systems is sized on the largest)' : ''), v.x, v.y);
+        const lim = DI.fmt(az.limit), cut = az.P > v.p.airSet ? ' Sized at the ' + az.P + ' psi compressor cut-out, which is above normal (ASSUMED).' : '', ref = DI.refillRef(W, inf, az.shared > 0);
+        if (az.below) add('fail', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') cannot restore normal pressure in ' + zone + ' within ' + lim + ' min even filling it alone (needs ' + DI.fmt(az.min, 1) + ' scfm; fills in ' + (isFinite(az.tAlone) ? DI.fmt(az.tAlone, 1) + ' min' : 'no time at all') + ').' + cut, ref, v.x, v.y);
+        else add('warn', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') meets the ' + DI.fmt(az.min, 1) + ' scfm minimum for ' + zone + ' but is below the x' + DI.AIR_SIZING.margin + ' margin (' + DI.fmt(az.margin, 1) + ' scfm; ASSUMED, NEEDS PE REVIEW).' + cut + ' Recovery time is mostly compressor time: watch the refill clock on the valve.', ref, v.x, v.y);
       }
       // water delivery: one row per limit that applies, judged on full zone volume (pipe + fittings + trim)
       const dl = DI.deliveryLimits(S, id), vols = 'zone volume ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')';
