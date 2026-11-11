@@ -110,7 +110,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     id: 's0', name: 'Sandbox', tag: 'Free build, unlimited budget, break anything', w: 96, h: 56, money: 99000000, par: 0, sandbox: true,
     parts: Object.keys(DI.PARTS),
     brief: ['An empty campus and no rules. Build anything, then use the Incident menu to set fire to it, freeze it, break sprinklers, cut the power or skip ahead five years.'],
-    // the campus, plus one Freezer / Cold Dock room to try the per-zone 60 min refill limit on (set "below 5 F" on the room)
+    // the campus, plus one Refrigerated Space room to try the per-zone 60 min refill limit on (set "held below 5 F" on the room)
     learn: [], build: (W) => { campus(W); W.addRoom('cold', 82, 42, 10, 8); }, goals: [], drill: null,
   });
 })();

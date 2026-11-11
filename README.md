@@ -211,7 +211,9 @@ object on the scenario; none does yet, so every contract is winnable with the de
 | Aspirating detector model | VESDA-E VEP / VESDA-E VEU. Sets the listed range of every stage. Changing it never changes a threshold | VEP |
 | Aspirating detection thresholds | four values: Alert, Action, Fire 1, Fire 2. Each must sit inside its own listed range for the model, and they must run strictly increasing. A value outside the range is kept as typed, shown red and failed by plan review: nothing is clamped | 0.03 / 0.06 / 0.12 / 1.2 %/ft (owner-set example values: ASSUMED, NEEDS PE REVIEW) |
 | Spot detector alarm threshold | a value inside the listed window 0.5 to 4.0 %/ft (example data) | 1.3 %/ft (ASSUMED) |
-| NFPA 76 adopted on this site | no / yes; when yes, two ceilings are checked: Alert 0.2 %/ft or less, and Fire 1 (the first alarm stage) 1.0 %/ft or less. PRACTICE, NEEDS PE REVIEW | no |
+| NFPA 76 adopted on this site (the default for telecom rooms) | no / yes. NFPA 76 applies by room: only a Telecom / MMR room can be an NFPA 76 space, this setting is its default and the room can override it. Where it applies, two ceilings are checked against the aspirating detector in that room: Alert 0.2 %/ft or less, and Fire 1 (the first alarm stage) 1.0 %/ft or less. PRACTICE, NEEDS PE REVIEW | no |
+| NEC edition (NAC wire resistance) | 2023 / 2026. Only the NAC voltage-drop check reads it. On 2026 the 2023 Table 8 ohms are shown as ASSUMED / VERIFY (NEC 2026 Table 8 is on hold), never as 2026 code | 2023 |
+| Owner / insurer refill target | none / 10 / 15 / 20 / 25 min (ASSUMED picks). Judged like the code check, on the largest zone alone from 0 psig (method ASSUMED). Over the target and inside the code limit is a plan review warning tagged owner/insurer criterion, never a code failure | none |
 | Signal class: aspirating Alert, Action | supervisory / alarm | supervisory (ASSUMED) |
 | Signal class: latched P (release input) | not elected (OPEN) / alarm / trouble. Supervisory is blocked | not elected (ASSUMED) |
 | Manual Release zone bypasses P | off / on. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve | off |
@@ -235,8 +237,12 @@ bypass) and, in the Sandbox, the **Air maintenance device** pick (AVC fitted, th
 compressor direct). The releasing panel has its **battery** pick (7 to 100 Ah, ASSUMED picks, 26 Ah by
 default; the pick is free), its **charger** pick (matched to the battery, the default, or 1 / 2 / 3 /
 4 / 6 / 10 A: ASSUMED listing values) and, in the Sandbox, **Fail charger** and **Disconnect battery**,
-and on the DACT path the **Fail DACT channel** buttons. A **Freezer / Cold Dock** room has its
-**Maintained below 5 F** toggle (Sandbox): that is where the 60 min refill limit is set.
+and on the DACT path the **Fail DACT channel** buttons. A **Refrigerated Space** room has its
+**Held below 5 F** toggle (Sandbox): that is where the 60 min refill limit is set. Since Cycle 8 the
+panel also has the **NAC voltage-drop check** (off by default), a compressor shows a **Relief check**
+row, and a data hall can be made a **Telecom / MMR** room on the room itself (Sandbox), with its
+**NFPA 76 applies here** pick and, on a VEA site, a per-room Fire 1 pick. The Site dialog gains the
+**NEC edition** row and the **Owner / insurer refill target** row. See "Cycle 8" below.
 
 The edition changes the citations in plan review and on the test reports and shows an "Edition
 delta vs 2025" line. Pass and fail do not differ by edition in this version. NFPA 13-2022 keeps the
@@ -283,7 +289,12 @@ not at the main drain, and never by opening the control valve. A zone found belo
 **The Finish button** (FP Lead, Cycle 7; PRACTICE). The step ends only when the operator presses
 **Finish return to normal** on the valve. Nothing ends it by itself: when every condition holds the
 row reads "All conditions met. Press Finish return to normal." and waits. Pressed too early the press
-is refused and scored as one error that names what was missing (each refused press counts: ASSUMED).
+is refused, every time, and names what was missing. Since Cycle 8 (FP Lead, PRACTICE) a refusal counts
+as **one error for each unchanged set of blockers**: pressing again with the same things missing, or
+with fewer, adds no error; a blocker that was not in the last refusal does, and so does one that comes
+back after the zone was ready. The raw number of presses is shown beside the errors as information:
+"Finish was pressed 3 time(s) before the zone was ready; counted as 1 error(s), one for each new set of
+blockers (informational)."
 
 **Drains during the return to normal** (FP Lead ruling; company practice, ASSUMED: NFPA 13 prescribes
 no bleed point). Nothing is hard-blocked: the consequence is modelled, coaching comes first, and only
@@ -352,17 +363,19 @@ The valve's two fill rows are **measured and informational**: the first fill of 
 (commissioning) and the last refill. One compressor serving several zones fills them all at the same
 time here (`SIMPLIFICATION: parallel split; real ECS per-riser AVC/restrictors feed concurrently`), so
 fills on a shared compressor can read over 30 min while the code check passes (contract 5's reference
-build: 30.3 and 35.6 min on one 10 scfm unit, 19.1 min for the largest zone alone). The row then reads
-"35.6 min, over the 30 min limit - zones fill together on a shared compressor (SIMPLIFICATION: parallel
-split). NFPA 13 sizes the compressor for one system: the largest zone alone fills in about 19 min, so
-the compressor is sized correctly", in amber, never FAIL. Some owners or FM jobs set a tighter refill
-time: check the project basis of design. A zone that lost its air without
+build: 30.3 and 35.6 min on one 10 scfm unit, 19.1 min for the largest zone alone). Since Cycle 8 (FP
+Lead) a measured time is never compared with the limit as if it were the code check: each row reads
+"35.6 min (measured, informational)", with no limit, no verdict and no colour at any length, and the
+code check is the **Air supply sizing** row under them. Some owners or FM jobs set a tighter refill
+time: check the project basis of design, and set it as the **owner / insurer refill target** (Cycle 8
+below). A zone that lost its air without
 tripping starts an informational timer at the low-air crossing. Nothing but contract 2's existing dock
 goal reads a fill time. Refrigerated spaces maintained below 5 °F get 60 minutes instead of 30
 (verified), and since Cycle 7 that is **per zone**: a zone gets 60 minutes only when every room it
-protects is a **Freezer / Cold Dock** room with "maintained below 5 F" set (the "every room" reading
-is ASSUMED, NEEDS PE REVIEW). A cold dock that is not held below 5 °F, a zone that also covers any other
-room, and every zone of a typical data center stay at 30. It moves that zone's clock, sizing minimum
+protects is a **Refrigerated Space** room with "held below 5 F" set (the "every room" reading
+is ASSUMED, NEEDS PE REVIEW and AHJ). The room type alone never qualifies: a cooled space that is not
+held below 5 °F (a 35 °F dock, for example), a zone that also covers any other room, and every zone of
+a typical data center stay at 30. It moves that zone's clock, sizing minimum
 (it halves) and review text together. The old site-wide flag is gone: a save that had it set loads with
 every zone at 30 minutes and one log line saying so. The 2025 acceptance wording (§29.2.3.2.4.1) is
 from a search, not verbatim: VERIFY.
@@ -389,15 +402,18 @@ example values stay owner-set, ASSUMED and NEEDS PE REVIEW.
 
 **VESDA-E VEA is a Fire 1-only model** (Cycle 7, fire alarm lead). It has one stage: pick 0.5 (High),
 1.23 (Enhanced) or 2.5 (Standard) %/ft (Xtralis Doc. 36348_03); any other stored value fails plan
-review. The default is 1.23 where NFPA 76 is not adopted and 0.5 where it is (a telecom space is mapped
-to that site flag: PRACTICE, NEEDS PE REVIEW). The Gamewell sheet 9021-61037 prints Enhanced as 1.3
+review. The default is by room since Cycle 8: 0.5 in a telecom room where NFPA 76 applies and 1.23 in
+every other room, whatever the site setting, and a room can carry its own pick, on this model only
+(which rooms count as NFPA 76 telecom: PRACTICE, NEEDS PE REVIEW). The Gamewell sheet 9021-61037 prints Enhanced as 1.3
 (4.0 %/m): a source mismatch shown as a note, never a setting. Alert, Action and Fire 2 values are not
 published for the model, so they do not exist for it: no such signal is ever raised, and the Fire 2
 HVAC hook and those matrix rows read "not available". The release function is untouched: D is still
 "level at or above Fire 1". Not offered: FAAST LT-200 and FLEX (no UL 268 or FM listing on the sheets), TITANUS PRO·SENS and FAAST XM /
 XS (conflicting or non-current sheets).
 
-**NFPA 76 where adopted.** Two plain ceilings (NFPA 76-2024 §8.5.3.1.2.5): Alert 0.2 %/ft or less,
+**NFPA 76, by room.** It applies in a Telecom / MMR room (the site setting is the default for telecom
+rooms; see "Cycle 8" below), and is checked where an aspirating detector sits in such a room. Two
+plain ceilings (NFPA 76-2024 §8.5.3.1.2.5): Alert 0.2 %/ft or less,
 and the 1.0 %/ft alarm ceiling applied to Fire 1, the first alarm stage. The 1.0 %/ft figure is
 verified (fire alarm lead, Cycle 7): NFPA 76-2024 §8.5.3.1.2.5, Alarm condition, air-sampling, "3.2
 percent per meter (1.0 percent per foot) obscuration (effective sensitivity at each port)"; the same
@@ -504,17 +520,24 @@ the notification rule, the hooks and the release are untouched.
   PRACTICE, NEEDS PE REVIEW, so it is a site setting, **on by default**. It decides only what happens to
   a signal that **restored inside the outage**. On: it is sent late, and its restoral follows. An alarm
   sent late still dispatches the fire department: a fire alarm signal received by the station is
-  retransmitted at once (NFPA 72-2022 and 2025 §26.2.1.2; the 2019 text is not on disk: VERIFY). **Off:
+  retransmitted at once (NFPA 72 §26.2.1.2 [CODE], the same section in 2019, 2022 and 2025), and
+  verification (§26.2.2) is not a late-signal or no-dispatch path. **Off:
   drops what has restored; a live signal is always re-sent.** A dropped signal was never sent, so it
   has no restoral.
 - **Restorals.** When a signal the station has is no longer a condition at the panel, the panel
-  reports its restoral (NFPA 72-2022 and 2025 §26.2.5.1, verified; 2019 and the hidden Canadian row
-  show VERIFY on the line). With the path up it is one log line ("RESTORAL to station"). A signal the
+  reports its restoral (NFPA 72 §26.2.5.1 [CODE], verified in 2019, 2022 and 2025: since Cycle 8 the
+  2019 text is held, so no edition shows a mark on the line). §26.2.1.4 (subsequent signals) is 2022
+  and 2025 only, is not modelled and is never shown on a 2019 site. The hidden Canadian row is the
+  NFPA 72-2019 label only: CAN/ULC-S561 is not held (on hold), and the station rule is never shown as
+  Canadian code. With the path up it is one log line ("RESTORAL to station"). A signal the
   station already holds that clears in a later outage gets a restoral entry in the queue, and that is
   never dropped under hold OFF (PRACTICE, NEEDS PE REVIEW). A fire alarm restores when the panel is
   reset or the device is restored by hand. A restoral dispatches nothing.
-- **Waterflow latches at the panel until reset** (listed-panel practice, NEEDS PE REVIEW: no general
-  latch rule is on disk). Detectors, manual stations and the release latches already held; waterflow
+- **Waterflow latches at the panel until reset** (label since Cycle 8: PRACTICE with code support,
+  NEEDS PE REVIEW: NFPA 72 §10.11.6, §23.8.2.2 [indirect] and §10.18.1.2, which is §10.18.1.1.2 in
+  2019. §23.8.2.2 is about combined subsystems sharing equipment and is indirect support, never quoted
+  as a rule that alarms hold until reset; no NFPA 72 sentence says fire alarms latch until manual
+  reset, and §10.14.2 covers supervisory latching only). Detectors, manual stations and the release latches already held; waterflow
   was the one fire alarm that followed the live reading. A reset with water still flowing says "still
   in alarm"; after the flow has stopped it clears. A dead panel holds no latch. A flow raised on test
   does not latch (a simplification), and a latched alarm whose flow is over starts no new dispatch.
@@ -605,12 +628,18 @@ Two labels are used in the UI and the manual:
   NFPA 72-2025, the DACT retry count (10; the 5 to 10 bound and the 90 s are CODE) and the 10 s between
   two sends on restore, the trouble resound at exactly 24 h, the x1.25 compressor sizing margin, the
   compressor cut-out (none by default; 45 to 60 psi choices), the compressor's rated max discharge and
-  relief setpoint picks and the AVC bypass target of 60 psi where the compressor is not modeled, each
-  refused Finish press counting as one error, the 0.1 s sub-step while a return-step system drain is
-  open, the wording of the low-air, main-drain-flow and Finish-too-early texts (the Tutor gave the
-  P-latched, water-flow and clean-pass sentences), the charger picks, "matched to the battery", the
-  amperes x 48 h rule with no taper and the battery and charger cost, the Freezer / Cold Dock contents
-  value, the migration of a save with the old refrigerated flag back to 30 min,
+  relief setpoint picks and the AVC bypass target of 60 psi where the compressor is not modeled, the
+  reading that a refused Finish whose blocker set only shrank adds no error, the 0.1 s sub-step while
+  a return-step system drain is open, the wording of the low-air text for an episode with no drain
+  open and of the last sentence of the step 14 banner (the Tutor gave every other return-to-normal
+  sentence), the charger picks, "matched to the battery", the
+  amperes x 48 h rule with no taper and the battery and charger cost, the Refrigerated Space and
+  Telecom / MMR contents values, the migration of a save with the old refrigerated flag back to 30 min,
+  the NAC check's 16 V appliance minimum, its 20.4 V start when none is given, its appliance currents
+  per candela (0.10 / 0.15 / 0.20 / 0.25 A at 15 / 30 / 75 / 95 cd: round numbers, not from a listing),
+  its start-voltage picks and its 40-appliance cap, the owner / insurer refill picks (10 / 15 / 20 /
+  25 min) and judging that target on the largest zone alone, reading "AVC high" in the relief warning
+  as the high-air setpoint of a zone the compressor feeds,
   the classes and station-only routing of the signals outside the fire alarm lead's schedule, the
   electric / electric P latch being lost with panel power and read again on restore, 0.5 psi as "about
   0 psi" before a head is replaced (the gate itself is confirmed by the fire protection lead; the
@@ -630,11 +659,14 @@ Two labels are used in the UI and the manual:
   NFPA 76 ceilings applied to Alert and to Fire 1 with Action as pre-alarm (PRACTICE), the HVAC and
   EPO hooks (the election, the trigger stage, the NEC 645 / FM DS 5-32 interface), DACT hold and send
   itself (no code basis) and "a live signal is always re-sent", the count of 10 attempts, where OPEN
-  sits in the restore order (last), never dropping a restoral under hold OFF, the 2019 restoral and
-  late-alarm text (not on disk), latching waterflow until a panel reset, the optional AVC bypass tamper
+  sits in the restore order (last), never dropping a restoral under hold OFF, latching waterflow until
+  a panel reset (PRACTICE with code support), the optional AVC bypass tamper
   switch, the per-zone "every room is a freezer held below 5 F" reading of the 60 min limit, sequential
-  refill as an owner practice, mapping the NFPA 76 Alarm condition to VEA Fire 1 and a telecom space to
-  the NFPA 76 site flag, the scoring of the main drain 10 percent drop, the FM 90 h + 10 min standby row
+  refill as an owner practice, mapping the NFPA 76 Alarm condition to VEA Fire 1 and which rooms count
+  as NFPA 76 telecom, the NAC check (the 16 V minimum, the ASSUMED 20.4 V start, the ASSUMED currents,
+  the 20 percent THIN margin as a company rule, the method on 2019 and 2022 sites, and the 2023 Table 8
+  ohms on a NEC 2026 site), the owner target method, the two compressor relief warnings, step 14 as
+  company practice, the scoring of the main drain 10 percent drop, the FM 90 h + 10 min standby row
   (2007 edition), the 10 min owner row, the generator-backed 4 h case and the THIN screen under 20 %,
   a compressor cut-out above high air as a fail where there is no AVC,
   the 24 h air test pressure at the greater of 40 psi or normal (company practice), the x1.25 sizing
@@ -646,8 +678,13 @@ Two labels are used in the UI and the manual:
   Currently: the 2019 calculation-route paragraphs, the 2025 acceptance wording for the refill time
   (§29.2.3.2.4.1, from a search, not verbatim), the body text of the NFPA 25-2020 valve status test
   (only the table row is held), and the aspirating ranges against the UL Product iQ listing (not
-  checked; no access is to be bought for it), and NFPA 72-2019 §26.2.1, §26.2.2 and §26.2.5 (late
-  alarms and restorals: not on disk, so a 2019 site shows VERIFY on the restoral line). Verified in
+  checked; no access is to be bought for it). On hold: NEC 2026 Chapter 9 Table 8 (a NEC 2026 site
+  shows the 2023 ohms as ASSUMED / VERIFY), and CAN/ULC-S561, CAN/ULC-S524 and CEC Section 32 (the NAC
+  check is not evaluated on a Canadian build). Verified in Cycle 8 and off this list: NFPA 72-2019
+  §26.2.1.2, §26.2.2 and §26.2.5.1 (the 2019 text is held and matches 2022 and 2025 for these duties),
+  §10.11.6 and §10.18.1.2 (2019 §10.18.1.1.2) on resetting alarm signals, §7.2.1(8) (NAC calculations
+  are a documentation item) in all three editions, NFPA 72-2025 §18.3.7.1 to §18.3.7.6 and NFPA 70-2023
+  Chapter 9 Table 8. Verified in
   Cycle 7: the NFPA 76 alarm figure of 1.0 %/ft (NFPA 76-2024 §8.5.3.1.2.5, Alarm condition,
   air-sampling; the same in 2020; applying it to Fire 1 stays PRACTICE), and NFPA 72-2022 / 2025
   §26.2.1.2 and §26.2.5.1. Verified in Cycle 6 and off this list: the NFPA 25 main
@@ -706,6 +743,90 @@ trip-test-connection trigger for double interlock is not modelled (on double int
 trigger, not a maximum volume: the only size exemption is 500 gal, with or without a quick-opening
 device); FM is the 30 s limit only.
 
+### Cycle 8: label corrections, NAC voltage drop, the two-number refill report
+
+Cycle 8 changes no release logic. `DI.relState`, the D block at the top of `alarm.js`, `DI.FIRE1` and
+the truth-table fixture are byte-identical to Cycle 7, and the review of every contract is unchanged.
+
+**Label corrections.** NFPA 72-2019 and the hidden CA-2019 row drop VERIFY on the station-side cites
+(§26.2.1.2, §26.2.2, §26.2.5.1): the 2019 text is held and matches 2022 and 2025. The waterflow latch
+is labelled PRACTICE with code support, NEEDS PE REVIEW. The NFPA 25 10 percent text is a trigger to
+investigate, not an automatic fail: a main drain test with a drop over 10 percent reads INVESTIGATE.
+Step 14 is labelled company practice. The cold room type is named Refrigerated Space, because a cold
+dock counts only if it is held below 5 °F. Details are in the sections above and under "Recovery after
+an incident".
+
+**NAC voltage drop at the last appliance** (fire alarm lead; a plan review check only). One DC
+notification appliance circuit per releasing panel, Class B, end-line-loaded (every appliance taken at
+the far end of the run), **off by default**. Switch it on at the panel and pick the wire gauge (18 /
+16 / 14 / 12 AWG), the routed one-way length (10 to 1000 ft), the number of appliances (1 to 40), their
+candela (15 / 30 / 75 / 95) and the start voltage (21 / 22 / 23 / 24 V from the panel or module data
+sheet, or not given).
+
+```
+total current       = appliances x current of one at its minimum voltage
+circuit resistance  = 2 x one-way length x ohm per 1000 ft / 1000     (both conductors counted)
+V at last appliance = start voltage - total current x circuit resistance
+margin              = (V at last appliance - 16 V) / 16 V
+```
+
+| Item | Value | Label |
+|---|---|---|
+| Wire resistance, ohm per 1000 ft | 18 AWG 7.95, 16 AWG 4.99, 14 AWG 3.14, 12 AWG 1.98 | NFPA 70-2023 Ch. 9 Table 8, 75 C, uncoated stranded copper [CODE NEC 2023]. On a NEC 2026 site: ASSUMED / VERIFY, never 2026 code |
+| Appliance minimum voltage | 16 V | A.18.3.7 [HB]; ASSUMED, confirm on the listing |
+| Appliance current at the minimum voltage | 0.10 / 0.15 / 0.20 / 0.25 A at 15 / 30 / 75 / 95 cd | ASSUMED listing values: round numbers, not from a listing |
+| Start voltage when none is given | 20.4 V (end of discharge on a 24 V system) | ASSUMED |
+| THIN margin | under 20 percent above the minimum | company rule: PRACTICE, NEEDS PE REVIEW |
+
+Verdicts, one finding per panel, the worst of: **FAIL** below the appliance listed minimum; **warning,
+THIN**, when the margin is under 20 percent; **warning, not a fail**, when the start voltage is
+ASSUMED. A clean pass is one information line: it is the NAC voltage drop calculation the
+documentation list asks for (NFPA 72 §7.2.1(8) [CODE], 2019, 2022 and 2025). Worked example: 7
+appliances of 75 cd on 600 ft of 12 AWG from 20.4 V draw 1.4 A through 2.376 ohm, drop 3.33 V and
+leave 17.07 V, a margin of 6.7 percent: no fail, a THIN warning, and the longest passing length is
+793.6 ft. With 14 appliances on 14 AWG the same run leaves 9.85 V: FAIL.
+
+Basis by NFPA 72 edition: 2025 is NFPA 72-2025 §18.3.7.1 to §18.3.7.6 [CODE]; on 2022 and 2019 sites
+the same method is PRACTICE (2022 §18.3.7 ends at §18.3.7.2; 2019 has no §18.3.7). On the hidden
+Canadian row the check is not evaluated: CAN/ULC-S524 and CEC Section 32 are not held. It raises no
+signal, has no matrix row, and is no input of detection, P, the release, the hooks or the standby
+battery calculation. Not modelled: point-to-point, Class A, module voltage adjustment, sync-module
+loss, speaker circuits (Cycle 9) and the NAC alarm current in the battery calculation.
+
+**The two-number refill report**, **Finish once per unchanged blocker set** and the **Tutor's
+sentences** are described under "Recovery after an incident" and "The Finish button" above.
+
+**Compressor relief warnings** (FP Lead; PRACTICE checks on ASSUMED picks, never a fail). Plan review
+and the compressor's **Relief check** row warn when the relief setpoint is at or below the cut-out, or
+at or below the high-air setpoint of a zone the compressor feeds (the relief will lift during normal
+operation), and when the relief is above the rated max discharge. The drift of an open AVC bypass is
+unchanged: a cut-out still rules over a lower relief, and the first warning flags that configuration.
+
+**Owner / insurer refill target** (FP Lead). An optional site setting, 10 / 15 / 20 / 25 min. It is
+judged the way the code check is: the largest zone alone, from 0 psig (method ASSUMED, unless the owner
+defines it differently). A fill longer than the target and inside the code limit is a plan review
+warning that starts "Owner/insurer criterion:" and says it is a warning, not a code failure. Over the
+code limit (30 min, or 60 where the zone qualifies) it stays the code FAIL, with no second finding. The
+drill report adds "Owner/insurer target: 15 min. Met." or "Not met", and with a target set the valve shows
+an **Owner / insurer refill target** row under the sizing row.
+
+**Telecom is a room type; NFPA 76 applies by room** (fire alarm lead). Only a **Telecom / MMR (NFPA
+76 space)** room can be an NFPA 76 space; a data hall never is. The site setting is now only the
+default for telecom rooms, and each telecom room can override it ("NFPA 76 applies here"). Which rooms
+count as NFPA 76 telecom is PRACTICE, NEEDS PE REVIEW. The two ceilings are checked in every NFPA 76
+room that holds an aspirating detector, and each finding names the room. On a **VEA** detector, and
+only there, Fire 1 is read per room: the room's own pick, else the site pick, else 0.5 %/ft in an NFPA
+76 telecom room and 1.23 %/ft in every other room. The site setting no longer pushes 0.5 onto the
+halls. Migration: a save from before Cycle 8 with the site setting on keeps its sensitivity (on a VEA
+site with no stored pick, 0.5 is written as the site pick) and says once: "NFPA 76 now applies by room.
+This save has no telecom room, so no room is checked until you set one (room type Telecom / MMR, or
+NFPA 76 applies here)." No contract uses the room type.
+
+**No recall, shunt, waterflow or door device feeds the release** (fire alarm lead, joint ruling
+8cb97c21, PRACTICE). Elevator recall, shunt trip, door hold-open and locked-door devices are fire alarm
+outputs and monitor points only; a shunt trip is not an EPO hook. None exists in the game yet, and an
+acceptance check guards the rule for when one does.
+
 ### Recovery after an incident
 
 An incident on a preaction system starts with an operated head, a latched P or a trip. There is one
@@ -757,15 +878,21 @@ Two gates enforce the parts that are physical:
   order. The scored drill incident keeps its hard stop.
 
 Only the broken-sprinkler incident in the contract 5 drill is scored, and there the list has a
-**step 14, the main drain test** (Fire Tutor): 14 of 14 in order earns the star. "Main drain test:
-with the control valve fully open, open the main drain fully, record static and residual pressure,
-then close it slowly. A big drop compared to the last test means a valve may be partly closed." The
+**step 14, the main drain test** (Fire Tutor): 14 of 14 in order earns the star. Its label is the
+Tutor's (Cycle 8): "Main drain test (company practice). NFPA 25 requires a valve status test after a
+control valve is reopened (2023 13.3.3.4)." The banner and the log read: "Company practice. Main drain
+test: with the control valve fully open, open the main drain fully, record static and residual
+pressure, then close it slowly. A 10 percent drop in full flow pressure against the last test means
+find the cause (NFPA 25)." (the last sentence is ASSUMED wording). The
 step counts when the test is run from the valve's Tests button after the control valve is back open,
 with both readings recorded. A drop of more than 10 percent against the last test does not fail the
-step. As a common rule of thumb it means a valve may be partly closed, and the result says so in the
-Tutor's words: "Residual pressure is X% lower than the last test. A valve may be partly closed. Check
-that the zone control valve and the supply valves upstream (riser control valve, PIV, backflow
-preventer valves) are fully open, then test again." **Check the valves upstream** on the valve reports
+step and is not an automatic fail: it is a trigger to investigate (Fire Tutor correction, Cycle 8).
+The result reads **INVESTIGATE** instead of FAIL, cites the rule ("NFPA 25-2023 §13.2.2.3 (2020
+§13.2.3.3): a 10 percent drop in full flow pressure vs the acceptance test or earlier tests means find
+the cause and correct it if necessary.") and says, in the Tutor's words: "Full flow pressure is X
+percent lower than the last test. NFPA 25 says find the cause. A partly closed valve is the usual one.
+Check the zone control valve and the supply valves upstream (riser control valve, PIV, backflow
+preventer valves)." The trigger is strictly more than 10 percent. **Check the valves upstream** on the valve reports
 every control valve on the supply path and logs the check. In a drill, a drop over 10 percent that is
 followed by none of that check, a supply-path control valve reopened, or a later passing test is one
 informational error line, "10% drop not investigated" (PRACTICE scoring). With no earlier test the
@@ -783,21 +910,25 @@ The **recovery rating** reads **water stopped**: the time from the alarm to the 
 (step 3), plus every step in order. Three stars within 60 s, two within 150 s, one for any complete
 in-order recovery (ASSUMED, play test; informational one more cycle, and separate from the contract's
 stars). The report adds the Tutor's tip: "In a real building, getting to the riser takes minutes. Know
-where each zone's control valve is before an event." The alarm is the first alarm signal after the incident opens, or the incident itself where
+where each zone's control valve is before an event." When water was stopped in under 30 s it adds, on
+its own line: "Your time assumes you were standing at the riser." The alarm is the first alarm signal after the incident opens, or the incident itself where
 none rings (a broken head on a double-interlock zone never trips). The times are reported on their own
 lines and never summed: "Operator steps took: 23 s" is the recovery itself, "Main drain test took:
 34 s" is step 14. The water is two lines too, never a total: "Discharged through the open head: 121
 gal" and "Main drain test: 156 gal (to drain, not to the floor)". Water out of a system drain, an
-inspector's test or the pump test header is neither: when there is some it gets a line of its own,
-"Other drains and test connections" (that line's wording is ASSUMED). Whenever zones share a compressor the
-report adds, pass or fail: "Note: 3 zones share this compressor. NFPA 13 sizes it to refill the largest
-zone to normal pressure in 30 min. This one does it in 19.1 min." with the section of the edition in
-force (2019 and 2022 §8.2.6.3.2; 2025 §8.2.7.3). The air refill is compressor time and has its own informational line
-against the 30-minute limit, with the total beside it: "Air refill: 12.2 min (limit 30 min). OK." A
-refill over the limit is explained, never failed: the compressor is too small to refill the largest
-zone alone, or the zones share one compressor: "Air refill: 34.0 min with all three zones refilling at
-once. NFPA 13 sizes the compressor to refill one system in 30 min. The largest zone alone refills in
-about 19 min, so the compressor is sized correctly." No line can fail the drill. Every other
+inspector's test or the pump test header is neither: when there is some it gets a line of its own, in
+the Tutor's words: "Other drains and test connections (system drain, inspector's test): 5 gal, to
+drain, not to the floor." The **air refill is two numbers on two labeled lines** (Cycle 8: FP Lead for
+the order and labels, Fire Tutor for the sentences), and only the first is ever compared with the
+limit. On top, because it decides pass or fail: "Code check: largest zone alone, from 0 psig: 19.1 min.
+Limit 30 min (NFPA 13). Passes." with the section of the edition in force (2019 and 2022 §8.2.6.3.2;
+2025 §8.2.7.3); where the compressor is too small it ends "Fails: the compressor is too small for this
+zone. Size it to refill the largest zone to normal pressure in 30 min." (the failure itself is the plan
+review finding). Under it: "Air refill this drill, measured: 12.2 min (zones refilled at the same time,
+from partly full). Informational." That line never carries a limit, "OK" or "over". Whenever zones share
+a compressor the report adds: "Note: 3 zones share this compressor. It is sized for the largest zone,
+not for all zones at once." With sequential refill on and the total over the limit, the FP Lead's PASS
+sentence follows the measured line. No line can fail the drill. Every other
 recovery, after a trip test or in the Sandbox, is practice: the valve's inspector shows a **Recovery
 checklist (PRACTICE)** with each of the thirteen steps done, pending or not applicable, the main drain
 test as a tip, and no goal reads it. The drill
@@ -852,7 +983,7 @@ fixtures/
 review/
   truth-table-check.js         prints the truth table against the engine, row by row
 src/
-  core.js       constants, units, pipe table by schedule, pipe size cut, C factor, hazard and room tables (the Freezer / Cold Dock room type included)
+  core.js       constants, units, pipe table by schedule, pipe size cut, C factor, hazard and room tables (the Refrigerated Space and Telecom / MMR room types included)
   juris.js      enforced-edition table (US 2019 / 2022 / 2025, hidden Canada row), delivery, air-test and refill citations, NFPA 72 citations by NFPA 72 edition (its own site setting), NFPA 25 main drain and valve status references, water-delivery numbers, NFPA 76 ceilings
   data.js       part catalogue, costs, pump curve, maker trim presets, aspirating detector models and their listed ranges, signal registry (classes, fire-department dispatch list, schedule tags), panel power, the standby table and calculation, supervising-station and DACT tables (attempts, hold and send), the AVC helpers, setting defaults
   world.js      the tile map: pipes, sprinklers, parts, tubing, wires, capped joints, site settings, save migration
@@ -875,7 +1006,7 @@ test/
   solver.test.js  graph.test.js  sim.test.js  proc.test.js   engine tests against hand calcs
   truth-table.js              pins and self-checks the truth-table fixture, then runs it against the engine (used by sim.test.js and review/)
   campaign.test.js  bot.js    plays every contract headlessly with a reference solution and an operator
-  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  ui.c6.js  ui.c7.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2, 3, 4, 5, 6 and 7 UI checks
+  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  ui.c6.js  ui.c7.js  ui.c8.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2, 3, 4, 5, 6, 7 and 8 UI checks
 ```
 
 About 5,000 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
@@ -909,7 +1040,16 @@ node test/sim.test.js         # wet / dry / double interlock / pump behaviour en
                               # error lines, the AVC drift ceiling and the bypass tamper, the per-zone
                               # refrigerated limit, sequential refill, the main drain follow-up, the
                               # tiers and report lines, the VEA Fire 1 pick, the charger, persistence,
-                              # the locks and the standalone build) and static greps
+                              # the locks and the standalone build), the Cycle 8 checks (A113 onward:
+                              # the 2019 and CA-2019 station labels, the latch label, the 10 percent
+                              # rule and INVESTIGATE, step 14 and the room name, the NAC voltage drop
+                              # with hand-calculated anchors, verdicts, labels by edition and its
+                              # isolation from release and standby, the two-number refill report,
+                              # Finish once per blocker set, the compressor relief and owner target
+                              # warnings, the Tutor sentences, the telecom room type, NFPA 76 by room
+                              # with its migration and the release lock, the guard that no recall,
+                              # shunt, waterflow or door device feeds the release, persistence, docs)
+                              # and static greps
 node test/proc.test.js        # commissioning procedures
 node test/campaign.test.js    # all seven contracts: goals met, drill passed, cost reported; then an
                               # informational what-if with the insurer set to FM (not counted)
@@ -936,14 +1076,25 @@ node test/ui.c6.js out.png    # needs Playwright: drain coaching and the Return 
 node test/ui.c7.js out.png    # needs Playwright: the Finish return to normal button in every mode, its
                               # refusal and clean pass, the compressor picks and the AVC bypass tamper
                               # switch, the Site dialog (per-zone note, air refill order, the VEA model
-                              # and its Fire 1 pick), the Freezer / Cold Dock room toggle, the charger
+                              # and its Fire 1 pick), the Refrigerated Space room toggle, the charger
                               # pick and its FAIL text, RESTORAL and HAZARD CASE in the station queue,
                               # the main drain hint and "Check the valves upstream", and the drill
                               # report lines. Saves out.png plus out-finish.png, -avc.png, -site.png,
                               # -room.png, -charger.png, -queue.png, -report.png
+node test/ui.c8.js out.png    # needs Playwright: the NAC block on the panel (off by default, the FAIL
+                              # and THIN cases, labels by edition, NEC 2026, the Canadian hold), the
+                              # Site rows (NEC edition, owner / insurer refill target), the drill
+                              # report (code check above measured, the shared note, the realism and
+                              # other-drains lines), the neutral refill rows, Finish pressed three
+                              # times, the compressor relief warnings, the Refrigerated Space and
+                              # Telecom / MMR rooms with NFPA 76 by room, the latch label on the signal
+                              # schedule, the station queue footnote on a 2019 site, INVESTIGATE, step
+                              # 14 as company practice, and an old save with the NFPA 76 flag on.
+                              # Saves out.png plus out-nac.png, -site.png, -report.png, -finish.png,
+                              # -comp.png, -room.png, -sched.png, -drain.png
 ```
 
-`npm test` runs the five engine suites and `npm run test:ui` the seven browser tests. `sim.test.js`
+`npm test` runs the five engine suites and `npm run test:ui` the eight browser tests. `sim.test.js`
 also checks that `double-interlock.html` is what `build-standalone.js` makes from `src/` as it stands,
 so run `node build-standalone.js` after any change in `src/` and before the tests. Put
 `STANDALONE=1` in front of a browser test to run it against the built `double-interlock.html`. `npm install`
@@ -964,14 +1115,16 @@ hazard classes by insurer with lithium-ion rooms as an ESS off-ramp), a contract
 to FM, the rest of the fire alarm phase-in (notification circuits, when the LocalNAC column becomes a
 simulated output; a modelled building FACU, EVACS or ESS panel; a live-status column on the matrix),
 matrices for dry and wet valves, two-way radio paths, a configurable DACT retry count, a model of the
-supervising station's 6 h DACT test and its missed-test annunciation, a general fire-alarm latch rule
-beyond waterflow if one is found on disk, notification-circuit voltage drop and speaker circuit loss,
-elevator recall and door-lock interfaces, the supervising-station charger rule, a
+supervising station's 6 h DACT test and its missed-test annunciation, speaker circuit loss (Cycle 9: it
+reuses the Table 8 wire layer of the NAC check), NAC point-to-point and Class A, the NAC alarm current
+in the standby battery calculation, elevator recall and door-lock interfaces (monitor points and
+outputs only: they never feed the release), the supervising-station charger rule, a
 compressor pressure-switch model, a drill that fails a compressor and fills a zone on the clock, a
 plan-review finding for missing supply-air supervision, a compressor's own low-air alarm on a separate
-supply, a contract that uses the freezer room type, an owner target for the sequential refill total
-(a warning, NEEDS PE REVIEW), contract stars from the recovery rating and from the drill error list
-(a bonus star only, never blocking, after a play test cycle), a per-room telecom type for NFPA 76 if
-the fire alarm lead wants one, more aspirating models (Alert, Action and Fire 2 for VEA once a
+supply, a contract that uses the freezer or the telecom room type, an owner target for the sequential
+refill total (a warning, NEEDS PE REVIEW), a bonus contract star (the Cycle 9 question: the Fire Tutor
+proposes zero return-to-normal errors and water stopped within 60 s, the FP Lead the error list only
+and never time; never a gate, the base contract unchanged), a per-room Fire 1 for VEP, VEU or spot
+detectors, more aspirating models (Alert, Action and Fire 2 for VEA once a
 datasheet gives them; TITANUS and FAAST once consistent current sheets are held) and a UL Product iQ check of
 every listing, and real Canada edition rules once verified.

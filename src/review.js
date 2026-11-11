@@ -25,7 +25,7 @@ DI.review = function (S) {
     for (const r of inf.thru) {
       const room = W.rooms[r - 1], rt = DI.ROOMS[room.type];
       if (!dry && !rt.cond) add('fail', nm + ': wet pipe runs through ' + room.name + ', which is not heated. Wet systems need 40 °F or warmer.', R('Ch. 16 (freeze protection)'), room.x, room.y);
-      if ((room.type === 'hall' || room.type === 'elec') && inf.rooms.has(r) && v.type !== 'prev')
+      if ((room.type === 'hall' || room.type === 'elec' || room.type === 'tel') && inf.rooms.has(r) && v.type !== 'prev')
         add('warn', nm + ': ' + room.name + ' is not on double-interlock preaction. One broken sprinkler or one false detection puts water on live IT load.', 'Owner standard / FM DS 5-32', room.x, room.y);
     }
     if (dry) {
@@ -44,6 +44,13 @@ DI.review = function (S) {
         if (az.below) add('fail', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') cannot restore normal pressure in ' + zone + ' within ' + lim + ' min even filling it alone (needs ' + DI.fmt(az.min, 1) + ' scfm; fills in ' + (isFinite(az.tAlone) ? DI.fmt(az.tAlone, 1) + ' min' : 'no time at all') + ').' + cut, ref, v.x, v.y);
         else add('warn', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') meets the ' + DI.fmt(az.min, 1) + ' scfm minimum for ' + zone + ' but is below the x' + DI.AIR_SIZING.margin + ' margin (' + DI.fmt(az.margin, 1) + ' scfm; ASSUMED, NEEDS PE REVIEW).' + cut + ' Recovery time is mostly compressor time: watch the refill clock on the valve.', ref, v.x, v.y);
       }
+      // Owner or insurer refill target (site setting, FP Lead, Cycle 8): judged like the code check, on the largest zone
+      // alone from 0 psig (method ASSUMED). Over the target with the code check passing is a WARNING tagged
+      // owner/insurer criterion; over the code limit it stays the code FAIL above and adds no second finding. A target
+      // at or above the zone's limit is no tighter than the code and raises nothing.
+      { const T = DI.ownerRefill(W);
+        if (T && az && az.gov === id && !az.below && T < az.limit && az.tAlone > T) add('warn', 'Owner/insurer criterion: the largest zone alone fills in ' + DI.fmt(az.tAlone, 1) + ' min against the owner/insurer target of ' + T + ' min. The code limit of ' + DI.fmt(az.limit) + ' min is met, so this is a warning, not a code failure. (Method ASSUMED: the largest zone alone, from 0 psig.) Zone: ' + nm + '.',
+          'Owner/insurer criterion (site setting); not a code limit. Code limit: ' + DI.refillRef(W, inf), v.x, v.y); }
       // A compressor direct to the system (no AVC) whose cut-out is above the zone's high-air supervisory can push the
       // zone into high air: a configuration FAIL (ASSUMED practice, NEEDS PE REVIEW). With an AVC regulating there is
       // no finding: the AVC holds the zone at normal whatever the cut-out is.
@@ -64,7 +71,7 @@ DI.review = function (S) {
             const det = W.wires.some((w) => { if (w[0] !== pn.id) return false; const d = W.parts.get(w[1]); return d && (d.type === 'vesda' || d.type === 'smoke') && W.roomAt[W.k(d.x, d.y)] === r && DI.canRelease(W, d); });
             if (det) continue;
             const spot = W.wires.some((w) => { if (w[0] !== pn.id) return false; const d = W.parts.get(w[1]); return d && d.type === 'smoke' && W.roomAt[W.k(d.x, d.y)] === r; });
-            if (room.type === 'hall') add('fail', nm + ': ' + room.name + ' has no releasing detection. White space needs aspirating (ASD/VEWFD) detection to release' + (spot ? '; spot detectors there only raise the alarm.' : '.'), R('§8.3, NFPA 72'), v.x, v.y);
+            if (room.type === 'hall' || room.type === 'tel') add('fail', nm + ': ' + room.name + ' has no releasing detection. White space needs aspirating (ASD/VEWFD) detection to release' + (spot ? '; spot detectors there only raise the alarm.' : '.'), R('§8.3, NFPA 72'), v.x, v.y);
             else add('fail', nm + ': no releasing detection wired to the panel in ' + room.name + '. A fire there would never release the valve.' + (spot ? ' Spot detectors release only in electrical / UPS rooms.' : ''), R('§8.3, NFPA 72'), v.x, v.y);
           }
         }
@@ -90,7 +97,7 @@ DI.review = function (S) {
   if (!(spot >= LS.min && spot <= LS.max)) add('fail', 'Spot detector alarm threshold ' + spot + ' %/ft is outside the listed window of the detector (' + LS.min + ' to ' + LS.max + ' %/ft, example data).', listed, 0, 0);
   // NFPA 76, where adopted: two ceilings, Alert and Fire 1 (the first alarm stage). A fail needs one of them
   // exceeded. Where the detector listing is tighter than the alarm ceiling a note says so; it is not a finding.
-  for (const f of DI.n76Flags(W)) add(f.sev, f.text, DI.N76_REF + ' (' + f.code + ')', 0, 0);
+  for (const f of DI.n76Flags(W)) add(f.sev, f.text, DI.N76_REF + ' (' + f.code + ')', f.x || 0, f.y || 0);
   const n76 = DI.n76Note(W); if (n76) add('ok', n76, DI.N76_REF, 0, 0);
   // signal classes: a latched P may be OPEN (not elected), alarm or trouble, never supervisory
   const sc = (W.cfg && W.cfg.sigClass) || {};
@@ -113,8 +120,14 @@ DI.review = function (S) {
       // chgA = 0 is "matched to the battery" (ASSUMED) and raises nothing. The window never stretches for a bigger battery.
       if (p.p.chgA > 0 && c.ah > DI.chargerAh(p)) add('fail', 'Panel #' + p.id + ' charger (' + p.p.chgA + ' A) cannot restore the ' + c.ah + ' Ah battery within ' + DI.RECHARGE_H + ' h after one discharge (NFPA 72 §10.6.10.3.2, identical in 2019 / 2022 / 2025). A bigger battery needs a bigger charger; the ' + DI.RECHARGE_H + ' h does not stretch. The charger restores ' + DI.chargerAh(p) + ' Ah in ' + DI.RECHARGE_H + ' h (amperes x hours, ASSUMED: no taper).', R72.chgRecharge, p.x, p.y);
     } }
+  // --- notification circuit voltage drop (FA Lead, Cycle 8): one finding per panel whose check is switched on
+  // (default off). Below the appliance minimum is a FAIL; a thin margin or an ASSUMED start voltage is a warning; a
+  // clean pass is one info line, the documentation line of the calculation. A plan-review check only.
+  for (const p of W.byType('panel')) { const f = DI.nacFinding(W, p); if (f) add(f.sev, f.text, f.ref, p.x, p.y); }
   // --- valves, supply, pumps
   for (const p of W.parts.values()) {
+    // compressor relief setpoint against the cut-out, the zone high air and the rated max discharge (PRACTICE, warnings only)
+    if (p.type === 'comp') for (const w of DI.compWarnings(S, p)) add('warn', w.text, DI.COMP_WARN_REF, p.x, p.y);
     if (p.type === 'gate' && !W.panelOf(p.id)) add('warn', 'Control valve #' + p.id + ' has no tamper switch wired to a panel.', R('Ch. 16: valve supervision'), p.x, p.y);
     if (p.type === 'city' && !p.p.loop) {                      // backflow prevention before anything else
       const seen = new Set(), q = [[p.x, p.y, W.ports(p).o]]; let bad = false;

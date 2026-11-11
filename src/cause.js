@@ -63,7 +63,7 @@ DI.CE_ROWS = [
 ];
 DI.CE_LEGEND = ['[CODE] a code requirement', '[OWNER] an owner, insurer or AHJ election', '[PRACTICE] industry or maker practice', 'NEEDS PE REVIEW an engineer-of-record choice', 'ASSUMED a value the Leads did not fix'];
 DI.CE_LIVE = 'ACTIVE NOW';
-DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, door release, the control of the compressor, notification circuits, the battery standby calculation and the charger rating (the panel and plan review carry them), a disconnected battery (a trouble in the signal schedule, PRACTICE) and the live state of the DACT queue, restorals included (the annunciator and the log show it). Dry and wet valves have no release logic and no matrix.';
+DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, shunt trip and door devices (outputs and monitor points only: they never feed the release, and a shunt trip is not an EPO hook), the control of the compressor, the battery standby calculation, the charger rating and the NAC voltage drop (a plan-review check only, with no signal and no row here; the panel and plan review carry them), a disconnected battery (a trouble in the signal schedule, PRACTICE) and the live state of the DACT queue, restorals included (the annunciator and the log show it). Dry and wet valves have no release logic and no matrix.';
 // FA Lead, word for word: the matrix stays design intent, and this note says what an outage does to it.
 // Cycle 7: the first two sentences are the Lead's; the rest states the restore order of C7-1 (alarm, supervisory,
 // trouble, then OPEN as the unelected class, then restorals) and the one case that still loses a live alarm.
@@ -199,7 +199,9 @@ DI.ceMatrix = function (S, id) {
     'NFPA 72 edition: ' + ed72 + ' (site setting, separate from NFPA 13: adoption is by the AHJ and can differ, PRACTICE. Auto follows the NFPA 13 edition).',
     DI.CE_DACT_NOTE,
   ];
-  if (vea) notes.splice(notes.length - 1, 0, 'Detector model: ' + DI.ASD_MODELS.VEA.label + ', Fire 1 only (' + DI.veaFire1(W) + ' %/ft). Alert, Action and Fire 2 are ' + DI.VEA_NA + ': those rows are not available, and a Fire 2 HVAC hook can never trip.');
+  // (Cycle 8: a VEA detector reads the Fire 1 of the room it is in, so the note gives the values of this zone's rooms)
+  const zf1 = (function () { const z = S.sysd.info.get(id), s = new Set(); if (z) for (const r of z.rooms) s.add(DI.veaFire1At(W, W.rooms[r - 1])); return s.size ? [...s].join(' / ') : String(DI.veaFire1(W)); })();
+  if (vea) notes.splice(notes.length - 1, 0, 'Detector model: ' + DI.ASD_MODELS.VEA.label + ', Fire 1 only (' + zf1 + ' %/ft). Alert, Action and Fire 2 are ' + DI.VEA_NA + ': those rows are not available, and a Fire 2 HVAC hook can never trip.');
   const imp = DI.impairments(S).filter((q) => q.id === id).map((q) => q.text);
   return { id, name: DI.sysName(S, id), trim: v.p.trim, trimName: DI.trimOf(v).name, bypass: type === 'MANUAL RELEASE', wired: !!pn,
     head: ['Trim: ' + DI.trimOf(v).name, 'Manual Release zone bypass (9(c)): ' + (type === 'MANUAL RELEASE' ? 'ON' : W.cfg && W.cfg.manualReleaseBypassP ? 'ON for the site, not on this trim' : 'OFF'),
@@ -237,6 +239,8 @@ DI.standbyNotes = function (W) {
 DI.SCHED_COLS = ['Signal', 'Class', 'To the supervising station', 'Fire department', 'Tag'];
 DI.SCHED_FOOT = 'Alarm signals go to the fire department; supervisory and trouble signals go to the supervising station only (PRACTICE). Pre-alarm handling is an owner election.';
 DI.SCHED_NOTE = 'Alert, Action and a latched P never call the fire department by themselves, whatever class is elected. The release circuit is an output of the panel, not an input. Generated from the signal registry: the classes are the ones the panel uses.';
+// The latch label of the waterflow row (FA Lead, Cycle 8), with the sections of the NFPA 72 edition in force.
+DI.schedLatch = (W) => 'Waterflow latches at the panel until a panel reset: ' + DI.ref72(W).latch + '. §23.8.2.2 is indirect support (combined subsystems sharing equipment) and is not quoted as a latch rule; no NFPA 72 sentence says fire alarms latch until manual reset.';
 DI.signalSchedule = function (W) {
   return Object.keys(DI.SIG_META).map((key) => {
     const m = DI.SIG_META[key], cls = DI.inClass(W, key), pre = key === 'alert' || key === 'action';

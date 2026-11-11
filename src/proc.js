@@ -96,16 +96,19 @@ DI.testStep = function (S, dt) {
     } else if (pr.kind === 'drain') {
       if (pr.stage === 0 && el > 25) { pr.resid = S.pin(pr.id); pr.q = S.G.emit.filter((e) => (e.kind === 'drain' || e.kind === 'mdrain') && e.k === W.k(v.x, v.y)).reduce((a, e) => a + e.link.q, 0); v.p.drain = 0; S.touch(); pr.stage = 1; pr.ts = S.t; }
       else if (pr.stage === 1 && S.t - pr.ts > 8) {
-        // The pass rule is the code's: a 10 percent reduction in full flow pressure against the previous tests means
-        // find the cause (DI.REF25.passRule, VERIFIED). "Full flow pressure" is the code term for the residual reading.
+        // The rule is the code's: a 10 percent drop in full flow pressure against the acceptance test or earlier tests
+        // means find the cause and correct it if necessary (DI.REF25.passLine, VERIFIED). It is a trigger to investigate,
+        // not an automatic fail: such a result keeps pass:false (DI.dropFollowed reads it) and carries invest:true, so
+        // the badge and the log read INVESTIGATE. "Full flow pressure" is the code term for the residual reading.
         // The operator log gets the test with both readings: step 14 of the scored drill recovery reads it.
         // Cycle 7: the entry also carries the prior residual (base, absent when there was none) and the drop as a
         // fraction. With no baseline the reading is recorded as the baseline and nothing is scored. A drop over 10
         // percent adds the Tutor's hint; whether it was investigated is read by the drill report (DI.dropFollowed).
-        const base = v.p.drainBase; const drop = base ? (base - pr.resid) / base : 0, big = drop > DI.MDT_DROP;
+        const base = v.p.drainBase; const drop = base ? (base - pr.resid) / base : 0, big = DI.mdtBig(drop);
         res = { pass: !big, title: 'Main drain test', val: pr.resid, drop, lines: ['Static: ' + DI.fmt(pr.stat) + ' psi', 'Full-flow (residual): ' + DI.fmt(pr.resid) + ' psi at about ' + DI.fmt(pr.q) + ' gpm',
-          base ? 'Previous full flow pressure: ' + DI.fmt(base) + ' psi (' + (big ? 'DOWN ' + DI.fmt(drop * 100) + '%: a 10 percent reduction in full flow pressure, find the cause and correct it [' + DI.REF25.passRule + ']' : 'within 10 percent [' + DI.REF25.passRule + ']') + ')' : DI.MDT_BASELINE + ' [' + DI.REF25.passRule + ']'] };
-        if (big) res.lines.push(DI.mdtHint(drop));
+          base ? 'Previous full flow pressure: ' + DI.fmt(base) + ' psi (' + (big ? 'DOWN ' + DI.fmt(drop * 100) + '%' : 'within 10 percent') + ')' : DI.MDT_BASELINE + ' [' + DI.REF25.passRule + ']'] };
+        if (base) res.lines.push(DI.REF25.passLine);
+        if (big) { res.invest = true; res.lines.push(DI.mdtHint(drop)); }
         if (!base || !big) v.p.drainBase = pr.resid;
         S.act('main-drain-test', pr.id, Object.assign({ stat: pr.stat, resid: pr.resid, q: pr.q, pass: res.pass, ts: pr.t0, drop }, base ? { base } : null));
       }
@@ -157,7 +160,7 @@ DI.testStep = function (S, dt) {
     if (res) {
       res.kind = pr.kind; res.id = pr.id; res.t = S.t; res.name = s ? DI.sysName(S, pr.id) : DI.PARTS[v.type].name + ' #' + v.id;
       S.results.push(res); S.procs.splice(i, 1); S.testUntil = S.procs.length ? S.t + 1e9 : S.t + 90; if (pr.kind === 'pump' || pr.kind === 'run') S.lastTestT = S.t;
-      S.say(res.title + ': ' + (res.pass ? 'PASS' : 'FAIL') + ' - ' + res.lines[res.say !== undefined ? res.say : res.lines.length > 2 ? 2 : 0], res.pass ? 'good' : 'bad'); DI.bus.emit('result', res);
+      S.say(res.title + ': ' + DI.resBadge(res) + ' - ' + res.lines[res.say !== undefined ? res.say : res.lines.length > 2 ? 2 : 0], res.pass ? 'good' : res.invest ? 'warn' : 'bad'); DI.bus.emit('result', res);
     }
   }
 };

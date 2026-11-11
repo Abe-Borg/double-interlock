@@ -44,7 +44,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
 #side .btns { display:flex; flex-wrap:wrap; gap:5px; padding:6px 10px 2px; } #side .btns button { font-size:12px; padding:3px 8px; }
 #side .sec { margin:8px 0 2px; padding:3px 10px; font:700 10px var(--mono); letter-spacing:.12em; color:var(--dim); border-top:1px solid var(--line); }
 #side canvas { display:block; margin:6px auto 0; }
-#side .res { margin:6px 10px; padding:6px 8px; border-left:3px solid var(--line); background:#0f1820; font:11.5px var(--mono); color:#b9c8d3; } .res.pass { border-color:var(--grn); } .res.fail { border-color:var(--red); } .res b { display:block; color:#fff; margin-bottom:2px; }
+#side .res { margin:6px 10px; padding:6px 8px; border-left:3px solid var(--line); background:#0f1820; font:11.5px var(--mono); color:#b9c8d3; } .res.pass { border-color:var(--grn); } .res.fail { border-color:var(--red); } .res.warn { border-color:var(--amb); } .stqFoot { margin:4px 10px 6px; font:10.5px var(--mono); color:var(--dim); } .res b { display:block; color:#fff; margin-bottom:2px; }
 .stp { display:inline-flex; align-items:center; gap:3px; } .stp button { padding:0 6px; font:12px var(--mono); line-height:18px; }
 #tools { position:fixed; left:8px; right:8px; bottom:8px; margin:0 auto; width:fit-content; display:flex; flex-direction:column; gap:5px; padding:6px 9px 7px; background:rgba(13,20,27,.96); border:1px solid var(--line); border-radius:8px; z-index:4; max-width:calc(100% - 16px); }
 #tools .rowg { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; row-gap:6px; }

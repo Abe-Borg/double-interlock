@@ -46,7 +46,7 @@ DI.PARTS = {
     props: { scfm: 2.5, on: false, runSec: 0, starts: 0, fault: false } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
     desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. Standby battery sized for the site’s standby basis.',
-    props: { silenced: false, chan: [1, 1], ah: 26, iStby: 0.5, iAlarm: 2, chgFail: false, battDisc: false, chgA: 0 } },     // chan: the two DACT channels, 1 = up (DACT path only). ah: battery pick; iStby / iAlarm: loads in A (ASSUMED, listing values); chgFail / battDisc: sandbox faults; chgA: charger amperes, 0 = matched to the battery (ASSUMED)
+    props: { silenced: false, chan: [1, 1], ah: 26, iStby: 0.5, iAlarm: 2, chgFail: false, battDisc: false, chgA: 0, nacOn: 0, nacAwg: 14, nacFt: 200, nacN: 8, nacCd: 75, nacV: 0 } },     // chan: the two DACT channels, 1 = up (DACT path only). ah: battery pick; iStby / iAlarm: loads in A (ASSUMED, listing values); chgFail / battDisc: sandbox faults; chgA: charger amperes, 0 = matched to the battery (ASSUMED). nac*: the one notification circuit of the voltage-drop check (DI.nacCalc), default off: gauge, one-way length in ft, appliance count, candela, start voltage (0 = not given)
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
     desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
@@ -72,8 +72,9 @@ DI.LISTED = { smoke: { min: 0.5, max: 4.0 } };
 //   VESDA-E VEA, Fire 1 = 0.5 (High) / 1.23 (Enhanced) / 2.5 (Standard) %/ft (Xtralis Doc. 36348_03) [HB]. The Gamewell
 //   sheet 9021-61037 prints Enhanced as 1.3 (4.0 %/m): a source mismatch, shown as a note beside the pick, never a
 //   fourth choice and never merged with 1.23. Alert, Action and Fire 2 values are NOT FOUND: the model has no such
-//   stage and nothing is printed for them. Default pick 1.23 where NFPA 76 is not adopted, 0.5 where it is
-//   (DI.veaDefault; "telecom space" is mapped to that site flag: PRACTICE). UL Product iQ stays "not checked".
+//   stage and nothing is printed for them. Default pick (Cycle 8, FA Lead): 0.5 in a telecom room where NFPA 76
+//   applies (DI.n76Applies), 1.23 in every other room, whatever the site flag (DI.veaDefault). UL Product iQ stays
+//   "not checked".
 DI.ASD_SRC = '[HB, datasheet; UL Product iQ not checked]';
 DI.ASD_STAGES = [['alert', 'Alert'], ['action', 'Action'], ['fire1', 'Fire 1'], ['fire2', 'Fire 2']];
 DI.ASD_MODELS = {
@@ -96,8 +97,22 @@ DI.asdRange = (W) => { const r = DI.ASD_MODELS[DI.asdModel(W)].range; return DI.
 // VEA: a Fire 1-only detector. Its one threshold is W.cfg.detThr[2] where thresholds are stored, else the default pick.
 // A stored value that is not one of the three settings is kept as it is and fails plan review (never clamped).
 DI.isVea = (W) => DI.asdModel(W) === 'VEA';
-DI.veaDefault = (W) => (W && W.cfg && W.cfg.nfpa76Adopted ? 0.5 : DI.ASD_MODELS.VEA.primary);
-DI.veaFire1 = (W) => { const t = W && W.cfg ? W.cfg.detThr : null; return Array.isArray(t) && t.length === 4 && typeof t[2] === 'number' ? t[2] : DI.veaDefault(W); };
+// NFPA 76 applies by room (FA Lead, Cycle 8): only a room of type `tel` (Telecom / MMR) can be an NFPA 76 space, and a
+// hall never is. The room's own `n76` (true / false) decides where it is set; absent, the room follows the site
+// flag W.cfg.nfpa76Adopted, which is now only the default for telecom rooms. Which rooms count as NFPA 76 telecom
+// is a judgment call: PRACTICE, NEEDS PE REVIEW.
+DI.n76Applies = (W, room) => !!room && room.type === 'tel' && (room.n76 !== undefined ? room.n76 === true : !!(W && W.cfg && W.cfg.nfpa76Adopted));
+DI.VEA_TEL = 0.5;                         // the VEA default in an NFPA 76 telecom room (the High setting)
+DI.veaDefault = (W, room) => (DI.n76Applies(W, room) ? DI.VEA_TEL : DI.ASD_MODELS.VEA.primary);
+// the site pick: the stored Fire 1 where thresholds are stored, else null
+DI.veaSitePick = (W) => { const t = W && W.cfg ? W.cfg.detThr : null; return Array.isArray(t) && t.length === 4 && typeof t[2] === 'number' ? t[2] : null; };
+// The Fire 1 a VEA detector in `room` reads: the room's own pick (room.f1, one of the three listed settings), else the
+// site pick where one is stored, else the default by room (0.5 in an NFPA 76 telecom room, 1.23 anywhere else). VEA
+// only: no other detector model has a per-room threshold. With no room given it is the site value.
+DI.veaFire1At = (W, room) => { const s = DI.veaSitePick(W); return room && typeof room.f1 === 'number' ? room.f1 : s !== null ? s : DI.veaDefault(W, room); };
+DI.veaFire1 = (W) => DI.veaFire1At(W, null);
+// where that number comes from, for the inspector
+DI.veaFire1Src = (W, room) => (room && typeof room.f1 === 'number' ? 'room pick' : DI.veaSitePick(W) !== null ? 'site pick' : DI.n76Applies(W, room) ? 'default in an NFPA 76 telecom room' : 'default');
 DI.VEA_NA = 'not published for this model';
 
 // Site / project settings with a default (W.cfg, saved with the world). All ASSUMED and tunable.
@@ -107,6 +122,7 @@ DI.VEA_NA = 'not published for this model';
 DI.CFG_DEFAULT = { spotThr: 1.3, fitPct: 5, trimGal: 2, insurer: 'none' };
 // Other settings read with a default when absent (an old save loads unchanged): dactHold (DI.dactHold, true), standby
 // (DI.standbyKey, 'nfpa5'), panelGen (DI.panelGen, false), refillSeq (DI.refillSeq, gas.js, false).
+// Cycle 8: ownerRefill (DI.ownerRefill, none) and nec (DI.nec, '2023').
 DI.cfgNum = (W, key, lo) => { const v = W && W.cfg ? W.cfg[key] : undefined; return typeof v === 'number' && isFinite(v) && v >= (lo || 0) ? v : DI.CFG_DEFAULT[key]; };
 DI.spotThr = (W) => { const v = DI.cfgNum(W, 'spotThr'); return v > 0 ? v : DI.CFG_DEFAULT.spotThr; };
 DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
@@ -241,6 +257,80 @@ DI.RECHARGE_H = 48;
 // hours of standby restored per hour on AC: the slower of H / 48 and what the charger's amperes give (chgA / ah x H).
 // A larger charger never charges faster than H / 48 (SIMPLIFICATION).
 DI.chargeRate = function (panel, H) { const q = (panel && panel.p) || {}, ah = q.ah > 0 ? q.ah : DI.PANEL_LOADS.ah; return q.chgA > 0 ? Math.min(H / DI.RECHARGE_H, q.chgA / ah * H) : H / DI.RECHARGE_H; };
+// ---------- NAC voltage drop at the last appliance (FA Lead, Cycle 8): a plan-review check only. One DC notification
+// appliance circuit per panel, Class B, end-line-loaded (every appliance taken at the far end: the conservative screen),
+// default OFF. It raises no signal, has no matrix row, and is not an input of detection, of the pressure latch, of
+// the valve release, of either hook or of the standby battery calculation (the panel's alarm load stays a listing
+// pick: SIMPLIFICATION). Point-to-point, Class A, module voltage adjustment and sync-module loss are not modelled.
+//   DI.NAC_OHM    ohm per 1000 ft, NFPA 70-2023 Ch. 9 Table 8, 75 C, uncoated stranded copper [CODE NEC 2023]. NEC 2026
+//                 Table 8 is on hold: on a NEC 2026 site (W.cfg.nec) the 2023 ohms are shown as ASSUMED / VERIFY,
+//                 never as 2026 code.
+//   DI.NAC_VMIN   16 V, the appliance minimum input voltage (A.18.3.7 [HB]; ASSUMED, confirm on the listing)
+//   DI.NAC_V_END  20.4 V, the start voltage when none is given: end of discharge on a 24 V system (ASSUMED)
+//   DI.NAC_THIN   a margin under 20 percent above the minimum is THIN, a warning (company rule: PRACTICE)
+//   DI.NAC_CD     appliance current in A at the minimum voltage, per candela: ASSUMED listing values, round numbers
+//                 that are NOT from a listing
+//   DI.NAC_VSTART start voltages offered: 0 = not given (ASSUMED 20.4 V); the others are panel or module start
+//                 terminal voltages (CUSTV / CMSTV) the player says the data sheet gives (ASSUMED picks)
+// Basis by NFPA 72 edition: DI.ref72(W).nacVd ([CODE] in 2025 only; the same method is PRACTICE on 2019 and 2022) and
+// .nacDoc (NAC voltage-drop calculations are a required documentation item, all three editions [CODE]).
+DI.NAC_OHM = { 18: 7.95, 16: 4.99, 14: 3.14, 12: 1.98 };
+DI.NAC_AWG = [18, 16, 14, 12];
+DI.NAC_VMIN = 16; DI.NAC_V_END = 20.4; DI.NAC_THIN = 0.20;
+DI.NAC_CD = { 15: 0.10, 30: 0.15, 75: 0.20, 95: 0.25 };
+DI.NAC_CDS = [15, 30, 75, 95];
+DI.NAC_VSTART = [0, 21.0, 22.0, 23.0, 24.0];
+DI.NAC_N_MAX = 40; DI.NAC_FT_MIN = 10; DI.NAC_FT_MAX = 1000; DI.NAC_FT_STEP = 10;
+DI.NAC_TITLE = 'Notification circuit (NAC), Class B, end-line-loaded';
+DI.NAC_WIRE = 'NFPA 70-2023 Ch. 9 Table 8, 75 C, uncoated stranded copper [CODE NEC 2023]';
+DI.NAC_WIRE_2026 = '2023 Table 8 ohms: ASSUMED / VERIFY (NEC 2026 Table 8 is on hold), never 2026 code';
+DI.NAC_CA_HOLD = 'NAC voltage drop is on hold on a Canadian build: CAN/ULC-S524 and CEC Section 32 are not held. CA-2019 is the NFPA 72-2019 label only.';
+// NEC edition of the site (W.cfg.nec: stored only when '2026'; an old save has no key and reads '2023')
+DI.NEC = ['2023', '2026'];
+DI.nec = (W) => (W && W.cfg && W.cfg.nec === '2026' ? '2026' : '2023');
+// The calculation. Pure. Both conductors are counted through the length (out and back): the Table 8 value itself
+// is used as printed (NFPA 72-2025 §18.3.7.3).
+//   on            the check is switched on for this panel (off: nothing is evaluated and no finding is raised)
+//   hold          a Canadian build: not evaluated
+//   iEach, iTot   A per appliance at the minimum voltage, and for the circuit
+//   R             ohm of the circuit; drop = iTot x R; vEol = vStart - drop, the voltage at the last appliance
+//   margin        (vEol - 16) / 16;  below = vEol under 16 V (FAIL);  thin = not below, margin under 20 % (warning)
+//   startAssumed  no start voltage given: 20.4 V is used and the verdict is a warning at best
+//   maxFt         the longest one-way length that still passes with these picks
+//   sev           'fail' | 'warn' | 'info': the worst of the three
+DI.nacCalc = function (W, panel) {
+  const q = (panel && panel.p) || {}, hold = DI.setJuris(W).country !== 'US', R72 = DI.ref72(W);
+  const awg = DI.NAC_OHM[q.nacAwg] ? q.nacAwg : 14, ft = q.nacFt > 0 ? q.nacFt : 200, n = q.nacN > 0 ? q.nacN : 8, cd = DI.NAC_CD[q.nacCd] ? q.nacCd : 75;
+  const ohm = DI.NAC_OHM[awg], perFt = 2 * ohm / 1000, iEach = DI.NAC_CD[cd], iTot = n * iEach, R = ft * perFt;
+  const startAssumed = !(q.nacV > 0), vStart = startAssumed ? DI.NAC_V_END : q.nacV, drop = iTot * R, vEol = vStart - drop;
+  const margin = (vEol - DI.NAC_VMIN) / DI.NAC_VMIN, below = vEol < DI.NAC_VMIN - 1e-9, thin = !below && margin < DI.NAC_THIN - 1e-12, maxFt = (vStart - DI.NAC_VMIN) / (iTot * perFt);
+  return { on: q.nacOn === 1, hold, awg, ft, n, cd, ohm, iEach, iTot, R, vStart, startAssumed, drop, vEol, margin, below, thin, maxFt, vMin: DI.NAC_VMIN,
+    sev: below ? 'fail' : thin || startAssumed ? 'warn' : 'info', nec: DI.nec(W), wire: DI.nec(W) === '2026' ? DI.NAC_WIRE_2026 : DI.NAC_WIRE, basis: R72.nacVd, doc: R72.nacDoc };
+};
+// the longest passing one-way length as it is shown: rounded down, so the number shown does pass
+DI.nacMaxFt = (c) => (isFinite(c.maxFt) && c.maxFt > 0 ? (Math.floor(c.maxFt * 10 + 1e-6) / 10).toFixed(1) : '0.0');
+// The verdict as words: which of the three applied.
+DI.nacVerdict = function (c) {
+  const out = [];
+  if (c.below) out.push('FAIL: below the appliance listed minimum of ' + c.vMin + ' V');
+  if (c.thin) out.push('THIN: margin ' + DI.fmt(c.margin * 100, 1) + ' %, under ' + DI.NAC_THIN * 100 + ' % above the ' + c.vMin + ' V minimum (PRACTICE, NEEDS PE REVIEW)');
+  if (c.startAssumed) out.push('the start voltage is ASSUMED (' + DI.NAC_V_END + ' V, end of discharge): a warning, not a failure');
+  return out.length ? out.join('; ') : 'passes: margin ' + DI.fmt(c.margin * 100, 1) + ' % above the ' + c.vMin + ' V minimum';
+};
+// The plan-review finding of one panel: null (off), or { sev, text, ref }. One finding per panel.
+DI.nacFinding = function (W, panel) {
+  const c = DI.nacCalc(W, panel); if (!c.on) return null;
+  const who = 'Panel #' + panel.id + ' NAC (Class B, end-line-loaded): ';
+  if (c.hold) return { sev: 'info', text: who + DI.NAC_CA_HOLD, ref: 'Not evaluated (on hold)' };
+  const text = who + c.n + ' x ' + c.cd + ' cd at ' + c.iEach.toFixed(2) + ' A = ' + c.iTot.toFixed(2) + ' A, ' + c.ft + ' ft one-way of ' + c.awg + ' AWG (' + c.ohm + ' ohm per 1000 ft, both conductors counted: ' + c.R.toFixed(3) + ' ohm), start ' + c.vStart.toFixed(1) + ' V' + (c.startAssumed ? ' (ASSUMED)' : ' (given)') +
+    ': drop ' + c.drop.toFixed(2) + ' V, ' + c.vEol.toFixed(2) + ' V at the last appliance. ' + DI.nacVerdict(c).replace(/^./, (x) => x.toUpperCase()) + '. ' +
+    (c.below ? 'Shorten the run, use a larger wire or split the circuit: the longest one-way length that passes is ' + DI.nacMaxFt(c) + ' ft. ' : '') +
+    (c.startAssumed ? 'Give the start terminal voltage of the panel or module from its data sheet. ' : '') +
+    (c.sev === 'info' ? 'This line is the NAC voltage drop calculation of the documentation list (' + c.doc + ' [CODE]). ' : '') +
+    'Appliance current and the ' + c.vMin + ' V minimum are ASSUMED listing values: confirm on the listing. Wire: ' + c.wire + '.';
+  return { sev: c.sev, text, ref: c.basis + '; ' + c.doc };
+};
+
 // Low battery: the code states no low-battery threshold (NOT FOUND in 2019, 2022 or 2025). It requires the voltage to be
 // monitored and a trouble on failure. The trouble here is the listing's low-voltage setpoint: 20.4 V on a 24 V system,
 // ASSUMED [PRACTICE]. Voltage is a straight line from the end of discharge (19.8 V) to float (27.0 V), both ASSUMED
@@ -322,7 +412,13 @@ DI.PUMP_PSI = [80, 100, 125, 150, 175];
 DI.COMP_SCFM = [2, 5, 10, 20];
 DI.COMP_CUTOUT = [0, 45, 50, 55, 60];   // ASSUMED choices for the compressor cut-out pressure, psi (0 = none). Sizing input only: see DI.sizingP
 DI.COMP_MAXPSI = [0, 60, 100, 125, 175];   // ASSUMED choices for the rated max discharge, psi (0 = not modeled: DI.AVC_BYPASS_PSI is used)
-DI.COMP_RELIEF = [0, 60, 75, 100, 125];    // ASSUMED choices for the relief valve setpoint, psi (0 = none)
+DI.COMP_RELIEF = [0, 60, 75, 100, 125];    // ASSUMED choices for the relief valve setpoint, psi (0 = none). Two plan-review warnings read it (DI.compWarnings, gas.js; FP Lead, Cycle 8, PRACTICE)
+// Owner or insurer refill target (site setting W.cfg.ownerRefill, minutes; absent = none; FP Lead, Cycle 8). Judged the
+// way the code check is: the largest zone alone, from 0 psig (DI.airSizing(...).tAlone; that method is ASSUMED,
+// "unless the owner defines it differently"). Over the target and inside the code limit it is a plan-review WARNING
+// tagged owner/insurer criterion, never a code failure (the warning tier is PRACTICE). The picks are ASSUMED.
+DI.OWNER_REFILL = [0, 10, 15, 20, 25];
+DI.ownerRefill = (W) => { const m = W && W.cfg ? W.cfg.ownerRefill : undefined; return typeof m === 'number' && isFinite(m) && m > 0 ? m : 0; };
 DI.N2_SCFM = [1, 2.5, 5];
 DI.SPK_K = 5.6;                     // standard spray sprinkler K-factor (gpm/psi^0.5)
 DI.SPK_COST = 140;                  // $ per sprinkler tile (head + branch pipe is priced separately)
