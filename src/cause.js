@@ -93,7 +93,10 @@ DI.ceEval = function (W, v, vec, sigKey) {
 // ---------- which matrix row a live engine signal belongs to, for zone `id` (null: not this zone's, or not in the matrix)
 DI.ceKeyOf = function (S, id, o) {
   const W = S.W, v = W.parts.get(id), inf = S.sysd.info.get(id), pn = W.panelOf(id), part = W.parts.get(o.part), k = o.key; if (!v || !inf || !part) return null;
-  const inZone = (d) => { const r = W.roomAt[W.k(d.x, d.y)]; return !!r && inf.rooms.has(r) && (!pn || !W.panelOf(d.id) || W.panelOf(d.id) === pn); };
+  // A detector or station is an input of this zone only when it sits in a room the zone protects AND is wired to the
+  // zone's own releasing panel: that is the test DI.alarmStep applies before it latches D. An unwired device still
+  // raises its local-only signal, but it is no input here, so it must not mark a row active.
+  const inZone = (d) => { const r = W.roomAt[W.k(d.x, d.y)]; return !!r && inf.rooms.has(r) && !!pn && W.panelOf(d.id) === pn; };
   if (part.id === id) {
     const m = { la: 'lowAir', ha: 'highAir', sa: 'supplyAir', wf: 'waterflow', pl: 'pLatch', rl: 'release', im: 'impair' }[k.slice(0, 2)];
     return m || (k.startsWith('ms') ? (DI.relState(W, v).mrz ? 'mrz' : 'manual') : null);

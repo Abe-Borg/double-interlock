@@ -935,6 +935,12 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     const early = !rowOf(dd, 'lostComm').live && !dd.S.sig.has('pd' + dd.pn.id); dd.S.warp(DI.commDelay(dd.W) + 60);
     ok('A43 on battery the panel still releases; low battery is TRBL; a dead panel energizes nothing, shows nothing, and the station reports loss of communication only after its interval', batt && lb && dr.live && !dr.sol && !dr.open && !dr.annunciated && !dr.nac && dr.cells[3] === 'dark: nothing displayed' && dd.s.state === 'dry' && early && agree(dd, 'lostComm', 'pd' + dd.pn.id) && rowOf(dd, 'lostComm').class === 'TRBL' && rowOf(dd, 'lostComm').lost && dd.S.sig.get('pd' + dd.pn.id).lost === true && rowOf(dd, 'lostComm').ssDelay === 3600);
     ok('A43 every row of the matrix was seen ACTIVE NOW while its signal was present', DI.CE_ROWS.every((r) => live.has(r.key)), DI.CE_ROWS.filter((r) => !live.has(r.key)).map((r) => r.key).join() || undefined);
+    // a device that is not wired to the zone's panel is no input of the zone: its local-only signal marks no row
+    const lo2 = rig({ stn: true }); lo2.W.unwire(lo2.d.id); lo2.W.unwire(lo2.stn.id); lo2.stn.p.on = true; smoke(lo2.S, 0.2, 5);
+    const lsig = lo2.S.sig.get('v' + lo2.d.id + '.3'), msig = lo2.S.sig.get('mn' + lo2.stn.id);
+    const other = rig({ stn: true }), p2 = other.W.addPart('panel', 18, 4, 0); other.W.wire(p2.id, other.d.id); other.stn.p.on = false; smoke(other.S, 0.2, 5);
+    ok('A43 an unwired detector at Fire 1 and an unwired operated station raise local-only signals and mark no row ACTIVE NOW; nor does a detector wired to another panel', !!lsig && lsig.mon === false && !!msig && msig.mon === false && lo2.v.p.sol === false && lo2.v.p.pull === false && !rowOf(lo2, 'fire1').live && !rowOf(lo2, 'manual').live && M(lo2).rows.every((q) => !q.live) &&
+      other.S.sig.get('v' + other.d.id + '.3').mon === true && other.v.p.sol === false && !rowOf(other, 'fire1').live && rowOf(f, 'fire1').live);
     const u = rig(); u.W.unwire(u.v.id); u.S.sync();
     ok('A43 a zone with no panel: nothing is annunciated or transmitted, and D energizes nothing', M(u).wired === false && M(u).rows.filter((q) => q.applies && q.class).every((q) => !q.annunciated && !q.transmit && !q.sol && !q.nac) && rowOf(u, 'fire1').cells[3] === 'local only: not wired to a panel' && DI.ceMatrix(u.S, u.pn.id) === null);
   }
