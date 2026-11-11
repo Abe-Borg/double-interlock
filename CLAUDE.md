@@ -16,7 +16,10 @@ Read README.md first for what the game is.
   `inspect.js` or the release logic. `STANDALONE=1` in front of any browser test uses the built file.
 - `node test/ui.c3.js out.png` runs the Cycle 3 UI checks (Playwright): the Manual Release zone path, a dead
   panel, the head gate, the recovery checklist and the reopen gate, the 24 h air test, loss of supply air and
-  the water-filled zone, the detector model and the NFPA 76 flags. Run it after the same kinds of change.
+  the water-filled zone, the detector model and the NFPA 76 ceilings. Run it after the same kinds of change.
+- `node test/ui.c4.js out.png` runs the Cycle 4 UI checks (Playwright): the cause-and-effect matrix, the NFPA 76
+  check, the refill clock and "Skip the refill", the reopen gate in both modes, the impairment tag and the
+  supervising-station timing. Run it after a change to `cause.js`, `ui.js`, `inspect.js` or the alarm timing.
 - `package.json` exists for the scripts only (`npm test`, `npm run test:ui`). `npm install` is needed only for
   the browser tests: Playwright is the single devDependency. The game has no runtime dependencies and must
   keep loading from `file://`.
@@ -30,7 +33,7 @@ Everything hangs off one global, `DI`. Each file starts with
 Load order is the script order in `index.html`.
 
 Engine (no DOM, testable in Node): core, juris, data, world, solver, systems, graph, links, gas, fire,
-alarm, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs, render, inspect, ui, input, main.
+alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs, render, inspect, ui, input, main.
 
 - `DI.World` is the map. Any topology change must bump `W.ver`; `Sim.step` then calls `sync()`.
 - `DI.Sim` owns dynamic state. `S.ss` is per system valve: `state` is `dry | filling | wet`.
@@ -40,10 +43,12 @@ alarm, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs,
 - The solver sees a reduced graph. Untripped dry systems are not in it at all; their pressure is `s.P`.
 - Units everywhere: psi gauge, gpm, gallons, feet, seconds. One tile = 10 ft. Gas is `G = P_abs * V`.
 - `W.cfg` holds the site / project settings and is saved with the world: `edition`, `nfpa76Adopted`,
-  `n76AlarmStage`, `pipeCut`, `detThr`, `spotThr`, `asdModel`, `sigClass`, `fitPct`, `trimGal`, `insurer`,
-  `manualReleaseBypassP`. Read them through the helpers (`DI.setJuris`, `DI.pipeCut`, `DI.detThr`,
-  `DI.spotThr`, `DI.asdModel`, `DI.asdRange`, `DI.n76Stage`, `DI.sigClass`, `DI.cfgNum`, `DI.insurer`),
-  which supply the defaults. A settings change must bump `W.ver`.
+  `pipeCut`, `detThr`, `spotThr`, `asdModel`, `sigClass`, `fitPct`, `trimGal`, `insurer`,
+  `manualReleaseBypassP`, `commPath`, `acDelayMin`, `hvacHook`, `epoHook`. Read them through the helpers
+  (`DI.setJuris`, `DI.pipeCut`, `DI.detThr`, `DI.spotThr`, `DI.asdModel`, `DI.asdRange`, `DI.sigClass`,
+  `DI.inClass`, `DI.cfgNum`, `DI.insurer`, `DI.commPath`, `DI.commDelay`, `DI.acDelay`, `DI.hvacHook`,
+  `DI.epoHook`), which supply the defaults: nothing is written into `W.cfg` until a setting is changed. A
+  settings change must bump `W.ver`. An old save may still carry `n76AlarmStage`; nothing reads it.
   `DI.juris` is the active edition row; `Sim.sync()` and `DI.review()` refresh it from the world.
 - The front end writes `W.cfg` in one place only, `ui.siteSet`, and it refuses outside the sandbox: in a
   contract the Site dialog is read-only. A contract fixes settings with an optional `cfg` object on the
@@ -52,12 +57,19 @@ alarm, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs,
 - `S.acts` is the operator log (`S.act(kind, id)`): incident, head-open, det-latch, trip, zone-filled,
   silence, find-head, close-valve, isolate-air, supply-open, drain, drain-zero, drain-close, replace-head,
   reset-valve, restore-air, reset-trim, reset-panel (`det: true` when D or the zone was latched),
-  in-service, open-valve. Most entries are edge-detected in `gasPre` and `controllers`, so they are recorded
+  in-service, open-valve, reopen-warn (`items`), return-normal. Most entries are edge-detected in `gasPre` and `controllers`, so they are recorded
   whoever acted (UI, bot or test). `DI.recoveryScore` reads it. It is capped at `DI.ACTS_MAX`; `DI.trimActs`
   drops closed history first and never the opening `incident` entry of an open incident.
 - A control valve is operated through `DI.setGate(S, id, want)` (inspector button, reference bot). It holds
   the reopen gate, and only a reopening that went through it logs `open-valve`. Setting `p.target` directly
-  is test scaffolding and bypasses the gate.
+  is test scaffolding and bypasses the gate. The gate refuses in one place only, the scored incident of a
+  running drill (`DI.drillIncidentOpen`); anywhere else it opens, logs the warning and a `reopen-warn` act
+  with `DI.openItems`.
+- `S.sig` entries carry `mon` (wired to a live panel), `delay` and `tx` (the supervising station has it:
+  `mon` and the delay has run). "Seen by the station" is `o.mon && o.tx`. `DI.impairments(S)` is a separate,
+  display-only list (riser tags): it is never added to `S.sig`.
+- `DI.Sim.prototype.warp(sec, maxMs, until)` and `DI.skip(sec, until)` take an optional stop predicate (the
+  "Skip the refill" button). It is the same time-skip as the clock menu.
 
 ## Company locks (do not relax these without a Lead decision)
 
@@ -93,6 +105,29 @@ alarm, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs,
   (`DI.dryLim`); nothing may count air as gpm, gallons or waterflow.
 - A latched P is never signalled as supervisory: its class is `DI.sigClass(W, 'pLatch')`, one of OPEN
   (default, "release input, class not elected"), ALARM or TRBL. Alert and Action are SUPV or ALARM.
+- Fixed signal classes live in `DI.SIG_FIXED`; every `add(...)` in `alarmStep` for a signal of the registry
+  reads `DI.inClass`. Loss of supply air is TRBL (PRACTICE, FA Lead): do not make it supervisory. The
+  cause-and-effect matrix is generated from `DI.ceEval` (classes from `DI.inClass`, the release from
+  `DI.relState` on the zone's real trim and bypass); if the matrix and the engine or the fixture disagree, fix
+  the engine or ask: do not hand-edit the table. Table text comes from `DI.ceMatrix` only, never from `ui.js`.
+  `DI.panelHolds` is the one copy of "what a dead panel holds" outside the engine, and A42 / A43 guard it.
+- Hooks (`hvacHook`, `epoHook`) are hook only, never automatic: displayed in the matrix, and the engine never
+  reads them. Only `cause.js`, `ui.js` (Site dialog, `siteSet`), `manual.js` and the tests may name them.
+- An isolated air / N2 supply is an impairment tag (`DI.impairments`), not a signal: it must not reach `S.sig`
+  or any `SS_*` column (the truth-table runner shuts `airValve` to make low air). Low air stays a pure
+  pressure signal.
+- Reopen gate: it refuses only during the scored incident of a running drill. Do not widen that to trip tests,
+  sandbox incidents or an incident from before the drill.
+- Refill: `DI.REFILL_LIMIT` is 1,800 s in every edition. No goal, review fail or drill result may be keyed to
+  the refill clock or to `s.fillTime` (the one exception is the existing dock goal of contract 2): zones on a
+  shared compressor refill at the same time here, so reference builds run over on commissioning. The compressor
+  sizing check (`DI.airSizing`) is a warning, never a fail. The contract 5 bonus reads `opTime` (operator
+  steps), never `refill`; `DI.RECOVERY_TARGET` is 300 s of operator-step time, ASSUMED.
+- Supervising-station timing follows NFPA 72 (`DI.juris.ref72`; the edition pairing with NFPA 13 is ASSUMED):
+  a dead panel is annunciated after `DI.commDelay(W)` (the `pd` signal is that event, text unchanged), an AC
+  failure is at the panel at once and transmitted after `DI.acDelay(W)`, and low battery is a listed setpoint
+  (`DI.PANEL_LOWBATT_FRAC`), not a code threshold: never write "2 h" in UI text. The status bar reads PANEL
+  DEAD from the panel, not from the station line.
 - `mech` (mechanical emergency release at the trim) trips the valve directly, outside the panel logic.
 - Only `DI.FIRE1` releases. Alert never arms; Fire 2 is never read as a release input.
 - Panel failure never releases water: no code path may set `sol`, `pull` or `mech` from `W.power`. A
@@ -103,9 +138,10 @@ alarm, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs,
 - The 24 h air test is 40 psi held 24 h, pass at an end reading of `DI.AIR_TEST.endMin` (38.5 psi) or more.
   It starts at test pressure (charge stage, `DI.airTarget`) and never sets or clears P.
 - The aspirating listed ranges are per model and per stage (`DI.ASD_MODELS`, datasheet values): show
-  `DI.ASD_SRC` beside every range. Thresholds are never clamped, rounded or moved to fit. The NFPA 76 alarm
-  limit reaches a stage only through `W.cfg.n76AlarmStage`; while that is unset the mapping is OPEN and
-  `DI.n76Flags` must stay visible (plan review, Site dialog, detector).
+  `DI.ASD_SRC` beside every range. Thresholds are never clamped, rounded or moved to fit. NFPA 76, where
+  adopted, is two ceilings: Alert 0.2 and Fire 1 (the first alarm stage) 1.0 %/ft, PRACTICE, NEEDS PE REVIEW
+  (`DI.n76Flags`, `DI.n76Note`). `DI.n76Check` only reads: nothing may write a threshold from them, and
+  there is no stage election, OPEN chip or CONFLICT flag. VEA is recorded in `DI.ASD_RECORDED`, not a model.
 - Water delivery is judged on full zone volume (`DI.zoneVolume`: pipe + fittings % + trim gal), never on
   `inf.vol` alone. Dry: 60 s timed test above 500 gal, 750 gal with a QOD. Double interlock: above
   500 gal, and a QOD does not extend it. FM (insurer setting, default none) adds 30 s at any volume; the
@@ -168,6 +204,21 @@ alarm, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs,
   `filling`, short of `wet`. Do not wait for `wet` in a test or a goal.
 - The toolbar is two rows in the sandbox and contract 7. `ui.fitPanels` keeps the inspector above it; a
   Playwright click on an inspector button still needs the button scrolled into view first.
+- The supervising station knows of a dead panel only `DI.commDelay(W)` after death: a test that reads
+  `pd<id>` or a `lost` signal must first `S.warp(DI.commDelay(W) + 60)`. An `ac<id>` signal has `tx` false
+  for `DI.acDelay(W)`. Advance time with `S.warp`, never by waiting.
+- The truth-table runner (`test/truth-table.js`) holds the row's inputs through a time-skip on the rows that
+  are not on AC and reads `SS_Trouble` after it. Its rig compressor has a generator-backed feed (`emerg`), so
+  the Power column changes the panel's power only: without that, R12 carries a supply-air trouble at 60 s.
+- A gate test that needs a refusal must mark a drill as running before the incident starts
+  (`S.drill = { t0: S.t, done: false }`; in the browser add one spent step and a long `len`, or the drill
+  runner trips over it during a skip).
+- The refill clock also runs on a zone that lost its air without tripping (`s.rfill`): `s.set` stays true
+  there, so do not use `!s.set` alone to mean "filling". Use `DI.refilling(S, id)`.
+- In the contract 5 drill the false alarm comes at 2,100 s. A compressor slow enough to keep the incident zone
+  below P trip until then changes the incident (3 scfm does; the slow-compressor test uses 3.8 scfm).
+- Bleeding a zone through the 2 in. system drain drops about 2 psi per 0.1 s: a test must step at 0.02 s to
+  stop at a pressure, and a player cannot. That is why the post-test step has `DI.bleedToNormal`.
 - `World.fromJSON` migrates old saves (`DI.migratePart`): it drops `mode`, loads the el-el preset where
   setpoints are missing and flags the valve so `Sim.restore` re-pressurizes it. Extend that function
   when part props change.

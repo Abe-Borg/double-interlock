@@ -47,6 +47,70 @@ DI.dryLim = (V) => 0.2 + 0.01 * V;
 // maintenance regulator target: normal pressure, raised to the test pressure while a 24 h air test is charging
 DI.airCharging = (S, id) => S.procs.length > 0 && S.procs.some((q) => q.kind === 'leak' && q.id === id && q.stage === 0);
 DI.airTarget = (S, id, v) => (DI.airCharging(S, id) ? Math.max(v.p.airSet, DI.AIR_TEST.psi) : v.p.airSet);
+// ---------- air refill (FP Lead): the air supply must bring a zone back to normal pressure within 30 min.
+// The clock runs from the first gas in with the zone closed up (no open head, drain or inspector's test) to the
+// moment the zone is back at normal (the same "set" point the game uses everywhere: normal minus 3.2 psi). It
+// runs after a trip and riser reset (the valve is not set yet) and also on a zone that lost its air without
+// tripping (s.rfill: below low air, then filling).
+// Nothing may key a goal, a review fail or a drill result to it: on a shared compressor the game refills
+// every zone at once (Simplification), so fills on a shared compressor can run over (the commissioning fills of
+// the contract 5 reference build do). The 60 min limit for refrigerated
+// spaces below 5 F is not modelled: there is no freezer room type.
+DI.REFILL_LIMIT = 1800;                 // seconds, all editions
+DI.GAL_FT3 = 7.48052;                   // gallons per cubic foot
+// ASSUMED practice margin on the arithmetic minimum (DI.airSizing); minutes = the refill limit
+DI.AIR_SIZING = { minutes: 30, margin: 1.25 };
+// the citation for the refill limit on this zone: the N2-only section where every source is a nitrogen generator
+DI.refillRef = function (W, inf) {
+  const R = DI.setJuris(W).ref, n2 = !!inf && inf.src.length > 0 && inf.src.every((id) => { const p = W.parts.get(id); return p && p.type === 'n2'; });
+  return n2 ? (R.refillN2 || R.refill + ' (2025 N2-only subsection not pulled)') : R.refill;
+};
+// an opening that lets the air straight out: the refill clock does not run against one
+DI.zoneOpen = (v, s) => !!((s.openK && s.openK.length) || v.p.sdrain || v.p.itc);
+// is this zone closed up and filling toward normal, with its supply open?
+DI.refilling = function (S, id) {
+  const v = S.W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id);
+  return !!(v && s && inf && v.type !== 'wetv' && s.state === 'dry' && (!s.set || s.rfill) && v.p.airValve && inf.src.length && !DI.zoneOpen(v, s));
+};
+// { t, limit, over, running, ref }: t = seconds on the clock now (running) or of the last refill (null: none yet)
+DI.refillState = function (S, id) {
+  const W = S.W, v = W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id); if (!v || !s || !inf || v.type === 'wetv') return null;
+  const running = s.state === 'dry' && (!s.set || !!s.rfill) && s.fillT0 >= 0, t = running ? S.t - s.fillT0 : s.fillTime > 0 ? s.fillTime : null;
+  return { t, limit: DI.REFILL_LIMIT, over: t !== null && t > DI.REFILL_LIMIT, running, ref: DI.refillRef(W, inf) };
+};
+// the inspector row: [text, class]
+DI.refillText = function (S, id) {
+  const r = DI.refillState(S, id); if (!r || r.t === null) return ['-', ''];
+  const m = DI.fmt(r.t / 60, 1), lim = DI.fmt(r.limit / 60);
+  if (r.running) return [m + ' of ' + lim + ' min', r.over ? 'bad' : 'warn'];
+  return r.over ? ['FAIL: ' + m + ' min over the ' + lim + ' min limit', 'bad'] : [m + ' min of the ' + lim + ' min limit: OK', 'good'];
+};
+// Compressor sizing for zone `id` (FP Lead): scfm_min = V_ft3 x (P_normal / 14.7) / 30, taken on the largest zone
+// that shares any of this zone's sources (one compressor serving several systems is sized on the single largest).
+// have = the sum of the ratings of this zone's own sources (an N2 generator counts: Simplification).
+// Returns null for a wet riser or a zone with no source.
+DI.airSizing = function (S, id) {
+  const W = S.W, inf = S.sysd.info.get(id), v = W.parts.get(id); if (!v || !inf || v.type === 'wetv' || !inf.src.length) return null;
+  const need = (zid) => { const z = S.sysd.info.get(zid), zv = W.parts.get(zid), gal = DI.zoneVolume(W, z); return { id: zid, gal, ft3: gal / DI.GAL_FT3, min: gal / DI.GAL_FT3 * (zv.p.airSet / DI.ATM) / DI.AIR_SIZING.minutes }; };
+  let gov = need(id), shared = 0;
+  for (const [zid, z] of S.sysd.info) {
+    if (zid === id || z.type === 'wetv' || !z.src.some((q) => inf.src.includes(q))) continue;
+    shared++; const n = need(zid); if (n.min > gov.min) gov = n;
+  }
+  const have = inf.src.reduce((a, q) => a + (W.parts.get(q).p.scfm || 0), 0);
+  return { have, min: gov.min, margin: gov.min * DI.AIR_SIZING.margin, gov: gov.id, gal: gov.gal, ft3: gov.ft3, shared, below: have < gov.min, tight: have >= gov.min && have < gov.min * DI.AIR_SIZING.margin };
+};
+// After a 24 h air test on a zone whose normal pressure is below the test pressure the pipe is left high. The
+// operator bleeds it at the trim (a small bleed, not the 2 in. drain) down to normal: a practice step, never scored.
+DI.bleedToNormal = function (S, id) {
+  const v = S.W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id);
+  if (!v || !s || v.type === 'wetv' || s.state !== 'dry') return 'Nothing to bleed: the valve is not set with gas in the pipe.';
+  if (s.P <= v.p.airSet) return 'The pipe is already at or below normal pressure.';
+  const Vg = Math.max(inf.vol - s.wat, 0.02 * inf.vol), x = s.G > 0 ? s.o2g / s.G : 0.209;
+  s.G = (v.p.airSet + DI.ATM) * Vg; s.o2g = x * s.G; s.P = v.p.airSet; s.ref = s.P;
+  S.say(DI.sysName(S, id) + ': bled at the trim to ' + v.p.airSet + ' psi, the normal pressure.', '');
+  return '';
+};
 DI.setSolOut = function (S, id, v) {
   const on = DI.relState(S.W, v).sol;
   if (on && !v.p.solOut) S.say('Releasing panel energized the solenoid on ' + DI.sysName(S, id) + (v.p.trim === 'el-pn' ? ' (electric leg). Water still needs P at the pneumatic actuator.' : '.'), 'bad');
@@ -146,7 +210,19 @@ DI.gasPre = function (S, dt) {
     if (big > 0 && s.openT < 0) s.openT = S.t;
     if (v.type === 'wetv') continue;
     s.lowAir = s.set && s.P < v.p.loAir;         // supervisory only: follows live pressure, never a release input
-    if (s.state !== 'dry') continue;
+    if (s.state !== 'dry') { s.rfill = false; s.ret = false; continue; }
+    // refill clock of a zone that lost its air while set (no trip): starts below low air, ends back at normal
+    if (s.set) {
+      if (!s.rfill && s.P < Math.min(v.p.loAir, v.p.airSet - 3.2)) { s.rfill = true; s.fillT0 = -1; s.fillTime = -1; }
+      if (s.rfill) {
+        if (DI.zoneOpen(v, s)) s.fillT0 = -1; else if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
+        if (s.P >= v.p.airSet - 3.2) { s.rfill = false; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; }
+      }
+    }
+    // after a 24 h air test on a zone whose normal is below the test pressure: back to normal, above low air, closed up
+    if (s.ret && s.P <= v.p.airSet + 1 && s.P >= v.p.loAir && !v.p.sdrain && v.p.airValve && !S.procs.some((q) => q.kind === 'leak' && q.id === id)) {
+      s.ret = false; S.act('return-normal', id); S.say(DI.sysName(S, id) + ' is back at normal pressure after the air test (' + DI.fmt(s.P, 1) + ' psi, above low air).', 'good');
+    }
     // P sensor (PSL-REL switch or PA-REL actuator): a pure threshold on pipe pressure. No outlet-type test and
     // no rate term: a sprinkler, an open inspector's test and a broken pipe all look the same to it, and a
     // slow leak the compressor holds never reaches the setpoint. It latches until a manual reset: the panel
@@ -167,7 +243,7 @@ DI.gasPre = function (S, dt) {
     let why = pre && v.p.mech ? 'mechanical emergency release at the trim' : '', zf = '';
     if (!why) {
       if (!s.set) {
-        if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
+        if (DI.zoneOpen(v, s)) s.fillT0 = -1; else if (s.fillT0 < 0 && s.gasIn > 0) s.fillT0 = S.t;
         if (s.P >= v.p.airSet - 3.2) { s.set = true; s.ref = s.P; if (s.fillT0 >= 0) s.fillTime = S.t - s.fillT0; S.say(DI.sysName(S, id) + ' is pressurized and in service (' + DI.fmt(s.P) + ' psi)' + (pre && v.p.pLatch ? '. P is still latched: reset ' + (v.p.trim === 'el-pn' ? 'the actuator at the trim' : 'the releasing panel') + '.' : ''), pre && v.p.pLatch ? 'warn' : 'good'); }
         continue;
       }

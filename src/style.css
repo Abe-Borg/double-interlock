@@ -76,3 +76,10 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .man { display:grid; grid-template-columns:190px 1fr; gap:18px; } .man nav button { display:block; width:100%; text-align:left; margin-bottom:3px; border:0; background:none; color:#a9bac7; } .man nav button.on { background:#1c2a37; color:#fff; }
 .man table { border-collapse:collapse; margin:8px 0; font-size:13px; } .man td, .man th { border:1px solid var(--line); padding:4px 8px; text-align:left; color:#b6c6d2; } .man th { color:#fff; background:#0f1820; }
 .stars { font-size:34px; letter-spacing:6px; color:var(--amb); } .stars s { color:#2c3b49; text-decoration:none; }
+#imp:empty { display:none; } #imp { border-bottom:1px solid var(--line); background:#1d1608; }
+#imp .hd3 { font:700 10px var(--mono); letter-spacing:.12em; color:var(--amb); padding:4px 8px 2px; }
+#imp .imp { padding:2px 8px 5px; font:11.5px var(--mono); color:#ffd590; cursor:pointer; } #imp .imp:hover { background:#2a1f0a; }
+#side p.imp { margin:6px 10px 2px; padding:4px 8px; border-left:3px solid var(--amb); background:#1d1608; color:#ffd590; font:11.5px var(--mono); }
+#mbox.wide { width:min(1280px,96vw); } #mbox p.impTag { border-left:3px solid var(--amb); padding-left:10px; color:#ffd590; }
+.ce { border-collapse:collapse; width:100%; margin:10px 0; font:11.5px/1.35 var(--mono); } .ce th, .ce td { border:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; color:#b6c6d2; } .ce th { color:#fff; background:#0f1820; position:sticky; top:-22px; }
+.ce tr.off td { color:#566878; } .ce tr.live td { background:#2a1d0c; color:#ffe2b0; } .ce .now { display:block; color:var(--amb); font-weight:700; letter-spacing:.06em; }

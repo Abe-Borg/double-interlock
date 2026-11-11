@@ -66,7 +66,12 @@ DI.LISTED = { smoke: { min: 0.5, max: 4.0 } };
 // Recorded, not merged: the 2020 Honeywell VEP sheet (VESDA-E-VEP V.02, 04/20) prints the same metric ranges
 // with different imperial figures (0.0016 to 0.625 Alert / Action, 0.0031 to 0.625 Fire 1, 0.0063 to 6.25
 // Fire 2). The July 2025 UL 268 7th Ed. sheet governs for the US models.
-// Not in the table: VEA (discrete Fire 1 settings, no Alert / Action range), FAAST and TITANUS (see README).
+// Not in the table: FAAST and TITANUS (see README), and VEA, which is recorded here and not modelled:
+//   VESDA-E VEA, Enhanced Fire 1 = 1.23 %/ft (Xtralis Doc. 36348_03, primary). The Gamewell sheet prints 1.3: an OEM
+//   variant, kept as a note only. Discrete Fire 1 settings 0.5 / 1.23 / 2.5 %/ft; Alert and Action are not printed.
+//   It is not a model because the engine assumes four stages (DI.detThr, the level loop in DI.alarmStep): VEA would
+//   need stages marked unavailable and a Fire 2 value that the sheets pulled do not give. It waits for a datasheet
+//   pull of its Fire 2 behaviour (FA Lead). UL Product iQ stays "not checked".
 DI.ASD_SRC = '[HB, datasheet; UL Product iQ not checked]';
 DI.ASD_STAGES = [['alert', 'Alert'], ['action', 'Action'], ['fire1', 'Fire 1'], ['fire2', 'Fire 2']];
 DI.ASD_MODELS = {
@@ -76,6 +81,9 @@ DI.ASD_MODELS = {
     range: { alert: [0.0003, 0.614], action: [0.0003, 0.614], fire1: [0.0003, 0.614], fire2: [0.0003, 6.575] } },
 };
 DI.ASD_DEFAULT = 'VEP';
+// recorded, not modelled (shown in the manual; never offered as a model)
+DI.ASD_RECORDED = { VEA: { label: 'VESDA-E VEA', doc: 'Xtralis Doc. 36348_03', fire1: [0.5, 1.23, 2.5], primary: 1.23, oem: 1.3,
+  note: 'VESDA-E VEA, recorded and not modelled: Enhanced Fire 1 = 1.23 %/ft (Xtralis Doc. 36348_03, primary). The Gamewell sheet prints 1.3, an OEM variant, kept as a note only. Discrete Fire 1 settings 0.5 / 1.23 / 2.5 %/ft; Alert and Action are not printed and no Fire 2 value was pulled, so it cannot be a four-stage model yet.' } };
 // site setting W.cfg.asdModel: the key if it is in the table, else the default (an old save has no key)
 DI.asdModel = (W) => { const k = W && W.cfg ? W.cfg.asdModel : undefined; return typeof k === 'string' && Object.prototype.hasOwnProperty.call(DI.ASD_MODELS, k) ? k : DI.ASD_DEFAULT; };
 // the four [min, max] pairs of the site's model, in DI.detThr order
@@ -93,14 +101,52 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // Signal classes (W.cfg.sigClass). Alert and Action are pre-alarm: supervisory by default, alarm if the
 // engineer elects it. A latched P is a release input whose class has not been elected: OPEN by default,
 // ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
-// Fixed classes, no setting: Fire 1, Fire 2, manual station and waterflow ALARM; low and high air SUPV;
-// panel AC, low battery, loss of communication and loss of supply air TRBL (the last NEEDS PE REVIEW).
+// Fixed classes, no setting (DI.SIG_FIXED): Fire 1, Fire 2, manual station, Manual Release zone, release circuit
+// and waterflow ALARM; low and high air, valve tamper and a contract impairment SUPV; panel AC, low battery, loss
+// of communication and loss of supply air TRBL. Loss of supply air is TRBL [PRACTICE] (FA Lead, 2026-11-10
+// 3:01 PM PT): a compressor or N2 power or controller fault is equipment trouble, its own signal; the pressure
+// drop it causes is still reported by the separate low-air supervisory.
+// DI.inClass is the one reader: every add(...) in DI.alarmStep and the cause-and-effect matrix (cause.js) use it.
+DI.SIG_FIXED = { fire1: 'ALARM', fire2: 'ALARM', manual: 'ALARM', mrz: 'ALARM', release: 'ALARM', waterflow: 'ALARM', lowAir: 'SUPV', highAir: 'SUPV', tamper: 'SUPV',
+  supplyAir: 'TRBL', acFail: 'TRBL', lowBatt: 'TRBL', lostComm: 'TRBL', impair: 'SUPV' };
 DI.SIG_CLASS = { alert: ['SUPV', 'ALARM'], action: ['SUPV', 'ALARM'], pLatch: ['OPEN', 'ALARM', 'TRBL'] };
 DI.SIG_DEFAULT = { alert: 'SUPV', action: 'SUPV', pLatch: 'OPEN' };
 DI.sigClass = (W, key) => { const c = W && W.cfg && W.cfg.sigClass, v = c ? c[key] : undefined; return DI.SIG_CLASS[key].includes(v) ? v : DI.SIG_DEFAULT[key]; };
+DI.inClass = (W, key) => (Object.prototype.hasOwnProperty.call(DI.SIG_CLASS, key) ? DI.sigClass(W, key) : DI.SIG_FIXED[key]);
 // annunciator order and labels
 DI.SIG_ORDER = { ALARM: 0, OPEN: 1, SUPV: 2, TRBL: 3 };
 DI.OPEN_LABEL = 'RELEASE INPUT - CLASS NOT ELECTED';
+
+// ---------- releasing panel power and the supervising station (NFPA 72 Ch. 10 and Ch. 26; citations in DI.juris.ref72)
+// Standby battery: a flat 24 h of standby plus alarm (Simplification).
+// Low battery: the code states no low-battery threshold. It requires the voltage to be monitored and a trouble on
+// failure; the 24 h standby sets capacity, not the trouble setpoint. The trouble here is the listed manufacturer's
+// low-battery voltage setpoint, represented as 1/12 of battery capacity left: [OWNER/listing], ASSUMED, NEEDS PE REVIEW.
+DI.PANEL_STANDBY_H = 24;
+DI.PANEL_LOWBATT_FRAC = 1 / 12;
+DI.lowBattH = () => DI.PANEL_STANDBY_H * DI.PANEL_LOWBATT_FRAC;      // hours of standby left at the setpoint
+DI.LOWBATT_NOTE = 'the listed manufacturer low-battery voltage setpoint, represented as 1/12 of battery capacity left (OWNER/listing, ASSUMED, NEEDS PE REVIEW)';
+// Trouble signals appear at the panel within 200 s. The game shows them at once, which is inside the ceiling.
+DI.TROUBLE_PANEL_S = 200;
+// AC failure is transmitted to the supervising station after a delay: 60 to 180 min, OWNER / AHJ (site setting
+// W.cfg.acDelayMin, default 60). If power returns inside the delay nothing is transmitted.
+DI.AC_DELAY_MIN = [60, 90, 120, 150, 180];
+DI.acDelay = (W) => { const m = W && W.cfg ? W.cfg.acDelayMin : undefined; return (typeof m === 'number' && m >= 60 && m <= 180 ? m : 60) * 60; };
+// Path to the supervising station (site setting W.cfg.commPath, OWNER): how long after a panel dies the station
+// annunciates the loss of communication. ip: a single performance-based path, 60 min (IP as the default is
+// PRACTICE). multi: multiple paths, 6 h (the 2025 annunciation sentence was not found: VERIFY). dact: the 6 h
+// test-signal interval, used as the delay because no deadline for a missed test is held (ASSUMED, VERIFY).
+// ref = the key into DI.juris.ref72. Two-way RF and the DACT 4-minute channel-failure rule are not modelled.
+DI.COMM_PATH = {
+  ip: { label: 'Single path (IP, performance-based)', short: 'IP path', delay: 3600, ref: 'commIp' },
+  multi: { label: 'Multiple paths', short: 'multiple paths', delay: 21600, ref: 'commMulti' },
+  dact: { label: 'DACT (dial-up)', short: 'DACT', delay: 21600, ref: 'commDact' },
+};
+DI.COMM_DEFAULT = 'ip';
+DI.commPath = (W) => { const k = W && W.cfg ? W.cfg.commPath : undefined; return typeof k === 'string' && Object.prototype.hasOwnProperty.call(DI.COMM_PATH, k) ? k : DI.COMM_DEFAULT; };
+DI.commDelay = (W) => DI.COMM_PATH[DI.commPath(W)].delay;
+// minutes or hours, the way a delay is written in the UI
+DI.delayText = (sec) => (sec % 3600 === 0 && sec > 3600 ? sec / 3600 + ' h' : Math.round(sec / 60) + ' min');
 
 // Maker trim presets for the double-interlock preaction valve. All values ASSUMED, tunable per valve.
 // Order is always high-air supervisory > normal > low-air supervisory > P trip.

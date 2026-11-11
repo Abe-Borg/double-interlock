@@ -85,7 +85,13 @@ pressure), sand compressed air, teal nitrogen. White dashes are flow. Hover any 
   compressor run time, never as water flow or gallons. The waterflow alarm needs water, not air
   pressure behind a tripped clapper. Each zone has its own air / N₂ supply isolation, and losing every
   source on a zone (power or a failed unit) is its own trouble, LOSS OF SUPPLY AIR, beside the low-air
-  supervisory.
+  supervisory. A shut supply valve is an impairment, shown as a tag (an amber IMPAIRMENT TAGS strip and a
+  line on the valve), not as a signal: low air still comes in only when the gauge actually falls.
+- **Air refill.** Every dry and preaction valve has a **Refill clock** against the 30-minute limit
+  (first gas into the closed-up zone to normal pressure: OK or FAIL), an **Air supply sizing** row, and
+  a **Skip the refill** button that skips ahead until the zone is back at normal (2 h at most). Plan
+  review warns when the compressor is below `scfm_min = V_ft3 x (P_normal / 14.7) / 30` on the largest
+  zone it serves, or below a x1.25 margin. The lesson is that recovery time is mostly compressor time.
 - **Valve logic.** Differential dry valve (about 5.5 : 1). Preaction is double interlock only:
   release = (D AND P) OR (bypass 9(c) AND Manual Release zone), where D = Fire 1 detection OR the
   manual station typed DETECTION. D is a level check (at or above Fire 1). P is pipe pressure below the
@@ -110,10 +116,13 @@ pressure), sand compressed air, teal nitrogen. White dashes are flow. Hover any 
   straight back. A reset while the pipe is still below P trip latches P again. A tripped valve is reset
   by hand at the riser: a panel reset never closes it, and the riser reset never clears P. The riser
   reset is done with the system drain still open and leaves the drain as it is.
-- **A dead panel.** On AC failure the panel reports trouble and runs on its battery, reports LOW
-  BATTERY with 2 h left, then dies. Dead means dark: no display, no LEDs, nothing to silence or reset
-  (the buttons are disabled and say why). The annunciator lists only what the supervising station
-  reports, loss of communication, and the valve rows the panel feeds read `not displayed: panel dead`.
+- **A dead panel.** On AC failure the panel shows the trouble at once and runs on its battery. The
+  supervising station is told only after the AC-fail delay (60 to 180 min, a site setting; power back
+  sooner and nothing is sent). LOW BATTERY comes in at the battery's listed low-voltage setpoint
+  (shown as 1/12 of capacity left), then the panel dies. Dead means dark: no display, no LEDs, nothing
+  to silence or reset (the buttons are disabled and say why). The status bar reads PANEL DEAD at once.
+  The supervising station's loss-of-communication line appears only after its supervision interval
+  (60 min on a single IP path), and the valve rows the panel feeds read `not displayed: panel dead`.
   On an electric / electric trim the P latch lives in the panel, so it is lost with the panel and read
   again when power returns: P comes back if the pipe is still low. Power coming back is not a release;
   the inputs are.
@@ -134,7 +143,8 @@ pressure), sand compressed air, teal nitrogen. White dashes are flow. Hover any 
   utility outages and generator transfer, diesel fuel and batteries, the fire department and the FDC,
   aspirating detection stages (Alert and Action pre-alarm, Fire 1 releases, Fire 2 escalation only;
   every stage crossed is logged in order), spot detectors (alarm only in white space, detection leg in
-  an electrical / UPS room), wired manual release stations, panel Silence and Reset, a recovery log that
+  an electrical / UPS room), wired manual release stations, panel Silence and Reset, a read-only
+  cause-and-effect matrix per preaction zone, a recovery log that
   tracks the thirteen restore steps in order, a head-replacement gate and a control-valve reopen gate,
   pipe breaks, a sound cue per signal class, and a technician you can send while a fire is still
   smouldering.
@@ -178,11 +188,14 @@ object on the scenario; none does yet, so every contract is winnable with the de
 | Aspirating detector model | VESDA-E VEP / VESDA-E VEU. Sets the listed range of every stage. Changing it never changes a threshold | VEP |
 | Aspirating detection thresholds | four values: Alert, Action, Fire 1, Fire 2. Each must sit inside its own listed range for the model, and they must run strictly increasing. A value outside the range is kept as typed, shown red and failed by plan review: nothing is clamped | 0.03 / 0.06 / 0.12 / 1.2 %/ft (owner-set example values: ASSUMED, NEEDS PE REVIEW) |
 | Spot detector alarm threshold | a value inside the listed window 0.5 to 4.0 %/ft (example data) | 1.3 %/ft (ASSUMED) |
-| NFPA 76 adopted on this site | no / yes; when yes, the limits are ceilings: Alert 0.2 %/ft or less and an alarm threshold 1.0 %/ft or less | no |
-| NFPA 76 alarm stage | not elected (OPEN) / Fire 1 / Fire 2: which stage the 1.0 %/ft limit applies to. NEEDS PE REVIEW. Never assumed by the game | not elected |
+| NFPA 76 adopted on this site | no / yes; when yes, two ceilings are checked: Alert 0.2 %/ft or less, and Fire 1 (the first alarm stage) 1.0 %/ft or less. PRACTICE, NEEDS PE REVIEW | no |
 | Signal class: aspirating Alert, Action | supervisory / alarm | supervisory (ASSUMED) |
 | Signal class: latched P (release input) | not elected (OPEN) / alarm / trouble. Supervisory is blocked | not elected (ASSUMED) |
 | Manual Release zone bypasses P | off / on. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve | off |
+| Supervising-station path (OWNER) | single IP path (a dead panel is annunciated after 60 min) / multiple paths (6 h) / DACT (6 h, its test interval: ASSUMED) | single IP path (PRACTICE) |
+| AC-fail transmission delay (OWNER / AHJ) | 60, 90, 120, 150 or 180 min before an AC failure is sent to the supervising station | 60 min |
+| HVAC shutdown / damper hook (OWNER, NEEDS PE REVIEW) | none / CRAH or AHU shutdown / damper. Shown in the cause-and-effect matrix only | none |
+| EPO / power isolation hook (OWNER, NEEDS PE REVIEW) | off / on (an NEC 645, FM DS 5-32 election). Shown in the cause-and-effect matrix only | off |
 
 The edition changes the citations in plan review and on the test reports and shows an "Edition
 delta vs 2025" line. Pass and fail do not differ by edition in this version. NFPA 13-2022 keeps the
@@ -195,12 +208,14 @@ lead; a 2022 key carried from 2019 is shown with `(ASSUMED, VERIFY)` in the game
 | 500 gal, no quick-opening device | §8.2.4.2.1 | §8.2.3.3 (ASSUMED, VERIFY) | §8.2.3.3 |
 | 750 gal with a quick-opening device | §8.2.4.2.2 | §8.2.3.4 (ASSUMED, VERIFY) | §8.2.3.4 |
 | Listed calculation route | §8.2.4.3.1 | §8.2.3.5 to .6 (ASSUMED, VERIFY) | §8.2.3.5 to .6 (VERIFY) |
-| Delivery table by hazard | Table 8.2.4.3.2 | Table 8.2.3.6.1 (held) | Table 8.2.3.6.1 |
-| Manifold (information only) | §8.2.4.4 | §8.2.3.7 (held) | not given |
+| Delivery table by hazard | Table 8.2.4.3.2 | Table 8.2.3.6.1 (verified) | Table 8.2.3.6.1 |
+| Manifold (information only) | §8.2.4.4 | §8.2.3.7 (verified) | not given |
 | Other listed times (information only) | §8.2.4.5 | §8.2.3.8 (ASSUMED, VERIFY) | not given |
-| Double-interlock exemption | §8.3.2.3.1.1 | §8.3.2.3.1.1 to .4 (held) | §8.3.2.3.1.1 |
-| QOD on double interlock | §8.3.2.3.2 | §8.3.2.3.2 (held) | §8.3.2.3.2 |
-| 24 h air test | §29.2.2.1 (held) | §29.2.2.1 (ASSUMED, VERIFY) | §28.2.2.1 (ASSUMED, VERIFY) |
+| Double-interlock exemption | §8.3.2.3.1.1 | §8.3.2.3.1.1 to .4 (verified) | §8.3.2.3.1.1 |
+| QOD on double interlock | §8.3.2.3.2 | §8.3.2.3.2 (verified) | §8.3.2.3.2 |
+| 24 h air test | §29.2.2.1 (verified) | §29.2.2.1 (verified) | §28.2.2.1 (verified) |
+| Air supply restores normal pressure in 30 min | §8.2.7.3 | §8.2.6.3.2 | §8.2.6.3.2 |
+| The same, N₂-only source | not pulled | §8.2.6.8.4 | §8.2.6.8.4 |
 
 A Canada row (NFPA 13-2019) exists as hidden data only and is never offered in the menu.
 
@@ -210,7 +225,21 @@ at test pressure: a zone sitting lower is charged to 40 psi first (the game does
 and a zone above 40.5 psi is refused until it is bled down. If the zone cannot reach 40 psi in 30 min
 the test fails. The report gives the test pressure, the start and end readings, the pass line with the
 section of the enforced edition, and the drop. It never mentions P: a test that leaks below P trip
-leaves P latched (that is PSL-REL doing its job), and the panel event log says so.
+leaves P latched (that is PSL-REL doing its job), and the panel event log says so. After the test the
+supply is restored. Where the zone's normal pressure is 40 psi nothing more is needed; where it is lower
+the pipe is left high and the valve shows a practice step, "return to normal pressure": bleed at the
+system drain or at the trim, close up, and confirm the pipe sits above low air.
+
+**Air refill.** The air supply must restore normal pressure within 30 minutes (sections in the table
+above). The valve's Refill clock measures it. Compressor sizing follows from the volume:
+`scfm_min = V_ft3 x (P_normal / 14.7) / 30` on the largest zone a source serves, plus a x1.25 margin
+(ASSUMED practice). A 525 gal zone (70.2 ft³) at 40 psi needs about 6.4 scfm, about 8 with the margin.
+Plan review warns below the minimum and below the margin and never fails on it: the game calls a zone
+back at normal 3.2 psi under its setpoint, so the measured clock is the authority. One compressor
+serving several zones refills them all at once here, so commissioning fills on a shared compressor can
+read over 30 min (contract 5's reference build: 30.3 and 35.6 min on one 10 scfm unit). Nothing but
+contract 2's existing dock goal reads a fill time. The 60-minute limit for refrigerated spaces below 5 °F
+is not modelled, and the 2025 acceptance wording (§29.2.3.2.4.1) is from a search, not verbatim: VERIFY.
 
 **Aspirating detector models.** Each listing bounds every threshold per stage, per model. The ranges
 are read from the maker's own datasheets, labelled **[HB, datasheet; UL Product iQ not checked]**
@@ -222,25 +251,55 @@ wherever they are shown: the UL Product iQ listing itself could not be read.
 | VESDA-E VEU (VEU-A00-UL, VEU-A10-UL) | 0.0003 to 0.614 | 0.0003 to 0.614 | 0.0003 to 0.614 | 0.0003 to 6.575 | Xtralis Doc. 36107_05, Part AD36107-005, November 2024, p. 2 |
 
 Units are %/ft obscuration. The datasheets print setting ranges, not default thresholds, so the four
-example values stay owner-set, ASSUMED and NEEDS PE REVIEW. Not offered: VESDA-E VEA (its sheet prints
-discrete Fire 1 settings of 0.5 / 1.23 / 2.5 %/ft and no Alert or Action range, and a second sheet
-prints 1.3 for the middle one: unresolved), FAAST LT-200 and FLEX (no UL 268 or FM listing on the
-sheets), TITANUS PRO·SENS and FAAST XM / XS (conflicting or non-current sheets).
+example values stay owner-set, ASSUMED and NEEDS PE REVIEW. Recorded, not modelled: VESDA-E VEA. Its
+Enhanced Fire 1 is 1.23 %/ft (Xtralis Doc. 36348_03, primary); the Gamewell sheet prints 1.3, an OEM
+variant kept as a note only. It has discrete Fire 1 settings of 0.5 / 1.23 / 2.5 %/ft and no printed
+Alert or Action, and no Fire 2 value was pulled, so it cannot be a four-stage model yet. Not offered
+either: FAAST LT-200 and FLEX (no UL 268 or FM listing on the sheets), TITANUS PRO·SENS and FAAST XM /
+XS (conflicting or non-current sheets).
 
-**NFPA 76 where adopted.** The limits (Alert 0.2, alarm 1.0 %/ft, NFPA 76-2024 §8.5.3.1.2.5) are
-ceilings. Which stage is "the alarm" is not settled, so it is a site setting that starts not elected,
-and nothing maps the limit to a stage without it. Two flags stay visible in plan review, in the Site
-dialog and on the detector while they apply: **OPEN** (no stage elected) and **CONFLICT** (1.0 %/ft is
-above the listed Fire 1 maximum of 0.614 %/ft on both models, so it cannot be entered as a Fire 1
-value; any Fire 1 inside the listing already meets it as a ceiling, and Fire 2 has no such conflict).
-Plan review fails an Alert above 0.2 and the elected stage above 1.0. The preset writes a limit only
-where it fits the listed range and keeps the order, never clamps or moves another stage, and says what
-it did not write.
+**NFPA 76 where adopted.** Two plain ceilings (NFPA 76-2024 §8.5.3.1.2.5): Alert 0.2 %/ft or less,
+and the 1.0 %/ft alarm ceiling applied to Fire 1, the first alarm stage. Action stays pre-alarm and
+Fire 2 has no NFPA 76 limit (PRACTICE, NEEDS PE REVIEW). There is no conflict with the listing: the
+listed Fire 1 maximum (0.614 %/ft on both models) is tighter, so the listing binds first, and the Site
+dialog and plan review say so in one note. Plan review fails an Alert above 0.2 or a Fire 1 above 1.0.
+"Check against NFPA 76" in the Site dialog reads the thresholds against the two ceilings and writes
+nothing. An old save that still carries the retired alarm-stage election loads, and the key is ignored.
 
 Signals on the annunciator: ALARM, then OPEN (a release input whose class is not elected: the latched
-P), then SUPERVISORY, then TROUBLE, each with its own sound. Fixed classes: Fire 1, Fire 2, manual
-station and waterflow are alarm; low and high air are supervisory; panel AC failure, low battery, loss
-of communication with a dead panel and loss of supply air are trouble.
+P), then SUPERVISORY, then TROUBLE, each with its own sound. Fixed classes (one registry,
+`DI.SIG_FIXED`, read by the alarm code and by the cause-and-effect matrix): Fire 1, Fire 2, manual
+station, release circuit and waterflow are alarm; low and high air and valve tamper are supervisory;
+panel AC failure, low battery, loss of communication with a dead panel and loss of supply air are
+trouble. Loss of supply air is equipment trouble, its own signal (PRACTICE, settled by the fire alarm
+lead); the pressure drop it causes is still reported by the low-air supervisory.
+
+**Cause-and-effect matrix.** Each preaction valve, and the releasing panel for each zone wired to it,
+opens a read-only matrix for that zone. Columns: Input, Tag, SignalClass, PanelAnnunciation,
+SS_Transmit, LocalNAC, Solenoid, HVAC_Hook, EPO_Hook. Rows: Alert, Action, Fire 1, Fire 2, the manual
+station, the Manual Release zone, P, the release (on AC, on battery, with the panel dead), waterflow,
+tamper, low and high air, loss of supply air, AC failure, low battery and loss of communication. The
+table is generated from the engine (`DI.ceEval`: classes from the registry, the release from
+`DI.relState` on the zone's own trim and bypass setting), and the tests hold all 17 rows of the truth
+table as matrix = fixture = engine. Rows active on the zone are marked ACTIVE NOW. LocalNAC is a rule
+read from the class (alarm only), not a circuit. The two hook columns show an output contact where the
+owner has elected one in the Site dialog; they are hooks only, and the game never shuts down a fan, a
+damper or power. Which rows carry a hook is ASSUMED, NEEDS PE REVIEW. Not in the matrix: elevator
+recall, door release, compressor control, battery sizing and notification circuits.
+
+**Supervising-station timing (NFPA 72).** The NFPA 72 edition follows the site's NFPA 13 edition
+(ASSUMED). A trouble shows at the panel within 200 s (§10.15.1; the game shows it at once). An AC
+failure is transmitted after 60 to 180 min (§10.6.9.3; a site setting, default 60). A dead panel is
+annunciated by the supervising station after its supervision interval, by path:
+
+| Path | Delay | 2019 / 2022 | 2025 |
+|---|---|---|---|
+| Single IP path (default, PRACTICE) | 60 min | §26.6.3.3(2) | §26.6.3.3.2(2) (annunciated per §10.15) |
+| Multiple paths | 6 h | §26.6.3.4(2) | §26.6.3.4(1): only the 6 h supervision interval was found, VERIFY |
+| DACT | 6 h, the test interval (ASSUMED, VERIFY) | 2019 §26.6.4.1.5(6), §26.6.4.2.2(H); 2022 §26.6.4.2.5(6), §26.6.4.3.2.8 | §26.6.4.2.5(6), §26.6.4.3.2.8 |
+
+Low battery has no code threshold (§10.6.9.1; §10.6.10.6 is charger failure): the trouble is the
+listed manufacturer's low-voltage setpoint, represented as 1/12 of battery capacity left.
 
 Each preaction valve carries its own setpoints, loaded from a **maker trim** preset in the valve's
 inspector: electric / electric (P sensed by a PSL-REL pressure switch) or electric / pneumatic (P sensed
@@ -255,37 +314,51 @@ Two labels are used in the UI and the manual:
   between low air and P trip, the pipe size cut (2 in.) and equal cost per schedule, the fittings
   allowance (5 %) and trim volume (2 gal) in zone volume, the detection example thresholds (0.03 /
   0.06 / 0.12 / 1.2, owner-set inside the model's listed range), the spot detector threshold (1.3)
-  inside its 0.5 to 4.0 example window, the NFPA 76 preset's Action example (0.6) and the preset
-  treating the limits as ceilings written only where they fit, the Alert / Action signal class
+  inside its 0.5 to 4.0 example window, the Alert / Action signal class
   (supervisory), the banner priority of an OPEN item (shown only when nothing else is present), the
-  24 h panel battery, the panel low-battery trouble at 2 h remaining, the supervising station's
-  loss-of-communication trouble arriving at once when the panel dies (transmitter-dependent), the
+  24 h panel battery, the low-battery setpoint as 1/12 of battery capacity left (the listed voltage
+  setpoint, OWNER/listing) and low battery being transmitted at once, the NFPA 72 edition following
+  the NFPA 13 site edition, the DACT delay (its 6 h test interval) and the 6 h on multiple paths in
+  2025, the x1.25 compressor sizing margin, which matrix rows carry the HVAC and EPO hooks, the
   electric / electric P latch being lost with panel power and read again on restore, 0.5 psi as "about
   0 psi" before a head is replaced (the gate itself is confirmed by the fire protection lead; the
   value is assumed), the automatic "confirm 0 psi and no water" step, the 24 h air test starting once
   the gauge reads 40.0 (0.005 psi) with 30 min allowed to charge, the game charging the zone itself,
   the operator log size (600 entries), the sound pattern per signal class, the contract 5 recovery
-  time bonus target (660 s), and Canada = NFPA 13-2019 via NBC 2020 / BCBC 2024 (verify before ship).
+  time bonus target (300 s of operator-step time), the 2022 delivery sections still carried from 2019,
+  and Canada = NFPA 13-2019 via NBC 2020 / BCBC 2024 (verify before ship).
 - **NEEDS PE REVIEW**: a choice an engineer of record has to make. Currently: the Manual Release zone
   that bypasses P (owner/insurer exception, OFF by default; it applies to the electric / electric trim
   only, is a separate latched release path and not detection, and shows as an impairment in a
   contract), the signal classes (Alert and Action, supervisory by default; a latched P, class not
-  elected with supervisory blocked; loss of supply air, fixed as trouble here for the engineer to
-  confirm), the FM 30 s water-delivery limit at any volume (FM DS 5-32), the aspirating default
-  thresholds (owner-set inside the model range; the datasheets print none), the NFPA 76
-  alarm-to-stage mapping (held OPEN, with the conflict against the listed Fire 1 maximum flagged), and
-  the lithium-ion / ESS room density and approach (the battery room is a placeholder).
+  elected with supervisory blocked), the FM 30 s water-delivery limit at any volume (FM DS 5-32), the
+  aspirating default thresholds (owner-set inside the model range; the datasheets print none), the
+  NFPA 76 ceilings applied to Alert and to Fire 1 with Action as pre-alarm (PRACTICE), the HVAC and
+  EPO hooks (the election, the rows they appear on, the NEC 645 / FM DS 5-32 interface), the
+  low-battery setpoint (a listed manufacturer value), the AC-fail transmission delay and the
+  supervising-station path type, and the lithium-ion / ESS room density and approach (the battery room
+  is a placeholder). Settled and off this list: loss of supply air is trouble (PRACTICE).
 - **VERIFY**: a section number or value to check against the edition before it goes into game text.
   Currently: the NFPA 13-2022 delivery numbers carried from 2019 (§8.2.3.2, §8.2.3.3, §8.2.3.4,
-  §8.2.3.5 to .6, §8.2.3.8), the 2019 calculation-route paragraphs, the 24 h air test section in 2019
-  (§28.2.2.1) and 2022 (§29.2.2.1), and the aspirating ranges against the UL Product iQ listing.
+  §8.2.3.5 to .6, §8.2.3.8), the 2019 calculation-route paragraphs, the 2025 acceptance wording for
+  the refill time (§29.2.3.2.4.1) and the 2025 N₂-only refill subsection, the NFPA 72-2025 annunciation
+  time on multiple paths and the deadline for a missed DACT test, and the aspirating ranges against the
+  UL Product iQ listing (not checked; no access is to be bought for it).
 
 Simplifications in the release logic: the P sensor goes live the first time a valve is set, so a new
 valve does not latch P during its first air-up; after a mechanical emergency release with every
 sprinkler closed the trapped air is not vented, so the pipe sits pressurized with no flow; the panel
 battery is a flat 24 h of standby plus alarm; a dead panel's P latch is lost and read again, not
-stored; the supervising station's trouble on a dead panel is immediate; a compressor's own low-air
-alarm on a separate supply is not modelled; notification appliances are not modelled. In testing and
+stored; a compressor's own low-air alarm on a separate supply is not modelled; notification appliances
+are not modelled. On the fire alarm side: the cause-and-effect matrix covers preaction zones only;
+LocalNAC is a rule from the signal class, not a circuit; hooks are display-only and never act; the
+panel shows power troubles at once (inside the 200 s ceiling); the supervising station learns of a dead
+panel after one fixed supervision interval; AC-fail transmission uses a fixed delay, not a random one;
+the impairment strip is a tag, not a signal. In the air supply: the refill clock runs from the first
+gas into the closed-up zone; the operator-step score leaves out the interval the zone is closed up and
+filling; zones on one compressor refill at the same time, so shared refills run longer than the sizing
+check implies; the sizing check adds up a zone's sources, a nitrogen generator included; the "return to
+normal" step after an air test is practice only. In testing and
 recovery: the 24 h air test is charged to 40 psi by the game; the "confirm 0 psi and no water" step
 is automatic when the conditions hold; only the system (low-point) drain is scored and the
 supply-side main drain is optional; a zone with no upstream control valve skips the water-isolation
@@ -327,23 +400,29 @@ Two gates enforce the parts that are physical:
 - **Replacing a head** on a dry or preaction system needs the control valve closed, the air / N₂
   supply isolated, and the pipe water-free at about 0 psi. The drain may be open or closed. Each
   missing condition has its own message.
-- **Reopening the control valve** during a recovery is refused until the zone will hold: D and the
-  solenoid reset, the clapper reset, P clear, and the pipe air above low air. Opened earlier, the
-  valve trips again. Outside an incident the same check only warns. A dead panel is a warning, never
-  a refusal: it cannot release anything.
+- **Reopening the control valve** is refused in one place only: the scored incident of a running
+  drill, until the zone will hold (D and the solenoid reset, the clapper reset, P clear, and the pipe
+  air above low air). Opened earlier, the valve trips again. Anywhere else (a practice recovery after
+  a trip test, the Sandbox, an incident from before the drill) the valve opens, and a warning lists
+  what is still open, each item naming the zone: a head not replaced, D still latched, the riser valve
+  still tripped, air below low air, P still latched, the drain open, the air supply isolated, a dead
+  panel. The same list is on the valve's recovery checklist, and a `reopen-warn` entry goes in the
+  operator log. A dead panel is a warning, never a refusal: it cannot release anything.
 
 Only the broken-sprinkler incident in the contract 5 drill is scored: 13 of 13 in order earns the
-star, and the time is a bonus line against a 660 s target (ASSUMED, informational). Every other
+star. The time bonus reads operator-step time only, against a 300 s target (ASSUMED, informational).
+The air refill is compressor time and has its own informational line against the 30-minute limit
+("Air refill: 12.2 min, limit 30 min: OK", or FAIL), with the total beside it. Neither line can fail
+the drill. Every other
 recovery, after a trip test or in the Sandbox, is practice: the valve's inspector shows a **Recovery
 checklist (PRACTICE)** with each step done, pending or not applicable, and no goal reads it. The drill
 has no hard timer: the false alarm arrives after the 30-minute air-restore window. If P is still
 latched then, the valve trips and the pipe fills; with the head replaced nothing discharges and the
 report adds a water-filled-zone line.
 
-The reference operator in `test/bot.js` does the drill recovery 13 of 13 in order in about 755 s, so
-it misses the 660 s target. The time is the air refill: the pipe is now vented to 0 psi before the
-head is replaced, and one 10 SCFM compressor takes about 12 minutes to bring a 364 gal zone back to
-normal. The target is informational and was left as it is.
+The reference operator in `test/bot.js` does the drill recovery 13 of 13 in order in about 755 s. Its
+own steps take about 23 s; the other 732 s is one 10 SCFM compressor bringing a 364 gal zone back from
+0 psi to normal. That is realistic, and it is the lesson: recovery time is mostly compressor time.
 
 ## Code basis
 
@@ -353,10 +432,12 @@ Section references in the game are given at chapter or section level. The editio
 `src/juris.js` holds the section numbers that differ between 2019, 2022 and 2025 (system area limit,
 dry water delivery, double-interlock delivery, the 24 h air test) and the water-delivery numbers; do
 not add others without verifying them. The delivery and air-test references are as given by the fire
-protection lead from the NFPA LiNK notes: 2025 is held, 2022 is held where the table above says so
-and otherwise carried from 2019 and marked (ASSUMED, VERIFY), and the 2019 and 2022 air-test sections
-still need verification. The air-test values (40 psi, 1.5 psi, 24 h) are the lead's and are the same
-in every edition. Aspirating detector ranges are from the maker's datasheets (document numbers above),
+protection lead from the NFPA LiNK notes: 2025 is held, 2022 is verified where the table above says so
+and otherwise carried from 2019 and marked (ASSUMED, VERIFY), and the air-test and 30-minute refill
+sections are verified in all three editions. The air-test values (40 psi, 1.5 psi, 24 h) are the
+lead's and are the same in every edition. The NFPA 72 timing sections (supervising-station paths,
+AC-fail delay, trouble at the panel, battery monitoring) are from the fire alarm lead's pull and live
+in the same table as `ref72`. Aspirating detector ranges are from the maker's datasheets (document numbers above),
 not from the UL listing itself. FM references are to FM DS 5-32 as given by the lead. Checked against
 published summaries of the 2025 edition while building: the section 8.2 rewrite (gridded dry systems
 prohibited in 8.2.1, water delivery in 8.2.4) and the system area limits in 4.4.1. The long-standing
@@ -382,16 +463,17 @@ review/
   truth-table-check.js         prints the truth table against the engine, row by row
 src/
   core.js       constants, units, pipe table by schedule, pipe size cut, C factor, hazard and room tables
-  juris.js      enforced-edition table (US 2019 / 2022 / 2025, hidden Canada row), delivery and air-test citations, water-delivery numbers, NFPA 76 limits
-  data.js       part catalogue, costs, pump curve, maker trim presets, aspirating detector models and their listed ranges, signal classes, setting defaults
+  juris.js      enforced-edition table (US 2019 / 2022 / 2025, hidden Canada row), delivery, air-test and refill citations, NFPA 72 timing citations, water-delivery numbers, NFPA 76 ceilings
+  data.js       part catalogue, costs, pump curve, maker trim presets, aspirating detector models and their listed ranges, signal class registry, panel power and supervising-station tables, setting defaults
   world.js      the tile map: pipes, sprinklers, parts, tubing, wires, capped joints, site settings, save migration
   solver.js     global gradient network solver with node capacitance
   systems.js    which pipe belongs to which riser; volumes, remote sprinkler, loops; zone volume and delivery limits
   graph.js      tile map -> reduced hydraulic network
   links.js      how each part appears to the solver; pressure read-back
-  gas.js        supervisory gas, P sensor, release state (D, P, Manual Release zone, solenoid), trip logic, water-filled zone, mechanical release, system fill, riser and trim reset
+  gas.js        supervisory gas, P sensor, release state (D, P, Manual Release zone, solenoid), trip logic, water-filled zone, mechanical release, system fill, refill clock and compressor sizing, riser and trim reset
   fire.js       fire growth, sprinkler activation, pipe breaks, head-replacement gate, water and smoke damage, freeze, corrosion
-  alarm.js      detection stages, listed-range and NFPA 76 checks, signals and classes, manual stations, dead panel, panel reset and silence, recovery score, fire department, technician
+  alarm.js      detection stages, listed-range and NFPA 76 checks, signals with their transmission delays, manual stations, dead panel, impairment tags, panel reset and silence, recovery score, fire department, technician
+  cause.js      the cause-and-effect matrix of a preaction zone, generated from the class registry and the release state; hook elections
   sim.js        tick loop, pump controllers, control-valve reopen gate, operator log, tank, commissioning, fast-forward, save/load
   calc.js       density/area hydraulic calculation
   review.js     plan review rules
@@ -403,10 +485,10 @@ test/
   solver.test.js  graph.test.js  sim.test.js  proc.test.js   engine tests against hand calcs
   truth-table.js              pins and self-checks the truth-table fixture, then runs it against the engine (used by sim.test.js and review/)
   campaign.test.js  bot.js    plays every contract headlessly with a reference solution and an operator
-  ui.play.js  ui.c2.js  ui.c3.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2 and Cycle 3 UI checks
+  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2, 3 and 4 UI checks
 ```
 
-About 3,700 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
+About 4,100 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
 
 ## Tests
 
@@ -417,7 +499,10 @@ node test/sim.test.js         # wet / dry / double interlock / pump behaviour en
                               # company-lock acceptance checks (A1 onward), the release truth table
                               # read from fixtures/ (A19), the Cycle 3 checks (A31 onward: fixture pin,
                               # Manual Release zone, dead panel, air test, drain and air, recovery,
-                              # supply air, citations, detector ranges, reopen gate) and static greps
+                              # supply air, citations, detector ranges), the Cycle 4 checks (A42 onward:
+                              # matrix = fixture = engine, NFPA 76 ceilings, refill clock and sizing,
+                              # reopen gate scope, impairment tag, edition keys, return to normal,
+                              # supervising-station timing) and static greps
 node test/proc.test.js        # commissioning procedures
 node test/campaign.test.js    # all seven contracts: goals met, drill passed, cost reported; then an
                               # informational what-if with the insurer set to FM (not counted)
@@ -427,10 +512,12 @@ node test/ui.c2.js out.png    # needs Playwright: Site gate and round-trip, P la
                               # paths, dead panel, stage order, mechanical release, impairment tag
 node test/ui.c3.js out.png    # needs Playwright: Manual Release zone path, dead panel, head gate,
                               # recovery checklist and reopen gate, 24 h air test, supply air and the
-                              # water-filled zone, detector model and the NFPA 76 flags
+                              # water-filled zone, detector model and the NFPA 76 ceilings
+node test/ui.c4.js out.png    # needs Playwright: cause-and-effect matrix, NFPA 76 check, refill clock
+                              # and skip, the reopen gate in both modes, impairment tag, station timing
 ```
 
-`npm test` runs the five engine suites and `npm run test:ui` the three browser tests. `npm install`
+`npm test` runs the five engine suites and `npm run test:ui` the four browser tests. `npm install`
 is needed only for the browser tests (it fetches Playwright); the game itself has no dependencies and
 still runs from `file://`.
 
@@ -445,10 +532,12 @@ Planned for later cycles: a contract that pairs a dead panel with the mechanical
 (the dead-panel behaviour it needs is in), the calculation / table route for water delivery,
 underground and yard pipe material, the rest of the FM overlay (density / area, hose and duration;
 hazard classes by insurer with lithium-ion rooms as an ESS off-ramp), a contract that sets the insurer
-to FM, a cause-and-effect view per preaction zone, NAC modelling, battery basis and supervising-station
-behaviour with a real test-signal interval, a drill that fails a compressor and fills a zone on the
+to FM, the rest of the fire alarm phase-in after the cause-and-effect matrix (the signal schedule and
+the supervising-station view, then battery and standby with charger failure, then notification
+circuits, when the LocalNAC column becomes a simulated output), matrices for dry and wet valves, a DACT
+channel-failure model and two-way radio paths, a drill that fails a compressor and fills a zone on the
 clock, a plan-review finding for missing supply-air supervision, a compressor's own low-air alarm on
-a separate supply, more aspirating models (VEA with its discrete settings; TITANUS and FAAST once
-consistent current sheets are held) and a UL Product iQ check of every listing, the NFPA 76
-alarm-to-stage mapping once the fire alarm lead or the engineer settles it, and real Canada edition
-rules once verified.
+a separate supply, refrigerated spaces (the 60-minute refill) with a freezer room type and sequential
+refill on a shared compressor, more aspirating models (VEA once its Fire 2 behaviour is pulled from a
+datasheet; TITANUS and FAAST once consistent current sheets are held) and a UL Product iQ check of
+every listing, and real Canada edition rules once verified.

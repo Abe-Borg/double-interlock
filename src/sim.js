@@ -161,10 +161,30 @@ DI.gateValves = function (S, gateId) {
   const o = []; for (const [id, s] of S.ss) { const v = S.W.parts.get(id); if (!v || v.type === 'wetv') continue; const g = DI.ctrlValve(S.W, id); if (g && g.id === gateId) o.push([id, v, s]); }
   return o;
 };
-// An incident on valve `id` is open from its first incident or trip until its control valve is back open.
-DI.incidentOpen = function (S, id, gateId) {
-  for (let i = S.acts.length - 1; i >= 0; i--) { const a = S.acts[i]; if (a.kind === 'open-valve' && a.id === gateId) return false; if ((a.kind === 'incident' || a.kind === 'trip') && a.id === id) return true; }
-  return false;
+// The reopen gate refuses in one place only: the scored incident of a running drill (Fire Tutor). That is the
+// first `incident` entry at or after the drill started, the same one DI.drillRecovery scores, on zone `id`,
+// until its control valve has been reopened through the gate. Nothing else counts: not a trip test, not a
+// sandbox incident, not an incident from before the drill.
+DI.drillIncidentOpen = function (S, id, gateId) {
+  const d = S.drill; if (!d || d.done || !(d.t0 >= 0)) return false;
+  const A = S.acts, i0 = A.findIndex((a) => a.kind === 'incident' && a.t >= d.t0); if (i0 < 0 || A[i0].id !== id) return false;
+  for (let i = i0 + 1; i < A.length; i++) if (A[i].kind === 'open-valve' && A[i].id === gateId) return false;
+  return true;
+};
+// What is still open on zone `id`, as short phrases that name the zone. Listed in the reopen warning and in the
+// recovery checklist. An open head and an open drain are listed too, though they never refuse a reopening.
+DI.openItems = function (S, id) {
+  const W = S.W, v = W.parts.get(id), s = S.ss.get(id), inf = S.sysd.info.get(id), o = []; if (!v || !s || v.type === 'wetv') return o;
+  const nm = DI.sysName(S, id), pre = v.type === 'prev', pn = pre ? W.panelOf(id) : null;
+  if (s.openK && s.openK.length) o.push('head not replaced in ' + nm);
+  if (pre && (v.p.sol || v.p.pull || v.p.mrzL)) o.push('D / the solenoid is still latched on ' + nm + ' (panel not reset)');
+  if (s.state !== 'dry' || (pre && v.p.mech)) o.push('the riser valve of ' + nm + ' is still tripped');
+  else if (s.P < v.p.loAir) o.push('air in ' + nm + ' is ' + DI.fmt(s.P, 1) + ' psi, below low air (' + v.p.loAir + ' psi)');
+  if (pre && v.p.pLatch) o.push('P is still latched on ' + nm);
+  if (v.p.sdrain || v.p.drain) o.push('the drain of ' + nm + ' is still open');
+  if (inf && inf.src.length && !v.p.airValve) o.push('the air / N2 supply to ' + nm + ' is still isolated');
+  if (pn && pn.p.alive === false) o.push('the releasing panel of ' + nm + ' is dead');
+  return o;
 };
 // Why one zone is not ready to take water again: '' or { msg, soft }. A zone goes back in service only when
 // (a) the panel is reset with the solenoid de-energized (D, the Manual Release zone and P all clear) and the
@@ -179,26 +199,32 @@ DI.zoneReady = function (S, id) {
   if (pn && pn.p.alive === false) return { msg: 'The releasing panel is dead: this zone has no automatic release until power is back.', soft: true };
   return null;
 };
-// '' when every zone behind this control valve is ready, else the first message (a zone in an open incident first).
+// What reopening this control valve would meet: { msg, items, refuse }.
+//   refuse  a zone behind it is the scored incident of a running drill and is not ready (hard reason): msg is why.
+//   items   everything still open on the zones behind it (DI.openItems). Outside the scored incident the valve
+//           opens anyway and the items are the warning.
+//   msg     the refusal, else the first reason a zone is not ready, else ''.
 DI.reopenCheck = function (S, gateId) {
-  let warn = null;
+  let warn = null, refuse = null; const items = [];
   for (const [id] of DI.gateValves(S, gateId)) {
-    const r = DI.zoneReady(S, id); if (!r) continue;
-    if (!r.soft && DI.incidentOpen(S, id, gateId)) return { msg: r.msg, refuse: true };
+    const r = DI.zoneReady(S, id); items.push(...DI.openItems(S, id)); if (!r) continue;
+    if (!refuse && !r.soft && DI.drillIncidentOpen(S, id, gateId)) refuse = r;
     if (!warn) warn = r;
   }
-  return warn ? { msg: warn.msg, refuse: false } : { msg: '', refuse: false };
+  return { msg: refuse ? refuse.msg : warn ? warn.msg : '', items, refuse: !!refuse };
 };
 DI.reopenGate = (S, gateId) => DI.reopenCheck(S, gateId).msg;
+DI.reopenWarn = (gateId, items) => 'Control valve #' + gateId + ' reopened with items still open: ' + items.join('; ') + '.';
 // Operate a control valve (the inspector button and the reference operator use this). Closing is always
-// allowed. Opening is refused while a recovery incident is open on a zone behind it that is not ready, and is
-// allowed with a logged warning outside an incident. Returns '' or the reason it was refused.
+// allowed. Opening is refused only during the scored incident of a running drill, while the zone behind it is
+// not ready. Anywhere else it opens, and what is still open is logged as a warning and as a `reopen-warn`
+// entry in the operator log. Returns '' or the reason it was refused.
 DI.setGate = function (S, id, want) {
   const g = S.W.parts.get(id); if (!g || g.type !== 'gate') return 'No control valve.';
   if (!(want > 0.5)) { g.p.target = 0; g.p.viaGate = false; return ''; }
   const r = DI.reopenCheck(S, id);
-  if (r.msg && r.refuse) return r.msg;
-  if (r.msg) S.say('Control valve #' + id + ' reopened on a zone that is not ready. ' + r.msg, 'bad');
+  if (r.refuse) return r.msg;
+  if (r.items.length) { S.say(DI.reopenWarn(id, r.items), 'bad'); S.act('reopen-warn', id, { items: r.items.slice() }); }
   g.p.target = 1; g.p.viaGate = true; return '';
 };
 
@@ -232,9 +258,11 @@ DI.Sim.prototype.commission = function (keep) {
 };
 
 // Fast-forward: big steps while nothing is flowing, fine steps when something is.
-DI.Sim.prototype.warp = function (sec, maxMs) {
+// until: optional predicate checked before every step; the skip ends as soon as it is true (0 seconds left).
+DI.Sim.prototype.warp = function (sec, maxMs, until) {
   const end = this.t + sec, t0 = Date.now();
   while (this.t < end) {
+    if (until && until()) return 0;
     let busy = this.outFlow > 0.5 || this.fires.length > 0 || this.procs.some((p) => p.kind !== 'leak' || p.stage === 0);      // a 24 h air test is quiet once it is charged
     if (!busy) for (const s of this.ss.values()) if (s.state === 'filling' || (s.openK && s.openK.length)) { busy = true; break; }
     if (!busy) for (const p of this.W.parts.values()) if ((p.type === 'epump' || p.type === 'dpump') && p.p.spd > 0 && p.p.spd < 1) { busy = true; break; }
@@ -248,7 +276,7 @@ DI.Sim.prototype.warp = function (sec, maxMs) {
 };
 
 // Save / load of the dynamic state that matters (pressures re-settle on load).
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf'];
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
   return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null };

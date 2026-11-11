@@ -26,8 +26,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     W.power = g.W.power; W.cfg = g.W.cfg; W.ver = g.W.ver + 1; g.W = W; g.S.W = W; g.S.sync(); g.sel = null; DI.edited();
   };
   DI.edited = function () { g.S.editT = g.S.t; g.calcShow = null; };
-  DI.setSpeed = function (s) { g.speed = s; g.warp = 0; document.querySelectorAll('.sp').forEach((b) => b.classList.toggle('on', +b.dataset.sp === s)); };
-  DI.skip = function (sec) { g.warp = sec; g.warpTot = sec; };
+  DI.setSpeed = function (s) { g.speed = s; g.warp = 0; g.warpStop = null; document.querySelectorAll('.sp').forEach((b) => b.classList.toggle('on', +b.dataset.sp === s)); };
+  // Skip ahead. `until` is an optional stop condition (the "Skip the refill" button): the skip ends when it is true.
+  DI.skip = function (sec, until) { g.warp = sec; g.warpTot = sec; g.warpStop = until || null; };
 
   let last = 0, tUI = 0, tSlow = 0, tSave = 0;
   function frame(ts) {
@@ -36,7 +37,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cv = DI.cv, c = DI.ctx; if (!cv) return;
     if (g.mode === 'play') {
       const S = g.S, sc = g.sc;
-      if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM' && !o.sup)) g.warp = 0; }
+      if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14, g.warpStop || undefined); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM' && !o.sup)) g.warp = 0;
+        if (g.warpStop && g.warpStop()) g.warp = 0; if (!(g.warp > 0)) g.warpStop = null; }
       else if (g.speed > 0 && !DI.ui.modalOpen) {
         g.acc += dtR * g.speed;
         let busy = S.outFlow > 0.5 || S.fires.length > 0; if (!busy) for (const s of S.ss.values()) if (s.state === 'filling') { busy = true; break; }

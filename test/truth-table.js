@@ -4,6 +4,12 @@
 // D, the solenoid output, the valve and what the supervising station sees. LocalNAC is not modelled.
 // Used by test/sim.test.js and review/truth-table-check.js. Load the engine (src/*.js) first.
 //
+// Supervising-station timing (Cycle 4). SS_Trouble on the rows that are not on AC is a steady-state value: the
+// station learns of an AC failure only after the site's transmission delay (DI.acDelay) and of a dead panel only
+// after its supervision interval (DI.commDelay). So for those rows the runner (never the fixture) skips that
+// long after the 60 s and reads SS_Trouble then. "Seen by the station" is o.mon && o.tx. The reading taken
+// before the skip is returned too (pre), so a test can show that the trouble was not there at 60 s.
+//
 // Two guards run every time the fixture is read, before any row is played:
 //   1. the pin: the sha256 of the raw file bytes (first 16 hex, no newline normalization) must equal
 //      FIXTURE_SHA16. To take a new Lead file, copy it byte for byte and update the pin in the same commit
@@ -58,7 +64,9 @@ function runRow(DI, row) {
   const v = W.addPart('prev', 14, 6, 0); for (let x = 15; x <= 19; x++) W.setPipe(x, 6, 6, 0);
   for (let y = 2; y <= 9; y++) W.setPipe(20, y, 4, 0, true);
   for (let y = 2; y <= 9; y++) for (let x = 21; x <= 31; x++) W.setPipe(x, y, 1, 1, true);
-  W.addPart('comp', 14, 4, 0, { scfm: 5 }); W.setAir(14, 5, 1);
+  // The compressor has a generator-backed feed, so the Power column changes the panel's power and nothing else:
+  // a compressor that died with the utility would add its own LOSS OF SUPPLY AIR trouble, which is no input of the table.
+  W.addPart('comp', 14, 4, 0, { scfm: 5, emerg: true }); W.setAir(14, 5, 1);
   const pn = W.addPart('panel', 16, 4, 0), det = W.addPart('vesda', 25, 1, 0), stn = W.addPart('mstn', 27, 1, 0);
   for (const d of [v, det, stn]) W.wire(pn.id, d.id);
   if (/pn/i.test(row.Trim)) DI.loadTrim(v, 'el-pn');
@@ -79,10 +87,19 @@ function runRow(DI, row) {
   if ((on('Manual') && type === 'DETECTION') || (on('ManualReleaseZone') && type === 'MANUAL RELEASE')) stn.p.on = true;
   const thr = DI.detThr(W), lvl = on('Fire2') ? thr[3] * 2 : on('Fire1') ? (thr[2] + thr[3]) / 2 : 0;
   for (let t = 0; t < 60; t += 0.25) { S.smoke[1] = lvl; S.step(0.25); }
-  const seen = [...S.sig.values()].filter((o) => o.mon && !o.sup), has = (type2) => seen.some((o) => o.type === type2);
-  const got = { D: DI.relState(W, v).D ? '1' : '0', Solenoid: v.p.solOut ? '1' : '0', ValveOpen: s.state !== 'dry' ? '1' : '0',
-    SS_Alarm: has('ALARM') ? '1' : has('OPEN') ? 'OPEN' : '0', SS_Supervisory: has('SUPV') ? '1' : '0', SS_Trouble: has('TRBL') ? '1' : '0' };
+  // what the supervising station has now: monitored, transmitted, and not a stage the detector has passed
+  const station = () => { const seen = [...S.sig.values()].filter((o) => o.mon && o.tx && !o.sup), has = (type2) => seen.some((o) => o.type === type2);
+    return { SS_Alarm: has('ALARM') ? '1' : has('OPEN') ? 'OPEN' : '0', SS_Supervisory: has('SUPV') ? '1' : '0', SS_Trouble: has('TRBL') ? '1' : '0', trouble: seen.filter((o) => o.type === 'TRBL').map((o) => o.key) }; };
+  const pre = station();
+  const got = { D: DI.relState(W, v).D ? '1' : '0', Solenoid: v.p.solOut ? '1' : '0', ValveOpen: s.state !== 'dry' ? '1' : '0', SS_Alarm: pre.SS_Alarm, SS_Supervisory: pre.SS_Supervisory, SS_Trouble: pre.SS_Trouble };
+  let skipped = 0;
+  if (!/^ac$/i.test(row.Power)) {       // the row's inputs are held through the skip, as they were for the 60 s
+    skipped = Math.max(DI.acDelay(W), DI.commDelay(W)) + 60; for (let t = 0; t < skipped; t += 1) { S.smoke[1] = lvl; S.step(1); }
+    got.SS_Trouble = station().SS_Trouble;
+  }
   const diff = CHECKED.filter((k) => String(row[k]).toUpperCase() !== got[k]);
-  return { row: row.Row, trim: row.Trim, notes: row.Notes, want: row, got, diff, ok: diff.length === 0, mrzL: !!v.p.mrzL, pull: !!v.p.pull };
+  // every active signal at the final reading, for the cause-and-effect matrix test: its matrix key (cause.js), class and where it went
+  const sigs = [...S.sig.values()].filter((o) => !o.sup).map((o) => ({ key: o.key, ce: DI.ceKeyOf ? DI.ceKeyOf(S, v.id, o) : null, class: o.type, dark: !!o.dark, mon: !!o.mon, tx: !!o.tx, lost: !!o.lost }));
+  return { row: row.Row, trim: row.Trim, notes: row.Notes, want: row, got, diff, ok: diff.length === 0, mrzL: !!v.p.mrzL, pull: !!v.p.pull, pre, skipped, sigs, rig: { W, S, v, pn } };
 }
 module.exports = { FILE, FIXTURE_SHA16, CHECKED, sha16, checkFixture, rowProblems, readRows, runRow, run: (DI, file, opts) => readRows(file, opts).map((r) => runRow(DI, r)) };

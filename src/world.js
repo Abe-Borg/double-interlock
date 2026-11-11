@@ -43,8 +43,9 @@ DI.World = class {
     this.money = 0;
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
-    // site / project settings: edition, nfpa76Adopted, n76AlarmStage, pipeCut, detThr, spotThr, asdModel, sigClass,
-    // fitPct, trimGal, insurer, manualReleaseBypassP. Read them through the DI helpers, which supply the defaults.
+    // site / project settings: edition, nfpa76Adopted, pipeCut, detThr, spotThr, asdModel, sigClass, fitPct, trimGal,
+    // insurer, manualReleaseBypassP, commPath, acDelayMin and the two hook elections of cause.js. Read them through
+    // the DI helpers, which supply the defaults. (An old save may still carry the retired NFPA 76 stage key: nothing reads it.)
     this.cfg = {};
   }
   k(x, y) { return y * this.w + x; }
