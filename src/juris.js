@@ -14,8 +14,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   refillAnnex = the Annex note that one compressor serving several systems is sized on the single largest system
 //   (2025: it also covers a shared N2 source),
 //   refillCold / refillN2Cold = 60 min for refrigerated spaces maintained below 5 F (VERIFIED: 2019 / 2022 §8.2.6.3.3
-//   and §8.2.6.8.5; 2025 §8.2.7.4 for every source). Applied with the site flag W.cfg.refrigerated (DI.refillLimit):
-//   one flag for the whole site, there is no freezer room type (SIMPLIFICATION).
+//   and §8.2.6.8.5; 2025 §8.2.7.4 for every source). Applied per zone (DI.refillLimit(W, inf), Cycle 7): only where
+//   every room the zone protects is a Freezer / Cold Dock room with "maintained below 5 F" set. The old site flag
+//   W.cfg.refrigerated is gone (World.fromJSON deletes it).
 // 2025: held. 2022 keeps the 2019 numbering (the renumber to §8.2.4 is 2025). Verified for 2022 (FP Lead, raw
 // 13-FP006-2022-8.2.3.txt and earlier pulls): §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6, Table 8.2.3.6.1, §8.2.3.7,
 // §8.2.3.8, §8.3.2.3.1.1 to .4, §8.3.2.3.2, the air test §29.2.2.1 and the refill sections. 2019: as given by the
@@ -45,6 +46,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   chgRecharge, chgFail  recharge within 48 h after one full discharge; the panel detects a charger failure, a trouble
 //   battListed  listed or component-recognized rechargeable batteries (2022 / 2025; 2019 has no such rule)
 //   battGen     the generator-backed case: batteries for 4 h (2025 only)
+//   restoral    restoral signals are reported to the supervising station for every alarm, supervisory and trouble
+//               signal (VERIFIED for 2022 and 2025, §26.2.5.1; the 2019 text is NOT ON DISK: the key says VERIFY)
+//   retransmit  a fire alarm signal received by the supervising station is retransmitted to the communications
+//               center at once, so an alarm that is sent late still dispatches (VERIFIED 2022 / 2025 §26.2.1.2; 2019 VERIFY)
 // Hold and send after a communications failure has no key: it is NOT FOUND in all three editions (PRACTICE).
 (function () {
   const r72 = (yr, o) => { const p = 'NFPA 72-' + yr + ' '; return { ipFail: p + o.ip, multiFail: p + o.multi, dactTest: p + o.test,
@@ -53,12 +58,13 @@ var DI = globalThis.DI || (globalThis.DI = {});
     dactTry: p + o.tries, dactAnnex: o.annex ? p + o.annex : 'no annex table for the total in ' + yr + ' (2022 / 2025: Annex Table A.26.6.1, 900 s for all attempts)',
     priority: p + '§10.7.2, §10.7.7', silenceTrouble: p + '§10.15.9.1; §10.15.10.7 for a Ch. 26 premises unit',
     battStby: p + '§10.6.7.2', battFactor: p + o.factor, chgRecharge: p + '§10.6.10.3.2', chgFail: p + '§10.6.10.6.1 to .2',
-    battListed: o.listed ? p + o.listed : 'no such rule in ' + yr + ' (2022 / 2025: §10.6.10.1.3)', battGen: o.gen ? p + o.gen : 'not in ' + yr + ' (2025: §10.6.7.3.1(2))' }; };
+    battListed: o.listed ? p + o.listed : 'no such rule in ' + yr + ' (2022 / 2025: §10.6.10.1.3)', battGen: o.gen ? p + o.gen : 'not in ' + yr + ' (2025: §10.6.7.3.1(2))',
+    restoral: o.rest ? p + o.rest : p + '§26.2.5 (VERIFY: the ' + yr + ' text is not on disk; 2022 / 2025: §26.2.5.1)', retransmit: o.retx ? p + o.retx : p + '§26.2.1 (VERIFY: the ' + yr + ' text is not on disk; 2022 / 2025: §26.2.1.2)' }; };
   DI.REF72 = {
     2019: r72(2019, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.1.5(6)', missed: '§26.6.4.2.2(H)', chan: '§26.6.4.1.4(B)(3)', tries: '§26.6.4.1.3(B)-(D)', factor: '§10.6.7.2.1.1' }),
-    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3' }),
+    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', rest: '§26.2.5.1', retx: '§26.2.1.2' }),
     2025: r72(2025, { ip: '§26.6.3.3.2(2) (annunciated per §10.15)', multi: '§26.6.3.4(1) (a 6 h supervision interval, not a failure-annunciation time: ASSUMED 6 h; 2025 annunciation time not found)',
-      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', gen: '§10.6.7.3.1(2)' }),
+      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', gen: '§10.6.7.3.1(2)', rest: '§26.2.5.1', retx: '§26.2.1.2' }),
   };
   // NFPA 25 references (FP Lead, 2026-11-10), text only. VERIFIED: the annual main drain test and its 10 percent
   // rule; the valve status test after a control valve is closed and reopened (2023 / 2026 body; 2020 table row only).
@@ -122,8 +128,10 @@ DI.ref72 = (W) => DI.REF72[DI.ed72(W)];
 // citation helper: 'NFPA 13-<edition> <tail>'
 DI.ref13 = (tail) => 'NFPA 13-' + DI.juris.nfpa13 + (tail ? ' ' + tail : '');
 
-// NFPA 76 ceilings, applied only where the site has adopted NFPA 76 (NFPA 76-2024 §8.5.3.1.2.5, as given by the
-// FA Lead): Alert at 0.2 %/ft or less, and the alarm ceiling of 1.0 %/ft applied to Fire 1, the first alarm stage.
-// Action stays pre-alarm and Fire 2 has no NFPA 76 limit. PRACTICE, NEEDS PE REVIEW. They are ceilings to check
-// against (DI.n76Flags, DI.n76Check): nothing ever writes them into a threshold.
+// NFPA 76 ceilings, applied only where the site has adopted NFPA 76: Alert at 0.2 %/ft or less, and the alarm ceiling
+// of 1.0 %/ft applied to Fire 1, the first alarm stage. The 1.0 %/ft figure is VERIFIED on disk (FA Lead, Cycle 7):
+// NFPA 76-2024 §8.5.3.1.2.5, Alarm condition, air-sampling, "3.2 percent per meter (1.0 percent per foot) obscuration
+// (effective sensitivity at each port)"; the same figure is in NFPA 76-2020. Mapping that "Alarm condition" to Fire 1
+// (on a VEA detector too) is PRACTICE, NEEDS PE REVIEW. Action stays pre-alarm and Fire 2 has no NFPA 76 limit. They
+// are ceilings to check against (DI.n76Flags, DI.n76Check): nothing ever writes them into a threshold.
 DI.PRESETS = { nfpa76: { alert: 0.2, alarm: 1.0 } };

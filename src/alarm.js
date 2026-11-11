@@ -28,32 +28,49 @@ DI.asdFmt = (x) => (typeof x === 'number' && x > 0 && x < 0.01 ? x.toFixed(4) : 
 // One range finding per aspirating stage that sits outside the listed range of the site's detector model.
 DI.asdFindings = function (W) {
   const t = DI.detThr(W), R = DI.asdRange(W), M = DI.ASD_MODELS[DI.asdModel(W)], f = DI.asdFmt, out = [];
+  if (M.fire1Only) return DI.veaFindings(W);       // VEA: one stage, a discrete pick, no range per stage
   DI.ASD_STAGES.forEach(([, name], i) => { if (!(t[i] >= R[i][0] && t[i] <= R[i][1])) out.push({ stage: i, text: 'Aspirating ' + name + ' threshold ' + t[i] + ' %/ft is outside the listed range of the ' + M.label + ' (' + f(R[i][0]) + ' to ' + f(R[i][1]) + ' %/ft) ' + DI.ASD_SRC + '.', ref: M.doc + '; NFPA 72 Ch. 14 (ITM)' }); });
   return out;
 };
+// VEA (Fire 1 only): the stored Fire 1 must be one of the three listed settings. Anything else is a finding (stage 2).
+DI.veaFindings = function (W) {
+  const M = DI.ASD_MODELS.VEA, f1 = DI.veaFire1(W);
+  return M.pick.includes(f1) ? [] : [{ stage: 2, text: 'Aspirating Fire 1 threshold ' + f1 + ' %/ft is not a listed VEA setting: the ' + M.label + ' offers ' + M.pick.map((x, i) => x + ' (' + M.pickName[i] + ')').join(', ') + ' %/ft only ' + DI.ASD_SRC + '. Pick one of the three.', ref: M.doc + '; NFPA 72 Ch. 14 (ITM)' }];
+};
+// The thresholds the detection loop reads, in stage order. VEA has one stage: Fire 1. Its Alert, Action and Fire 2 do
+// not exist (Infinity: never reached), so D is still the same level check, lvl >= DI.FIRE1.
+DI.asdThr = (W) => (DI.isVea(W) ? [Infinity, Infinity, DI.veaFire1(W), Infinity] : DI.detThr(W));
 // NFPA 76, where the site has adopted it: plain ceilings. Alert at 0.2 %/ft or less, and the alarm ceiling of
-// 1.0 %/ft applied to Fire 1, the first alarm stage (FA Lead). Action stays pre-alarm and Fire 2 has no NFPA 76
-// limit. PRACTICE, NEEDS PE REVIEW. Nothing is elected and nothing is written: the ceilings only check.
+// 1.0 %/ft applied to Fire 1, the first alarm stage (FA Lead). The 1.0 %/ft figure is VERIFIED (NFPA 76-2024
+// §8.5.3.1.2.5, Alarm condition, air-sampling: "3.2 percent per meter (1.0 percent per foot) obscuration (effective
+// sensitivity at each port)"; the same figure in 76-2020). Mapping that Alarm condition to Fire 1, on a VEA detector
+// too, is PRACTICE, NEEDS PE REVIEW. Action stays pre-alarm and Fire 2 has no NFPA 76 limit. Nothing is elected and
+// nothing is written: the ceilings only check. A VEA detector has no Alert stage, so only the Fire 1 ceiling applies.
 DI.N76_REF = 'NFPA 76-2024 §8.5.3.1.2.5';
+DI.N76_TAG = 'The 1.0 %/ft figure is VERIFIED (' + DI.N76_REF + '); applying it to Fire 1 is PRACTICE, NEEDS PE REVIEW.';
 // The NFPA 76 findings for this site: [{ code, sev, text }], empty unless NFPA 76 is adopted and a ceiling is exceeded. Pure.
 DI.n76Flags = function (W) {
   if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return [];
-  const P = DI.PRESETS.nfpa76, t = DI.detThr(W), out = [];
-  if (t[0] > P.alert) out.push({ code: 'N76_ALERT_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Alert must be ' + P.alert + ' %/ft or less (it is ' + t[0] + ').' });
-  if (t[2] > P.alarm) out.push({ code: 'N76_ALARM_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Fire 1, the first alarm stage, must be ' + P.alarm.toFixed(1) + ' %/ft or less (it is ' + t[2] + '). PRACTICE, NEEDS PE REVIEW.' });
+  const P = DI.PRESETS.nfpa76, vea = DI.isVea(W), t = DI.asdThr(W), out = [];
+  if (!vea && t[0] > P.alert) out.push({ code: 'N76_ALERT_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Alert must be ' + P.alert + ' %/ft or less (it is ' + t[0] + ').' });
+  if (t[2] > P.alarm) out.push({ code: 'N76_ALARM_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Fire 1, the first alarm stage, must be ' + P.alarm.toFixed(1) + ' %/ft or less (it is ' + t[2] + '). ' + DI.N76_TAG });
   return out;
 };
-// The note shown where NFPA 76 is adopted and the listing of the site's detector model is the tighter limit on
-// Fire 1 (true of both models in the table), so the NFPA 76 alarm ceiling can never bind. '' otherwise.
+// The note shown where NFPA 76 is adopted: where the listing of the site's detector model is the tighter limit on
+// Fire 1 (VEP, VEU) the NFPA 76 alarm ceiling can never bind; on a VEA detector the ceiling does bind, for two of
+// its three settings. '' where NFPA 76 is not adopted.
 DI.n76Note = function (W) {
   if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return '';
-  const P = DI.PRESETS.nfpa76, M = DI.ASD_MODELS[DI.asdModel(W)], max = M.range.fire1[1];
+  const P = DI.PRESETS.nfpa76, M = DI.ASD_MODELS[DI.asdModel(W)];
+  if (M.fire1Only) return 'NFPA 76 ceiling: Fire 1 ' + P.alarm.toFixed(1) + ' %/ft. On the ' + M.label + ' the ceiling binds: ' + M.pick.filter((x) => x > P.alarm).join(' and ') + ' %/ft are above it, ' + M.pick.filter((x) => x <= P.alarm).join(' and ') + ' %/ft meets it (the listing is not tighter than ' + P.alarm.toFixed(1) + '). This model has no Alert stage. ' + DI.N76_TAG;
+  const max = M.range.fire1[1];
   return max < P.alarm ? 'NFPA 76 ceilings: Alert ' + P.alert + ', Fire 1 ' + P.alarm.toFixed(1) + ' %/ft. The ' + M.label + ' listing (Fire 1 maximum ' + DI.asdFmt(max) + ') is tighter, so the listing binds first. [PRACTICE, NEEDS PE REVIEW].' : '';
 };
 // "Check against NFPA 76": reads the site thresholds against the two ceilings and says so. It writes nothing.
 DI.n76Check = function (W) {
   if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return 'NFPA 76 is not adopted on this site.';
-  const P = DI.PRESETS.nfpa76, t = DI.detThr(W), yn = (ok) => (ok ? 'yes' : 'no');
+  const P = DI.PRESETS.nfpa76, t = DI.asdThr(W), yn = (ok) => (ok ? 'yes' : 'no');
+  if (DI.isVea(W)) return 'NFPA 76 check: Fire 1 ' + t[2] + ' (meets ' + P.alarm.toFixed(1) + ': ' + yn(t[2] <= P.alarm) + '). This model has no Alert stage.';
   return 'NFPA 76 check: Alert ' + t[0] + ' (meets ' + P.alert + ': ' + yn(t[0] <= P.alert) + '), Fire 1 ' + t[2] + ' (meets ' + P.alarm.toFixed(1) + ': ' + yn(t[2] <= P.alarm) + ').';
 };
 DI.PANEL_DEAD_MSG = 'The panel is dead: no power, no display. Nothing can be reset or silenced. Restore power, or use the mechanical emergency release at the trim.';
@@ -67,12 +84,13 @@ DI.alarmStep = function (S, dt) {
   const genOn = DI.panelGen(W) && !W.power && S.genT >= 0 && S.t - S.genT > DI.GEN_START_S && S.t - S.genT <= DI.GEN_RUN_S;
   for (const p of panels) {
     // H = hours of standby the fitted battery gives on the site's standby basis (DI.panelH). The charger restores a
-    // full discharge in DI.RECHARGE_H (48 h) [CODE], so it charges at H / 48 per hour; a failed charger or a
-    // disconnected battery does not charge. A disconnected battery carries nothing: the panel dies with the AC.
+    // full discharge in DI.RECHARGE_H (48 h) [CODE], so it charges at H / 48 per hour, or slower where the fitted
+    // charger is too small for the battery (DI.chargeRate); a failed charger or a disconnected battery does not
+    // charge. A disconnected battery carries nothing: the panel dies with the AC.
     const H = DI.panelH(W, p);
     if (p.p.battH === undefined || p.p.battH > H) p.p.battH = H;
     // (the settle of a load is not game time: it neither charges nor drains the battery, see Sim.restore)
-    if (S.settling) { /* hold */ } else if (W.power) { if (!p.p.chgFail && !p.p.battDisc) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * H / DI.RECHARGE_H); }
+    if (S.settling) { /* hold */ } else if (W.power) { if (!p.p.chgFail && !p.p.battDisc) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * DI.chargeRate(p, H)); }
     else if (!genOn && !p.p.battDisc) p.p.battH = Math.max(0, p.p.battH - dt / 3600);
     p.p.onGen = genOn;
     p.p.alive = W.power || genOn || (!p.p.battDisc && p.p.battH > 0);
@@ -120,8 +138,9 @@ DI.alarmStep = function (S, dt) {
   // detection
   for (const p of W.parts.values()) {
     if (p.type !== 'vesda' && p.type !== 'smoke') continue;
-    const room = W.room(p.x, p.y), L = room ? S.smoke[room.id] : 0, T = p.type === 'vesda' ? DI.detThr(W) : [DI.spotThr(W)];
-    let lvl = 0; while (lvl < T.length && L >= T[lvl]) lvl++;
+    // VEA is a Fire 1-only detector (DI.asdThr): its one threshold is read as stage 3, and it never reports another stage
+    const vea = p.type === 'vesda' && DI.isVea(W), room = W.room(p.x, p.y), L = room ? S.smoke[room.id] : 0, T = p.type === 'vesda' ? DI.asdThr(W) : [DI.spotThr(W)];
+    let lvl = 0; if (vea) lvl = L >= T[DI.FIRE1 - 1] ? DI.FIRE1 : 0; else while (lvl < T.length && L >= T[lvl]) lvl++;
     p.p.obs = L; if (lvl > p.p.lvl) p.p.lvl = lvl; p.p.live = lvl;
     const dpn = W.panelOf(p.id); if (dpn && !dpn.p.alive) p.p.lvl = lvl;      // a dead panel holds no latches: only a live reading counts when it comes back
     const rn = room ? room.name : 'outdoors';
@@ -130,7 +149,7 @@ DI.alarmStep = function (S, dt) {
       // records Alert, Action, Fire 1 and Fire 2 one after the other at the same sim time. The detector
       // reports one status: its highest stage. The rows below it stay on the annunciator as the record of
       // the crossing (sup = superseded) and are not active signals at the panel or the supervising station.
-      for (let i = 1; i <= p.p.lvl; i++) { add('v' + p.id + '.' + i, DI.ASD_STAGES[i - 1][0], 'VESDA ' + DI.VESDA_N[i] + ' - ' + rn, p); if (i < p.p.lvl) sig.get('v' + p.id + '.' + i).sup = true; }
+      for (let i = 1; i <= p.p.lvl; i++) { if (vea && i !== DI.FIRE1) continue; add('v' + p.id + '.' + i, DI.ASD_STAGES[i - 1][0], 'VESDA ' + DI.VESDA_N[i] + ' - ' + rn, p); if (i < p.p.lvl) sig.get('v' + p.id + '.' + i).sup = true; }
       p.p.rel = p.p.lvl >= DI.FIRE1;
     } else {
       if (p.p.lvl >= 1) add('s' + p.id, 'spot', 'SMOKE DETECTION - ' + rn, p);
@@ -149,7 +168,23 @@ DI.alarmStep = function (S, dt) {
   for (const [id, s] of S.ss) {
     const v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v) continue;
     const nm = DI.sysName(S, id);
-    if (s.alarm) add('wf' + id, 'waterflow', 'WATERFLOW - ' + nm, v);
+    // Waterflow latches at the panel until a panel reset (C7-1c: listed-panel PRACTICE, NEEDS PE REVIEW; no general
+    // latch rule is on disk). v.p.wfL is the latch: set while the switch reads flow on a live panel, cleared by
+    // DI.panelReset once the flow has stopped. A dead or missing panel holds no latch. A flow raised on test does not
+    // latch (SIMPLIFICATION: the test ends with its flow). hold = the signal is kept by the latch alone: the flow is
+    // over, so it starts no new dispatch. A new flow on a zone that is still latched is judged on its own (on test or
+    // not) and sounds the panel again. The switch itself (s.alarm, the inspector's test, the local gong) is unchanged.
+    { const wpn = W.panelOf(id), up = !!wpn && wpn.p.alive !== false, rise = s.alarm && s.alarmT !== s.wfT;
+      if (rise) s.wfT = s.alarmT;
+      if (!up) v.p.wfL = false;
+      if (s.alarm || v.p.wfL) {
+        const was = old.get('wf' + id), again = rise && !!was && !!was.hold;
+        add('wf' + id, 'waterflow', 'WATERFLOW - ' + nm + (s.alarm ? '' : ' (latched: reset the panel)'), v);
+        const o = sig.get('wf' + id);
+        if (again) { o.test = S.procs.length > 0 || S.t < (S.testUntil || 0); if (wpn) wpn.p.silenced = false; S.say('WATERFLOW again on ' + nm + ': the alarm was still latched from the earlier flow (the panel was not reset).', 'bad'); if (!o.test && !S.settling) S.act('alarm', id); }
+        if (s.alarm && up && !o.test) v.p.wfL = true;
+        if (!s.alarm) o.hold = true;
+      } }
     if (v.type !== 'wetv') {
       if (s.lowAir && s.state === 'dry') add('la' + id, 'lowAir', 'LOW AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
       if (s.state === 'dry' && s.P > v.p.hiAir) add('ha' + id, 'highAir', 'HIGH AIR - ' + nm + ' (' + DI.fmt(s.P) + ' psi)', v);
@@ -159,6 +194,9 @@ DI.alarmStep = function (S, dt) {
       // nor does a 24 h air test.
       if (inf.src.length && !S.procs.some((q) => q.kind === 'leak' && q.id === id) && inf.src.every((sid) => { const c = W.parts.get(sid); return !c || c.p.fault || !S.powered(c); }))
         add('sa' + id, 'supplyAir', 'LOSS OF SUPPLY AIR - ' + nm + ' (compressor / N2 source unavailable)', v);
+      // Optional tamper switch on the AVC bypass (C7-3, per zone, default not fitted): supervisory while the bypass is
+      // open. PRACTICE: no code requirement is verified for the air bypass. Never an input of D or P.
+      if (DI.bypassTamper(v)) add('avcT' + id, 'avcTamper', 'AVC BYPASS OPEN (tamper) - ' + nm, v);
     }
     if (v.type === 'prev') {
       const pn = W.panelOf(id);
@@ -223,7 +261,7 @@ DI.alarmStep = function (S, dt) {
         else if (down === 2) {
           add('dc' + p.id, 'dactChan', 'DACT CHANNELS FAILED - panel #' + p.id + ' (both channels down: the panel cannot send)', p, false, Infinity);
           const held = S.dq.filter((e) => e.panel === p.id && !e.comm && (e.state === 'RETRY' || e.state === 'HELD') && S.t - e.tq >= DI.DACT_TOTAL_S - 1e-6).length;
-          if (held) add('dx' + p.id, 'dactFail', 'DACT TRANSMISSION FAILED - panel #' + p.id + ' (' + DI.DACT_TRIES + ' attempts over ' + DI.DACT_TOTAL_S / 60 + ' min; ' + held + ' signal(s) ' + (DI.dactHold(W) ? 'held' : 'not sent') + ')', p, false, Infinity);
+          if (held) add('dx' + p.id, 'dactFail', 'DACT TRANSMISSION FAILED - panel #' + p.id + ' (' + DI.DACT_TRIES + ' attempts over ' + DI.DACT_TOTAL_S / 60 + ' min; ' + held + ' signal(s) ' + (DI.dactHold(W) ? 'held' : 'held while active') + ')', p, false, Infinity);
           if (S.t - q.chanT >= DI.commDelay(W)) add('pc' + p.id, 'lostComm', 'LOSS OF COMMUNICATION - panel #' + p.id + ' (both DACT channels down; the supervising station reports a missed test)', p, true);
         }
       }
@@ -234,6 +272,8 @@ DI.alarmStep = function (S, dt) {
   }
   if (panels.length) for (const room of W.rooms) if (room.temp < 40 && room.type !== 'gen') add('lt' + room.id, 'lowTemp', 'LOW TEMPERATURE - ' + room.name + ' (' + DI.fmt(room.temp) + ' F)', panels[0]);
   S.sig = sig; if (S.sigSeen) S.sigSeen = null;
+  // restorals: a signal the supervising station has that is no longer a condition at the panel (DI.restoralStep)
+  DI.restoralStep(S, old);
   // A silenced trouble sounds again by itself after DI.TROUBLE_RESOUND_S (24 h; the code says 24 h or less) while a
   // trouble of that panel is still active. A cleared trouble does not resound; a new signal and a panel reset clear
   // the silence as they always did.
@@ -251,14 +291,17 @@ DI.alarmStep = function (S, dt) {
   // sound the panel and never call the fire department by themselves. A panel whose path is down (o.cut) sends
   // nothing, so its alarms dispatch nobody: the late passer-by call below is all that is left. A signal that was
   // queued in the outage dispatches when its entry is sent, not before, and a held alarm dispatches when it is sent
-  // even if it has cleared since: the station cannot know that (NEEDS PE REVIEW).
+  // even if it has cleared since: a fire alarm signal received by the station is retransmitted (DI.ref72(W).retransmit),
+  // and its restoral follows as context for the operator; a restoral dispatches nothing.
+  // A waterflow alarm kept by the panel latch alone (o.hold: the flow is over) starts no new dispatch.
+  // The passer-by call is a game device, not an NFPA 72 path (FA Lead).
   const fd = S.fd; let monAlarm = false;
-  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.cut && (!o.q || o.q.state === 'SENT') && !o.sup && !o.test) monAlarm = true;
+  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.cut && (!o.q || o.q.state === 'SENT') && !o.sup && !o.test && !o.hold) monAlarm = true;
   const live = S.live || (S.drill && !S.drill.done);        // while the site is under construction nothing is transmitted
   const mayCall = live && fd.called < 0 && (S.fires.length || !S.fd.log || S.t - S.fd.log.t > 1800);
   if (mayCall && late) { fd.called = S.t; fd.log = { t: S.t, auto: true, late: true }; S.say('Alarm transmitted (late, held during the DACT outage). Fire department dispatched.', 'warn'); }
   else if (mayCall && (monAlarm || (S.fires.length && S.fires.some((k) => S.fq[k] > 300) && S.t - S.fireT0 > 900))) {
-    fd.called = S.t; fd.log = { t: S.t, auto: monAlarm }; S.say(monAlarm ? 'Alarm transmitted. Fire department dispatched.' : 'A passer-by called 911. Fire department dispatched (late).', 'warn');
+    fd.called = S.t; fd.log = { t: S.t, auto: monAlarm }; S.say(monAlarm ? 'Alarm transmitted. Fire department dispatched.' : 'A passer-by called 911 (not an NFPA 72 path). Fire department dispatched (late).', 'warn');
   }
   if (fd.called >= 0 && fd.onScene < 0 && S.t - fd.called > DI.FD_TRAVEL) {
     fd.onScene = S.t; const fdc = W.byType('fdc');
@@ -286,30 +329,52 @@ DI.stationZone = function (S, p) {
   return null;
 };
 
-// ---------- DACT queue (FA Lead, Cycle 6). S.dq holds one entry for every signal that came due while both channels
-// of its panel were down: { id, panel, key, reg, cls, fd, test, text, t0, tq, tClr, state, sentT, n }.
+// ---------- DACT queue (FA Lead, Cycle 6; hold-and-send fixed in Cycle 7). S.dq holds one entry for every signal that
+// came due while both channels of its panel were down:
+// { id, panel, key, reg, cls, fd, test, text, t0, tq, tClr, state, sentT, n, kind, rs, rsT }.
 //   t0    the original event time: it never changes, and it is what the late send reports
 //   tq    when the attempts started (the event, or the end of its transmission delay, or the start of the outage)
 //   tClr  when the signal cleared at the panel, if it did before the entry was sent
 //   state RETRY   inside the 10 attempts of 90 s (n = the attempt number) [CODE bounds, count ASSUMED]
 //         HELD    the attempts are spent (900 s): the panel shows the failure indication (dx, DI.alarmStep)
 //         SENT    sent after a channel came back, at sentT
-//         DROPPED never sent: hold is off, or the panel died (a dead panel holds nothing)
+//         DROPPED never sent: it had restored and hold is off (why 'hold'), or the panel died (why 'dead')
+//   kind  absent or 'sig' = a signal; 'rest' = the restoral of a signal the station already had, which cleared
+//         in the outage. A restoral is never dropped under hold OFF (PRACTICE, NEEDS PE REVIEW).
+//   rs    a restoral is owed: the entry was sent late after its signal had cleared.  rsT = when its restoral was sent.
 // With exactly one channel down nothing is queued: every signal goes on the other channel at once.
-// On restore, with hold ON (site setting, default; PRACTICE, NEEDS PE REVIEW: the code is silent on holding), every
-// RETRY or HELD entry is sent in priority order: alarm, then supervisory (OPEN sorts with it), then trouble
-// (DI.ref72(W).priority), ties by event time, one send per DI.DACT_SEND_S; last of all the communications-failure
-// trouble and its restoral. With hold OFF only the entries still inside their attempts are sent; the rest are DROPPED.
+// On restore every entry that is still a condition at the panel is sent, hold ON and hold OFF alike, with its
+// original event time. Hold (site setting, default ON; PRACTICE, NEEDS PE REVIEW: the code is silent on holding) only
+// decides what happens to a signal that restored inside the outage: ON sends it late and then its restoral, OFF
+// drops it (it was never sent, so it has no restoral). "Hold OFF drops what has restored; a live signal is always re-sent."
+// Order of the sends, one per DI.DACT_SEND_S (ASSUMED), ties by event time:
+//   1. the unsent originals: alarm, supervisory, trouble [CODE order, DI.ref72(W).priority], then OPEN. OPEN is not a
+//      10.7 class: a latched P is the unelected class, so it goes last and never dispatches (PRACTICE / OWNER, NEEDS
+//      PE REVIEW; the Cycle 6 rule "OPEN sorts with supervisory" is withdrawn).
+//   2. the restorals, in the same class order [DI.ref72(W).restoral]
+//   3. the communications-failure trouble and its restoral.
+// The one path that still loses a live alarm is the panel dying with the entry queued: the labeled hazard case
+// (DI.DACT_HAZARD). Nothing in the engine models the station's 6 h test: it is text only.
 // SIMPLIFICATION: attempts are counted from the signal's first sight, not a modem model.
 // Nothing here is an input of D or P, and no hook, notification rule or release reads the queue.
 DI.dactFind = (S, panelId, key, t0) => S.dq.find((e) => e.panel === panelId && e.key === key && e.t0 === t0 && e.tClr === undefined && !e.comm) || null;
 DI.hhmm = (t) => DI.clock(t).slice(0, -3);
-DI.dactLabel = (e) => (e.state === 'RETRY' ? 'RETRYING ' + e.n + ' of ' + DI.DACT_TRIES : e.state === 'HELD' ? 'HELD, COMM FAILURE' : e.state === 'SENT' ? 'SENT ' + DI.hhmm(e.sentT) + ' (late)' : e.why === 'dead' ? 'NOT SENT (panel dead)' : 'NOT SENT (hold off)');
+// FA Lead, word for word (the section numbers are the 2022 / 2025 ones; DI.dactHazard(W) gives the edition's own).
+DI.DACT_HAZARD = 'No alarm reaches the supervising station from this panel and nothing is dispatched from its signals. The station can learn the premises is down only from its own missed 6 h test, which it treats as a trouble (NFPA 72 §26.6.4.2.5(6), §26.6.4.3.2.8; the annunciation time is ASSUMED). The passer-by 911 call in this game is not an NFPA 72 path.';
+DI.dactHazard = (W) => (DI.ed72(W) === 2019 ? DI.DACT_HAZARD.replace('§26.6.4.2.5(6), §26.6.4.3.2.8', '§26.6.4.1.5(6), §26.6.4.2.2(H)') : DI.DACT_HAZARD);
+DI.DACT_HAZARD_LABEL = 'NOT SENT (panel dead): HAZARD CASE';
+DI.dactLabel = function (e) {
+  if (e.kind === 'rest') return e.state === 'RETRY' ? 'RESTORAL, RETRYING ' + e.n + ' of ' + DI.DACT_TRIES : e.state === 'HELD' ? 'RESTORAL HELD, COMM FAILURE' : e.state === 'SENT' ? 'RESTORAL ' + DI.hhmm(e.sentT) + ' (late)' : 'RESTORAL NOT SENT (panel dead)';
+  return e.state === 'RETRY' ? 'RETRYING ' + e.n + ' of ' + DI.DACT_TRIES : e.state === 'HELD' ? 'HELD, COMM FAILURE' : e.state === 'SENT' ? 'SENT ' + DI.hhmm(e.sentT) + ' (late)' + (e.rsT >= 0 ? ', RESTORAL ' + DI.hhmm(e.rsT) : '')
+    : e.why === 'dead' ? DI.DACT_HAZARD_LABEL : 'NOT SENT (hold off)';
+};
+// The restoral line of the log. Reporting restorals is VERIFIED for NFPA 72-2022 and 2025; the 2019 text is not on disk.
+DI.restoralTag = (W) => (DI.ed72(W) === 2019 ? '  [VERIFY: ' + DI.ref72(W).restoral + ']' : '');
 DI.DQ_KEEP = 40;                         // finished entries kept for the station queue display
 DI.dactStep = function (S) {
   const W = S.W, Q = S.dq; if (S.settling) return false;
   const dact = DI.commPath(W) === 'dact', panels = W.byType('panel'), isDown = (pn) => dact && Array.isArray(pn.p.chan) && !pn.p.chan[0] && !pn.p.chan[1];
-  const open = (e) => e.state === 'RETRY' || e.state === 'HELD';
+  const open = (e) => e.state === 'RETRY' || e.state === 'HELD', due = (e) => open(e) || !!e.rs;
   let late = false;
   // dnT = when this outage began (both channels down on a live panel). chanT is the same moment as DI.alarmStep
   // records it: a save from before Cycle 6 carries only that one, and the queue is made again from it.
@@ -325,43 +390,82 @@ DI.dactStep = function (S) {
       tq: Math.max(o.t0 + o.delay, pn.p.dnT >= 0 ? pn.p.dnT : o.t0), state: 'RETRY', n: 1 };
     Q.push(e); o.q = e; live.add(e);
   }
+  const hazard = new Set();
   for (const e of Q) {
     if (!e.comm && e.tClr === undefined && !live.has(e)) e.tClr = S.t;         // the signal has cleared at the panel
+    const pn = W.parts.get(e.panel), dead = !pn || pn.p.alive === false;
+    if (dead && e.rs) delete e.rs;                                              // a dead panel sends no restoral either
     if (!open(e)) continue;
-    const pn = W.parts.get(e.panel);
-    if (!pn || pn.p.alive === false) { e.state = 'DROPPED'; e.why = 'dead'; continue; }
+    // The labeled hazard case: the panel died with the entry queued, so the station never gets it.
+    if (dead) { e.state = 'DROPPED'; e.why = 'dead'; if (!e.comm && e.kind !== 'rest') { S.say(DI.DACT_HAZARD_LABEL + ': ' + e.text + ' (event ' + DI.hhmm(e.t0) + ')', 'bad'); hazard.add(e.panel); } continue; }
     if (e.state === 'RETRY' && isDown(pn)) { const age = S.t - e.tq + 1e-6; e.n = Math.min(DI.DACT_TRIES, 1 + Math.floor(age / DI.DACT_ATTEMPT_S)); if (age >= DI.DACT_TOTAL_S) e.state = 'HELD'; }
   }
-  const rank = (e) => (e.comm ? 3 : e.cls === 'ALARM' ? 0 : e.cls === 'TRBL' ? 2 : 1), ev = (e) => 'event ' + DI.hhmm(e.t0) + (e.tClr !== undefined ? ', cleared ' + DI.hhmm(e.tClr) + ' before sending' : '');
+  for (const id of hazard) S.say('Panel #' + id + ' is dead with signals still queued. ' + DI.dactHazard(W), 'bad');
+  // class order: the elected classes first (alarm, supervisory, trouble), OPEN last, the communications failure after all
+  const rank = (e) => (e.comm ? 4 : e.cls === 'ALARM' ? 0 : e.cls === 'SUPV' ? 1 : e.cls === 'TRBL' ? 2 : 3);
+  // phase: unsent originals, then restorals, then the communications-failure entry
+  const phase = (e) => (e.comm ? 2 : e.rs || e.kind === 'rest' ? 1 : 0), ev = (e) => 'event ' + DI.hhmm(e.t0) + (e.tClr !== undefined ? ', cleared ' + DI.hhmm(e.tClr) + ' before sending' : '');
+  const restored = (e, t) => { S.say('RESTORAL ' + DI.hhmm(t) + ' (late): ' + e.text + ' (event ' + DI.hhmm(e.t0) + ', restored ' + DI.hhmm(e.tClr) + ')' + DI.restoralTag(W), ''); S.act('restoral', e.panel, { key: e.key, cls: e.cls }); };
   for (const pn of panels) {
     const q = pn.p; if (q.alive === false || isDown(pn)) continue;
     if (q.dnT >= 0) {            // a channel is back
-      const hold = DI.dactHold(W); let n = 0;
+      const hold = DI.dactHold(W); let n = 0, r = 0;
       for (const e of Q) if (e.panel === pn.id && open(e) && !e.comm) {
-        if (!hold && (e.state === 'HELD' || e.tClr !== undefined)) { e.state = 'DROPPED'; e.why = 'hold'; S.say('NOT SENT (hold off): ' + e.text + ' (' + ev(e) + ')', 'warn'); } else n++;
+        // hold OFF drops only what has restored; a signal that is still active is always re-sent, and so is a restoral
+        if (!hold && e.tClr !== undefined && e.kind !== 'rest') { e.state = 'DROPPED'; e.why = 'hold'; S.say('NOT SENT (hold off, cleared ' + DI.hhmm(e.tClr) + '): ' + e.text + ' (event ' + DI.hhmm(e.t0) + ')', 'warn'); }
+        else if (e.kind === 'rest') r++; else n++;
       }
       Q.push({ id: ++S.dqSeq, panel: pn.id, key: 'dc' + pn.id, reg: 'dactChan', cls: 'TRBL', fd: false, test: false, comm: true, text: 'DACT COMMUNICATIONS FAILURE - panel #' + pn.id + ', and its restoral', t0: q.dnT, tq: q.dnT, tClr: S.t, state: 'HELD', n: DI.DACT_TRIES });
-      S.say('DACT channel restored at panel #' + pn.id + ': ' + n + ' queued signal(s) to send in priority order (alarm, supervisory, trouble), then the communications-failure trouble and its restoral.', 'warn');
+      S.say('DACT channel restored at panel #' + pn.id + ': ' + n + ' queued signal(s) to send in priority order (alarm, supervisory, trouble, then a class not elected)' + (r ? ', ' + r + ' restoral(s)' : '') + ', then the communications-failure trouble and its restoral.', 'warn');
       delete q.dnT; q.dqNext = S.t;
     }
     while (q.dqNext >= 0) {
-      const pend = Q.filter((e) => e.panel === pn.id && open(e)); if (!pend.length) { delete q.dqNext; break; }
+      const pend = Q.filter((e) => e.panel === pn.id && due(e)); if (!pend.length) { delete q.dqNext; break; }
       if (q.dqNext > S.t + 1e-9) break;
-      pend.sort((a, b) => rank(a) - rank(b) || a.t0 - b.t0 || a.id - b.id);
-      const e = pend[0]; e.state = 'SENT'; e.sentT = q.dqNext; q.dqNext += DI.DACT_SEND_S;
+      pend.sort((a, b) => phase(a) - phase(b) || rank(a) - rank(b) || a.t0 - b.t0 || a.id - b.id);
+      const e = pend[0], t = q.dqNext; q.dqNext += DI.DACT_SEND_S;
+      if (e.rs) { delete e.rs; e.rsT = t; restored(e, t); continue; }            // the restoral of an entry that was sent late, after it had cleared
+      e.state = 'SENT'; e.sentT = t;
+      if (e.kind === 'rest') { restored(e, t); continue; }
       S.say('SENT ' + DI.hhmm(e.sentT) + ' (late): ' + e.text + ' (' + ev(e) + ')', 'warn');
+      if (e.tClr !== undefined && !e.comm) e.rs = 1;                             // it cleared in the outage: its restoral follows the originals
       for (const o of S.sig.values()) if (o.q === e) o.tx = o.mon && !o.cut && S.t - o.t0 >= o.delay;       // the station has it from this tick
       if (e.fd && !e.test) late = true;
     }
   }
-  // keep every open entry and the last DI.DQ_KEEP finished ones
-  let done = 0; for (const e of Q) if (!open(e)) done++;
-  for (let i = 0; done > DI.DQ_KEEP && i < Q.length;) { if (open(Q[i]) || live.has(Q[i])) i++; else { Q.splice(i, 1); done--; } }
+  // keep every entry that still has something to send and the last DI.DQ_KEEP finished ones
+  let done = 0; for (const e of Q) if (!due(e)) done++;
+  for (let i = 0; done > DI.DQ_KEEP && i < Q.length;) { if (due(Q[i]) || live.has(Q[i])) i++; else { Q.splice(i, 1); done--; } }
   return late;
 };
+// Restorals (FA Lead, Cycle 7; DI.ref72(W).restoral: VERIFIED for NFPA 72-2022 and 2025, VERIFY for 2019). Called by
+// DI.alarmStep with the signals of the tick before. A signal the supervising station has (it was transmitted, or its
+// queue entry was sent) that is no longer a condition at the panel is reported as restored:
+//   the path is up    one log line and one `restoral` entry in the operator log
+//   both DACT channels are down   a restoral entry in the queue (kind 'rest'), sent after the unsent originals
+// A fire alarm restores when the panel is reset or the device is restored by hand, so its restoral follows that.
+// Not reported: a signal on test, a superseded detector stage (the detector reports its highest stage), what the
+// station itself reports about the panel, and anything from a dead panel (it can send nothing).
+// A restoral dispatches nothing, and nothing reads it: not release, not the matrix, not a goal.
+DI.restoralStep = function (S, old) {
+  if (S.settling || !old.size) return;
+  const W = S.W, dact = DI.commPath(W) === 'dact';
+  for (const [key, o] of old) {
+    if (S.sig.has(key) || o.lost || o.sup || o.test || !o.mon || !(o.tx || o.had)) continue;
+    const d = W.parts.get(o.part), pn = d ? (d.type === 'panel' ? d : W.panelOf(d.id)) : null; if (!pn || pn.p.alive === false) continue;
+    if (dact && Array.isArray(pn.p.chan) && !pn.p.chan[0] && !pn.p.chan[1]) {
+      S.dq.push({ id: ++S.dqSeq, kind: 'rest', panel: pn.id, key, reg: o.reg, cls: o.type, fd: false, test: false, text: o.text, t0: o.t0, tq: Math.max(S.t, pn.p.dnT >= 0 ? pn.p.dnT : S.t), tClr: S.t, state: 'RETRY', n: 1 });
+      continue;
+    }
+    if (o.q && o.q.state === 'SENT') o.q.rsT = S.t;
+    S.say('RESTORAL to station: ' + o.text + ' (event ' + DI.hhmm(o.t0) + ', restored ' + DI.hhmm(S.t) + ')' + DI.restoralTag(W), '');
+    S.act('restoral', pn.id, { key, cls: o.type });
+  }
+};
 // The supervising-station queue as rows for the annunciator: every entry, oldest first. Pure.
+// hazard = the labeled hazard case (the panel died with the signal queued): the row carries DI.DACT_HAZARD.
 DI.stationQueue = function (S) {
-  return (S.dq || []).map((e) => ({ id: e.id, panel: e.panel, text: e.text, cls: e.cls, state: e.state, label: DI.dactLabel(e), t0: e.t0, sentT: e.sentT, tClr: e.tClr }));
+  return (S.dq || []).map((e) => ({ id: e.id, panel: e.panel, text: e.text, cls: e.cls, state: e.state, label: DI.dactLabel(e), t0: e.t0, sentT: e.sentT, tClr: e.tClr, kind: e.kind || 'sig', rsT: e.rsT, hazard: e.state === 'DROPPED' && e.why === 'dead' && !e.comm && e.kind !== 'rest' }));
 };
 
 DI.sendTech = function (S, roomId) { if (S.tech) return 'A technician is already on the way.'; S.tech = { room: roomId, at: S.t + 75 }; S.say('Technician dispatched to ' + S.W.rooms[roomId - 1].name + ' (about 75 s).', ''); return ''; };
@@ -371,6 +475,8 @@ DI.sendTech = function (S, roomId) { if (S.tech) return 'A technician is already
 // pipe is still below P trip it latches again at once. On an electric / pneumatic trim P sits at the
 // actuator and a panel reset cannot clear it (DI.resetTrimP). A panel reset never closes a tripped valve.
 // It also clears the Manual Release zone latch; a station that is still operated latches it again.
+// And the waterflow latch (v.p.wfL) of every valve on the panel, once its flow has stopped: with water still flowing
+// the reset says "still in alarm" and the alarm stays.
 // A dead panel cannot be reset or silenced: the message comes back, nothing changes and nothing is logged.
 DI.panelReset = function (S, panelId) {
   const W = S.W, pn = W.parts.get(panelId); let held = 0, atTrim = 0;
@@ -379,6 +485,8 @@ DI.panelReset = function (S, panelId) {
     if (w[0] !== panelId) continue; const d = W.parts.get(w[1]); if (!d) continue;
     if (d.type === 'vesda' || d.type === 'smoke') { if ((d.p.live || 0) >= (d.type === 'vesda' ? DI.FIRE1 : 1)) held++; d.p.lvl = d.p.live || 0; d.p.rel = false; }
     if (d.type === 'mstn' && d.p.on) held++;
+    // the waterflow latch (wet, dry and preaction): a reset with water still flowing keeps the alarm; after the flow has stopped it clears
+    if (DI.SYSV[d.type] && d.p.wfL) { const ws = S.ss.get(d.id); if (ws && ws.alarm) held++; else d.p.wfL = false; }
     if (d.type === 'prev') {
       const det = !!(d.p.sol || d.p.pull || d.p.mrzL);            // reset #1 of a recovery: D or the zone was latched
       d.p.sol = false; d.p.pull = false; d.p.mrzL = false;
@@ -387,7 +495,7 @@ DI.panelReset = function (S, panelId) {
     }
   }
   if (pn) pn.p.silenced = false;
-  S.say((held ? 'Panel reset, but ' + held + ' detector(s) or manual station(s) are still in alarm.' : 'Panel reset.' + (atTrim ? '' : ' Normal.')) +
+  S.say((held ? 'Panel reset, but ' + held + ' detector(s), manual station(s) or waterflow switch(es) are still in alarm.' : 'Panel reset.' + (atTrim ? '' : ' Normal.')) +
     (atTrim ? ' P is still latched at the actuator of ' + atTrim + ' electric / pneumatic valve(s): reset it at the trim.' : ''), held || atTrim ? 'warn' : 'good');
   return '';
 };
@@ -453,12 +561,20 @@ DI.RECOVERY = [['silence', 'Silence the panel'], ['find-head', 'Find the operate
 // test at that point is the valve status test (DI.REF25). DI.MDT_LINE is the Tutor's instruction, word for word.
 DI.RECOVERY_DRAIN = ['drain-test', 'Main drain test: record static and residual pressure, then close the drain slowly'];
 DI.MDT_LINE = 'Main drain test: with the control valve fully open, open the main drain fully, record static and residual pressure, then close it slowly. A big drop compared to the last test means a valve may be partly closed.';
-DI.MDT_FOLLOW = 'A big drop compared to the last test means a valve may be partly closed. Check that the valves are fully open.';
+// The follow-up when the residual is more than 10 percent under the last test (Fire Tutor, word for word; X = the
+// drop, one decimal). The 10 percent is shown to the player as a common rule of thumb; the result's own reference
+// line keeps the NFPA 25 cite (DI.REF25.passRule, VERIFIED, FP Lead).
+DI.MDT_DROP = 0.10;
+DI.mdtHint = (drop) => 'Residual pressure is ' + (drop * 100).toFixed(1) + '% lower than the last test. A valve may be partly closed. Check that the zone control valve and the supply valves upstream (riser control valve, PIV, backflow preventer valves) are fully open, then test again.';
+DI.MDT_SKIPPED = 'Main drain test not done. After any control valve is closed and reopened, run one to prove the valve is fully open.';
+DI.MDT_BASELINE = 'Recorded as the baseline for the next test.';
+DI.MDT_NOT_INVESTIGATED = '10% drop not investigated';
 // Recovery rating of the scored incident (contract 5), on "water stopped": the time from the alarm to the control
-// valve closed, plus every step in order (Fire Tutor). 3 stars within 120 s, 2 within 240 s, 1 for any complete
-// in-order recovery. ASSUMED, to be tuned in play test, informational: contract stars do not read it. The operator's
-// own step time and the air refill are reported beside it and never rated.
-DI.RECOVERY_TIERS = [{ stars: 3, s: 120 }, { stars: 2, s: 240 }];
+// valve closed, plus every step in order (Fire Tutor). 3 stars within 60 s, 2 within 150 s, 1 for any complete
+// in-order recovery (Cycle 7; ASSUMED, play test). Informational one more cycle: contract stars do not read it. The
+// operator's own step time, the main drain test time and the air refill are reported beside it and never rated.
+DI.RECOVERY_TIERS = [{ stars: 3, s: 60 }, { stars: 2, s: 150 }];
+DI.RECOVERY_TIP = 'In a real building, getting to the riser takes minutes. Know where each zone’s control valve is before an event.';
 // 0 = not complete or not in order; else 3 or 2 stars by "water stopped", else 1. Its own report line.
 DI.recoveryTier = function (r) {
   if (!r || !r.complete || !r.inOrder) return 0;
@@ -479,7 +595,8 @@ DI.drillDrainPrompt = function (S, gateId) {
 // refill = the part of it the zone spent closed up and filling, with nothing left for the operator to do: from the
 //          later of the last supply-open, the drain-close and (after a trip) the riser reset, up to restore-air.
 //          0 when there is no air step. It is compressor time, judged on its own against DI.refillLimit.
-// opTime = time - refill: the operator's own steps, an info stat.
+// mdtTime = the main drain test of step 14, from its start to its result (0 where there is no step 14 or it is not done).
+// opTime = time - refill - mdtTime: the operator's own steps, an info stat.
 // waterStopped = seconds from the alarm to the control valve closed (step 3): the alarm is the earliest `alarm`
 //          entry of the operator log between the incident's start and that step, or the incident's own start where
 //          no alarm signal rang (a broken head on a double-interlock zone never trips). null until step 3 is done.
@@ -530,6 +647,8 @@ DI.recoveryScore = function (S, id, from) {
   }
   const time = complete ? Math.max(t0, last) - t0 : null;
   const cv = steps.find((st) => st.kind === 'close-valve'), al = cv && cv.t !== null ? win.find((q) => q.kind === 'alarm' && q.t >= t0 && q.t <= cv.t) : null;
+  // the main drain test of step 14 (drill call only): its own time, reported on its own line and never part of opTime
+  const d14 = steps.find((st) => st.kind === 'drain-test'), mdtA = d14 && d14.done && d14.t !== null ? win.find((q) => q.kind === 'main-drain-test' && q.id === id && q.t === d14.t) : null, mdtTime = mdtA ? Math.max(0, mdtA.t - mdtA.ts) : 0;
   return { id, t0, why: A[i0].why, steps, done, total: steps.length, complete, inOrder, tripped, det, closed: !!svc,
-    time, refill, air: !!air, opTime: time !== null ? Math.max(0, time - refill) : null, waterStopped: cv && cv.t !== null ? Math.max(0, cv.t - (al ? al.t : t0)) : null };
+    time, refill, air: !!air, mdtTime, opTime: time !== null ? Math.max(0, time - refill - mdtTime) : null, waterStopped: cv && cv.t !== null ? Math.max(0, cv.t - (al ? al.t : t0)) : null };
 };

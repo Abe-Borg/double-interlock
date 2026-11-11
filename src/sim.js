@@ -80,6 +80,10 @@ DI.Sim = class {
     return !!(p && p.p.emerg) && this.genT >= 0 && this.t - this.genT > 10;
   }
   step(dt) {
+    // Return to normal after an air test: while a system drain is letting air out of a zone in that step, a long step
+    // is split into pieces of DI.RET_SUBSTEP, so the result does not depend on the time step (SIMPLIFICATION, PRACTICE).
+    // The split sits before the clock advances and before the coarse return; the pieces add up to dt exactly.
+    if (dt > DI.RET_SUBSTEP + 1e-9 && DI.retDrainOpen(this)) { const n = Math.ceil(dt / DI.RET_SUBSTEP - 1e-9), t1 = this.t + dt; for (let i = 0; i < n; i++) this.step(dt / n); this.t = t1; return; }
     const W = this.W;
     if (this.ver !== W.ver) this.sync();
     this.t += dt;
@@ -143,10 +147,16 @@ DI.Sim = class {
       const p = W.parts.get(id), l = G.partLink.get(id);
       if (p && p.type === 'tank' && l) p.p.gal = Math.max(0, p.p.gal - l.q * dt / 60);
     }
-    // mdGal: the part of it that left through a main drain (a main drain test). It goes to the drain, not onto the floor.
-    let out = 0, md = 0;
-    for (const e of G.emit) { out += e.link.q; if (e.kind === 'mdrain') md += e.link.q; }
-    this.outFlow = out; this.stats.gallons += out * dt / 60; if (md > 0) this.stats.mdGal = (this.stats.mdGal || 0) + md * dt / 60;
+    // stats.gallons is every outlet. Two parts of it went to a drain, not onto the floor, and are tallied on their own
+    // so a report never calls them a discharge (DI.headGal, scen.js):
+    //   mdGal  a main drain: the supply-side main drain of a dry or preaction valve, and a wet riser's main drain
+    //   otGal  the other drains and test connections: a system drain, an inspector's test, the pump test header
+    // What is left is what came out of open heads and pipe breaks.
+    let out = 0, md = 0, ot = 0;
+    for (const e of G.emit) { const q = e.link.q; out += q;
+      if (e.kind === 'mdrain' || (e.kind === 'drain' && (W.parts.get(W.partAt[e.k]) || {}).type === 'wetv')) md += q;
+      else if (e.kind === 'drain' || e.kind === 'itc' || e.kind === 'hdr') ot += q; }
+    this.outFlow = out; this.stats.gallons += out * dt / 60; if (md > 0) this.stats.mdGal = (this.stats.mdGal || 0) + md * dt / 60; if (ot > 0) this.stats.otGal = (this.stats.otGal || 0) + ot * dt / 60;
   }
   // convenience readers for UI / tests
   touch() { this.dirty = true; }
@@ -260,7 +270,7 @@ DI.Sim.prototype.commission = function (keep) {
   if (!W.byType('jockey').length && pumps.length) { pumps[0].p.mode = 'hand'; for (let i = 0; i < 24; i++) this.step(0.5); pumps[0].p.mode = 'off'; for (let i = 0; i < 10; i++) this.step(0.5); }
   pumps.forEach((p, i) => { p.p.mode = saved[i]; p.p.on = false; p.p.spd = 0; p.p.ranFor = 0; });
   for (let i = 0; i < 10; i++) this.step(0.5);
-  this.quiet = quiet; this.log.length = 0; this.stats.gallons = 0; this.lastAuto = 0;
+  this.quiet = quiet; this.log.length = 0; this.stats.gallons = 0; delete this.stats.mdGal; delete this.stats.otGal; this.lastAuto = 0;
   if (keep !== undefined && keep !== false) { this.t = keep; return; }
   this.t = 0;
   for (const s of this.ss.values()) { s.openT = -1; s.waterT = -1; s.tripT = -1; s.flowT = 0; }
@@ -290,10 +300,12 @@ DI.Sim.prototype.warp = function (sec, maxMs, until) {
 // came in on test. Without it every delay clock (AC failure, a failed DACT channel) would restart at a load.
 // dq, dqSeq: the DACT queue, so a save made in an outage keeps its attempts, states and original event times. A save
 // from before Cycle 6 has none: the entries are made again from `sig` on the first step, RETRY or HELD by age.
+// Cycle 7 entry fields travel with the entries: kind ('rest' = a restoral), rs (a restoral is owed), rsT (when it
+// was sent). A Cycle 6 save has none of them: no restoral is queued for an entry that was already SENT.
 // genT: when utility power was lost. The standby generator (generator-backed pumps, and the generator-backed panel,
 // which it carries for DI.GEN_RUN_S) is timed from it, so it has to survive a load: the settle would otherwise leave
 // it near 0 and a save made late in the game would find the generator's 24 h already spent.
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW', 'floodK', 'rtErr', 'rtEv', 'rtDr'];
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW', 'floodK', 'rtErr', 'rtEv', 'rtDr', 'rtMin', 'rtP0'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
   return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null,
@@ -323,6 +335,9 @@ DI.Sim.prototype.restore = function (j) {
   // The outage clock, after the settle (which restarts it near 0). A save from before it was stored, made with the
   // power off, reads as an outage that began just long enough ago for the generator to be running.
   this.genT = this.W.power ? -1 : j.genT >= 0 ? j.genT : Math.max(0, this.t - DI.GEN_START_S - 1);
+  // what the load itself changed (World.fromJSON), said once: after the settle, which clears the log
+  // (loadNotes keeps them for the front end, which clears its log panel when a scenario opens: DI.startScenario)
+  if (this.W.notes) { for (const t of this.W.notes) this.say(t, 'warn'); this.loadNotes = this.W.notes.slice(); delete this.W.notes; }
   if (j.sig) {
     this.sigSeen = new Map(j.sig);
     for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; o.had = !!q.had; } }

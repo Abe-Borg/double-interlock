@@ -84,6 +84,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
 #stq .hd3 { font:700 10px var(--mono); letter-spacing:.12em; color:var(--yel); padding:4px 8px 2px; }
 #stq .stq { padding:2px 8px 4px; font:11px var(--mono); color:#cfe0c8; cursor:pointer; border-bottom:1px solid #18232e; } #stq .stq:hover { background:#17222d; }
 #stq .stq b { color:var(--yel); margin-right:4px; } #stq .stq.SENT b { color:var(--grn); } #stq .stq.DROPPED b { color:var(--red); } #stq .stq.SENT { opacity:.75; }
+#stq .stq.haz { border-left:3px solid var(--red); } #stq .stq small { display:block; margin-top:2px; color:#e9b9b2; font:10.5px var(--mono); white-space:normal; }
 #mbox.wide { width:min(1280px,96vw); } #mbox p.impTag { border-left:3px solid var(--amb); padding-left:10px; color:#ffd590; }
 .ce { border-collapse:collapse; width:100%; margin:10px 0; font:11.5px/1.35 var(--mono); } .ce th, .ce td { border:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; color:#b6c6d2; } .ce th { color:#fff; background:#0f1820; position:sticky; top:-22px; }
 .ce tr.off td { color:#566878; } .ce tr.live td { background:#2a1d0c; color:#ffe2b0; } .ce .now { display:block; color:var(--amb); font-weight:700; letter-spacing:.06em; }

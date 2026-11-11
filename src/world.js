@@ -16,20 +16,28 @@ DI.migratePart = function (p) {
     if (q.mrzL === undefined) q.mrzL = false;
     if (q.avc === undefined) q.avc = 1;                               // an AVC is fitted, its bypass closed
     if (q.avcBy === undefined) q.avcBy = 0;
+    if (q.avcTamper === undefined) q.avcTamper = 0;                   // Cycle 7: no tamper switch on the bypass
+    if (q.wfL === undefined) q.wfL = false;                           // Cycle 7: no waterflow latch held
   } else if (p.type === 'comp' || p.type === 'n2') {
     if (q.fault === undefined) q.fault = false;
     if (p.type === 'comp' && !(q.cutOut >= 0)) q.cutOut = 0;          // compressor cut-out: none
+    if (p.type === 'comp') { if (!(q.maxPsi >= 0)) q.maxPsi = 0; if (!(q.relief >= 0)) q.relief = 0; }      // Cycle 7: not modeled, so an open bypass drifts to 60 psi as before
   } else if (p.type === 'panel') {
     if (!Array.isArray(q.chan) || q.chan.length !== 2) q.chan = [1, 1];   // both DACT channels up
     // Cycle 6: the battery pick and the ASSUMED loads of the standby calculation, charger and battery healthy
     const L = DI.PANEL_LOADS; if (!(q.ah > 0)) q.ah = L.ah; if (!(q.iStby > 0)) q.iStby = L.iStby; if (!(q.iAlarm > 0)) q.iAlarm = L.iAlarm;
     if (q.chgFail === undefined) q.chgFail = false; if (q.battDisc === undefined) q.battDisc = false;
+    if (!(q.chgA >= 0)) q.chgA = 0;                                   // Cycle 7: charger matched to the battery
+  } else if (p.type === 'wetv') {
+    if (q.wfL === undefined) q.wfL = false;
   } else if (p.type === 'dryv') {
     const win = 10;                       // the supervisory window older saves used on either side of normal
     if (q.hiAir === undefined) q.hiAir = q.airSet + win;
     if (q.loAir === undefined) q.loAir = q.airSet - win;
     if (q.avc === undefined) q.avc = 1;
     if (q.avcBy === undefined) q.avcBy = 0;
+    if (q.avcTamper === undefined) q.avcTamper = 0;
+    if (q.wfL === undefined) q.wfL = false;
   }
   return p;
 };
@@ -54,7 +62,7 @@ DI.World = class {
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
     // site / project settings: edition, ed72, nfpa76Adopted, pipeCut, detThr, spotThr, asdModel, sigClass, fitPct, trimGal,
-    // insurer, manualReleaseBypassP, commPath, acDelayMin, dactHold, standby, panelGen, refrigerated and the two hook
+    // insurer, manualReleaseBypassP, commPath, acDelayMin, dactHold, standby, panelGen, refillSeq and the two hook
     // elections of cause.js. Read them through
     // the DI helpers, which supply the defaults. (An old save may still carry the retired NFPA 76 stage key: nothing reads it.)
     this.cfg = {};
@@ -63,6 +71,7 @@ DI.World = class {
   inb(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
   room(x, y) { const r = this.roomAt[this.k(x, y)]; return r ? this.rooms[r - 1] : null; }
   addRoom(type, x, y, w, h, name) {
+    // a Freezer / Cold Dock room carries `below5` (maintained below 5 F), default false: see DI.refillLimit
     const r = { id: this.rooms.length + 1, type, x, y, w, h, name: name || DI.ROOMS[type].name, temp: 70 };
     this.rooms.push(r);
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) this.roomAt[this.k(i, j)] = r.id;
@@ -157,10 +166,14 @@ DI.World = class {
   static fromJSON(j) {
     const W = new DI.World(j.w, j.h);
     const un = (r, a) => { let k = 0; for (let i = 0; i < r.length; i += 2) { a.fill(r[i], k, k + r[i + 1]); k += r[i + 1]; } };
-    for (const r of j.rooms) W.addRoom(r.type, r.x, r.y, r.w, r.h, r.name);
+    for (const r of j.rooms) { const room = W.addRoom(r.type, r.x, r.y, r.w, r.h, r.name); if (r.below5 === true) room.below5 = true; }
     un(j.pd, W.pd); un(j.pk, W.pk); un(j.spk, W.spk); un(j.air, W.air); if (j.cut) un(j.cut, W.cut);
     for (const p of j.parts) { DI.migratePart(p); W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
     W.cfg = Object.assign({}, j.cfg || {}); delete W.cfg.pipePolicy;      // the role-based schedule policy is gone: an old save gets the default size cut
+    // Cycle 7: the site refrigerated flag became a per-zone rule (a freezer room held below 5 F). An old save that had
+    // it set loads with the flag deleted and every zone at 30 min; Sim.restore says so once (W.notes). ASSUMED migration.
+    if (W.cfg.refrigerated === true) W.notes = [DI.COLD_MIGRATED];
+    delete W.cfg.refrigerated;
     W.wires = j.wires || []; W.nextId = j.nextId; W.money = j.money; W.outTemp = j.outTemp === undefined ? 70 : j.outTemp;
     W.power = j.power !== false;          // utility power is saved with the world; a save from before that has no field and reads on
     return W;

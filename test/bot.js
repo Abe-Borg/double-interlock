@@ -124,6 +124,12 @@
       if (S.procs.some((q) => q.kind === 'drain' && q.id === id)) continue;
       s.botOp = false; s.botSil = false;
     }
+    // Cycle 7: a waterflow alarm stays latched at the panel after the flow has stopped. A good operator resets the
+    // panel once nothing is under recovery, no test is running and detection is quiet. And a pending return to normal
+    // after an air test is bled at the trim and ended with Finish.
+    if (quiet && !S.procs.length && ![...S.ss.values()].some((s) => s.botOp) && [...S.ss.entries()].some(([id, s]) => W.parts.get(id).p.wfL && !s.alarm))
+      for (const pn of W.byType('panel')) if (pn.p.alive !== false && W.wires.some((w) => w[0] === pn.id && (W.parts.get(w[1]) || { p: {} }).p.wfL)) DI.panelReset(S, pn.id);
+    for (const [id, s] of S.ss) if (s.ret && !s.botOp) { const v = W.parts.get(id); if (s.P > v.p.airSet + 1) DI.bleedToNormal(S, id); else if (DI.returnReady(S, id)) DI.returnFinish(S, id); }
     // a false alarm that latched D on a healthy valve: reset the panel once detection is quiet. A valve under
     // recovery gets its panel reset #1 in its own turn above (after the drain), not here.
     if (W.byType('prev').some((v) => v.p.sol && !S.ss.get(v.id).botOp) && !W.byType('prev').some((v) => S.ss.get(v.id).botOp) && quiet) for (const pn of W.byType('panel')) if (pn.p.alive !== false) DI.panelReset(S, pn.id);

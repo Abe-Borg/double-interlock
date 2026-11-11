@@ -17,6 +17,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
     g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
     DI.ui.onScenario(); if (!sv) DI.ui.showBrief(sc);
+    // what the load changed in an old save (the retired site refrigerated flag): shown after the log panel was cleared
+    if (S.loadNotes) { for (const t of S.loadNotes) DI.bus.emit('log', t, 'warn'); DI.ui.banner(S.loadNotes[0]); delete S.loadNotes; }
   };
   DI.saveGame = function () { if (g.mode !== 'play' || (g.S.drill && !g.S.drill.done)) return; LS.set('di.save.' + g.sc.id, { world: g.W.toJSON(), sim: g.S.dump(), drillPassed: g.drillPassed }); };
   DI.pushUndo = function () { g.undo.push(JSON.stringify(g.W.toJSON())); if (g.undo.length > 40) g.undo.shift(); };
@@ -37,6 +39,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cv = DI.cv, c = DI.ctx; if (!cv) return;
     if (g.mode === 'play') {
       const S = g.S, sc = g.sc;
+      // a system drain opened in a pending return-to-normal step ends a running skip: the bleed is fast, and the player has to be able to stop it
+      if (g.warp > 0 && DI.retDrainOpen(S)) { g.warp = 0; g.warpStop = null; }
       if (g.warp > 0) { const sig0 = S.sig.size; g.warp = S.warp(g.warp, 14, g.warpStop || undefined); DI.drillStep(S); if (sc.tick) sc.tick(S); if (S.sig.size > sig0 && [...S.sig.values()].some((o) => o.type === 'ALARM' && !o.sup)) g.warp = 0;
         if (g.warpStop && g.warpStop()) g.warp = 0; if (!(g.warp > 0)) g.warpStop = null; }
       else if (g.speed > 0 && !DI.ui.modalOpen) {

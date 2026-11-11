@@ -83,7 +83,8 @@ DI.review = function (S) {
   }
   // --- site settings
   const thr = DI.detThr(W), LS = DI.LISTED.smoke, spot = DI.spotThr(W), listed = 'Device listing; NFPA 72 Ch. 14 (ITM)';
-  if (!thr.every((t, i) => isFinite(t) && t > 0 && (i === 0 || t > thr[i - 1]))) add('fail', 'Aspirating detection thresholds are not strictly increasing (' + thr.join(' / ') + '). They must run Alert < Action < Fire 1 < Fire 2.', 'Site setting (owner-set values, ASSUMED, NEEDS PE REVIEW)', 0, 0);
+  // (a Fire 1-only model has one threshold: the order check does not apply; its pick is checked by DI.asdFindings)
+  if (!DI.isVea(W) && !thr.every((t, i) => isFinite(t) && t > 0 && (i === 0 || t > thr[i - 1]))) add('fail', 'Aspirating detection thresholds are not strictly increasing (' + thr.join(' / ') + '). They must run Alert < Action < Fire 1 < Fire 2.', 'Site setting (owner-set values, ASSUMED, NEEDS PE REVIEW)', 0, 0);
   // every stage must sit inside the listed range of that stage for the site's detector model (datasheet ranges)
   for (const f of DI.asdFindings(W)) add('fail', f.text, f.ref, 0, 0);
   if (!(spot >= LS.min && spot <= LS.max)) add('fail', 'Spot detector alarm threshold ' + spot + ' %/ft is outside the listed window of the detector (' + LS.min + ' to ' + LS.max + ' %/ft, example data).', listed, 0, 0);
@@ -108,6 +109,9 @@ DI.review = function (S) {
       const c = DI.standbyCalc(W, p);
       if (c.below) add('fail', 'Panel #' + p.id + ' battery ' + c.ah + ' Ah is below the ' + DI.fmt(c.req, 1) + ' Ah the standby basis needs (' + c.basis + ', ' + R72.battStby + '): ' + c.iStby + ' A standby for ' + c.h + ' h plus ' + c.iAlarm + ' A alarm for ' + c.alarmMin + ' min, times ' + c.factor.toFixed(2) + ' (' + R72.battFactor + '). Pick a larger battery. Loads are ASSUMED listing values.', R72.battStby, p.x, p.y);
       else if (c.thin) add('warn', 'Panel #' + p.id + ' battery ' + c.ah + ' Ah. THIN: margin ' + DI.fmt(c.margin * 100) + ' %, under ' + DI.STBY_THIN * 100 + ' % over the ' + DI.fmt(c.req, 1) + ' Ah the standby basis needs (' + c.basis + ') (PRACTICE, NEEDS PE REVIEW).', R72.battStby, p.x, p.y);
+      // Charger (FA Lead, Cycle 7): the battery must be restorable inside the 48 h recharge window by the fitted charger.
+      // chgA = 0 is "matched to the battery" (ASSUMED) and raises nothing. The window never stretches for a bigger battery.
+      if (p.p.chgA > 0 && c.ah > DI.chargerAh(p)) add('fail', 'Panel #' + p.id + ' charger (' + p.p.chgA + ' A) cannot restore the ' + c.ah + ' Ah battery within ' + DI.RECHARGE_H + ' h after one discharge (NFPA 72 §10.6.10.3.2, identical in 2019 / 2022 / 2025). A bigger battery needs a bigger charger; the ' + DI.RECHARGE_H + ' h does not stretch. The charger restores ' + DI.chargerAh(p) + ' Ah in ' + DI.RECHARGE_H + ' h (amperes x hours, ASSUMED: no taper).', R72.chgRecharge, p.x, p.y);
     } }
   // --- valves, supply, pumps
   for (const p of W.parts.values()) {
