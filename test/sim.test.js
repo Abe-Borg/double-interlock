@@ -831,7 +831,7 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     DI.setJuris(a.W); DI.review(b.S); ok('A39 DI.juris after DI.review(2025 world) is the 2025 row although the last setJuris was for 2019', DI.juris.nfpa13 === 2025 && DI.juris === DI.JURIS['US-2025']);
     DI.setJuris(new DI.World(4, 4));
     const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
-    ok('A39 package.json: private, test and test:ui scripts, playwright as the only devDependency, no runtime dependencies', pkg.private === true && Object.keys(pkg.devDependencies).join() === 'playwright' && !('dependencies' in pkg) && pkg.scripts.test.includes('test/campaign.test.js') && pkg.scripts['test:ui'].includes('test/ui.c3.js') && pkg.scripts['test:ui'].includes('test/ui.c4.js'));
+    ok('A39 package.json: private, test and test:ui scripts, browser and desktop build tools only, no runtime dependencies', pkg.private === true && Object.keys(pkg.devDependencies).sort().join() === '@tauri-apps/cli,playwright' && !('dependencies' in pkg) && pkg.scripts.test.includes('test/campaign.test.js') && pkg.scripts['test:ui'].includes('test/ui.c3.js') && pkg.scripts['test:ui'].includes('test/ui.c4.js'));
     const au = fs.readFileSync(path.join(__dirname, '..', 'src', 'audio.js'), 'utf8');
     ok('A39 tones: audio.js has its own branch for ALARM, OPEN, TRBL and SUPV', ['ALARM', 'OPEN', 'TRBL', 'SUPV'].every((c) => new RegExp("=== '" + c + "'").test(au)) && /o\.lost|o\.dark/.test(au));
   }
@@ -2692,7 +2692,7 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     html = html.replace(/<link rel="stylesheet" href="([^"]+)">/, (m, f) => '<style>\n' + fs.readFileSync(path.join(ROOT8, f), 'utf8') + '</style>').replace(/<script src="([^"]+)"><\/script>/g, (m, f) => '<script>\n' + fs.readFileSync(path.join(ROOT8, f), 'utf8').replace(/<\/script/g, '<\\/script') + '\n</script>');
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT8, 'package.json'), 'utf8'));
     ok('A133 build-standalone.js reproduces double-interlock.html byte for byte; the fixture is the pinned file; npm run test:ui runs ui.c8.js after ui.c7.js; the game still has no runtime dependency', html === fs.readFileSync(path.join(ROOT8, 'double-interlock.html'), 'utf8') && TT.sha16(TT.FILE) === 'cb3462b268359c6e' && /node test\/ui\.c7\.js \/tmp\/c7\.png && node test\/ui\.c8\.js \/tmp\/c8\.png$/.test(pkg.scripts['test:ui']) &&
-      !pkg.dependencies && Object.keys(pkg.devDependencies).join() === 'playwright' && fs.existsSync(path.join(__dirname, 'ui.c8.js')));
+      !pkg.dependencies && Object.keys(pkg.devDependencies).sort().join() === '@tauri-apps/cli,playwright' && fs.existsSync(path.join(__dirname, 'ui.c8.js')));
   }
   // static checks on the sources
   {

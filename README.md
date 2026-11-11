@@ -13,6 +13,27 @@ It is a game first: build, test, survive, three stars. What it teaches is real a
 
 ## Run it
 
+### Windows desktop app
+
+Download **Double-Interlock-1.0.0-windows-x64-setup.exe** from
+[GitHub Releases](https://github.com/Abe-Borg/double-interlock/releases/latest) and run it.
+Supports Windows 10/11 on 64-bit Intel/AMD PCs. Setup installs for your account without administrator
+rights and adds a Start menu shortcut. If Microsoft Edge WebView2 is missing, setup installs it
+(internet required for that step). After installation, the game runs offline.
+
+The desktop app uses **Tauri 2 + WebView2**: a small native shell around the same canvas simulation,
+using Windows' Chromium-based engine with hardware acceleration. The simulation keeps its existing
+per-frame work budget. It does not bundle Electron or require Node.js on your PC.
+
+Choose **Check for updates** on the contracts menu. It checks the latest stable GitHub release and
+offers its Windows installer. Close the game and run the downloaded installer to upgrade; saved
+progress stays in the app's WebView2 profile. Browser saves are separate. Update checks happen only
+when requested. The installer is unsigned, so Windows may show a SmartScreen prompt.
+
+See [desktop development and releases](docs/windows-desktop.md) for building and releasing.
+
+### Browser / portable HTML
+
 Double-click **`double-interlock.html`** (Chrome or Edge). One self-contained file, no install, no
 server, no network. Progress saves in the browser.
 
@@ -977,7 +998,7 @@ a trainer, not a calculation tool for a submittal.
 double-interlock.html   the game, one file (built)
 index.html              the game, loading src/
 build-standalone.js     inlines src/ into double-interlock.html
-package.json            npm scripts for the tests; Playwright is the only devDependency (browser tests only)
+package.json            npm scripts; Playwright for browser tests and the Tauri CLI for desktop builds
 fixtures/
   di-release-truth-table.csv   the fire alarm lead's release truth table, rows R01 to R17: copied verbatim, pinned by sha16, never edited here
 review/

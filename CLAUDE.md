@@ -46,9 +46,10 @@ Read README.md first for what the game is.
   NFPA 76 room logic or `World.fromJSON`.
 - `sim.test.js` (A112) checks that `double-interlock.html` is what `build-standalone.js` makes from `src/` as it
   stands: build first, then test.
-- `package.json` exists for the scripts only (`npm test`, `npm run test:ui`). `npm install` is needed only for
-  the browser tests: Playwright is the single devDependency. The game has no runtime dependencies and must
-  keep loading from `file://`.
+- `package.json` provides tests and desktop builds. Playwright and the Tauri CLI are development-only
+  dependencies. The browser game has no runtime dependencies and must keep loading from `file://`.
+  `npm run build` stages the self-contained HTML for Tauri. See `docs/windows-desktop.md` for native builds
+  and releases. Run `npm run test:desktop` after desktop integration changes.
 - `node review/truth-table-check.js` prints the release truth table against the engine, row by row.
 - `node test/shot.js <scenario|menu> out.png "<js>"` loads the page, optionally runs JS, screenshots.
 
