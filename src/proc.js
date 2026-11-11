@@ -9,8 +9,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
 // pass line is a loss of 1.5 psi or less at every test pressure (DI.airTestEnd): 38.5 psi at 40.
 // After the test the supply is restored and the zone is returned to its normal set point. Where the pipe is left
 // more than 1 psi above normal (a normal below the test pressure) the operator bleeds it at the trim: s.ret, a
-// practice step (DI.returnWatch, gas.js, clears it, logs return-normal and files a practice `return` result). A zone
-// left below normal refills by itself. The 1.5 psi pass line is an absolute value at every test pressure (VERIFIED):
+// practice step (the operator ends it with Finish, DI.returnFinish in gas.js, which logs return-normal and files a
+// practice `return` result). A zone left below normal refills by itself and then waits for Finish too. The 1.5 psi pass line is an absolute value at every test pressure (VERIFIED):
 // it is never scaled with the test pressure.
 //   psi     the 40 psi baseline      endMin  lowest passing end reading at 40  drop  allowed loss (report line)
 //   tol     ASSUMED: the clock starts once the zone is within this of the test pressure (the gauge reads 40.0).
@@ -99,12 +99,15 @@ DI.testStep = function (S, dt) {
         // The pass rule is the code's: a 10 percent reduction in full flow pressure against the previous tests means
         // find the cause (DI.REF25.passRule, VERIFIED). "Full flow pressure" is the code term for the residual reading.
         // The operator log gets the test with both readings: step 14 of the scored drill recovery reads it.
-        const base = v.p.drainBase; const drop = base ? (base - pr.resid) / base : 0;
-        res = { pass: !(drop > 0.1), title: 'Main drain test', val: pr.resid, drop, lines: ['Static: ' + DI.fmt(pr.stat) + ' psi', 'Full-flow (residual): ' + DI.fmt(pr.resid) + ' psi at about ' + DI.fmt(pr.q) + ' gpm',
-          base ? 'Previous full flow pressure: ' + DI.fmt(base) + ' psi (' + (drop > 0.1 ? 'DOWN ' + DI.fmt(drop * 100) + '%: a 10 percent reduction in full flow pressure, find the cause and correct it [' + DI.REF25.passRule + ']' : 'within 10 percent [' + DI.REF25.passRule + ']') + ')' : 'Recorded as the baseline for future tests [' + DI.REF25.passRule + ']'] };
-        if (drop > 0.1) res.lines.push(DI.MDT_FOLLOW);
-        if (!base || drop <= 0.1) v.p.drainBase = pr.resid;
-        S.act('main-drain-test', pr.id, { stat: pr.stat, resid: pr.resid, q: pr.q, pass: res.pass, ts: pr.t0 });
+        // Cycle 7: the entry also carries the prior residual (base, absent when there was none) and the drop as a
+        // fraction. With no baseline the reading is recorded as the baseline and nothing is scored. A drop over 10
+        // percent adds the Tutor's hint; whether it was investigated is read by the drill report (DI.dropFollowed).
+        const base = v.p.drainBase; const drop = base ? (base - pr.resid) / base : 0, big = drop > DI.MDT_DROP;
+        res = { pass: !big, title: 'Main drain test', val: pr.resid, drop, lines: ['Static: ' + DI.fmt(pr.stat) + ' psi', 'Full-flow (residual): ' + DI.fmt(pr.resid) + ' psi at about ' + DI.fmt(pr.q) + ' gpm',
+          base ? 'Previous full flow pressure: ' + DI.fmt(base) + ' psi (' + (big ? 'DOWN ' + DI.fmt(drop * 100) + '%: a 10 percent reduction in full flow pressure, find the cause and correct it [' + DI.REF25.passRule + ']' : 'within 10 percent [' + DI.REF25.passRule + ']') + ')' : DI.MDT_BASELINE + ' [' + DI.REF25.passRule + ']'] };
+        if (big) res.lines.push(DI.mdtHint(drop));
+        if (!base || !big) v.p.drainBase = pr.resid;
+        S.act('main-drain-test', pr.id, Object.assign({ stat: pr.stat, resid: pr.resid, q: pr.q, pass: res.pass, ts: pr.t0, drop }, base ? { base } : null));
       }
     } else if (pr.kind === 'pump') {
       const h = W.parts.get(pr.hdr), q = S.flowOf(pr.id), tgt = [0, 1, 1.5][pr.stage] * v.p.gpm, st = S.t - pr.ts;

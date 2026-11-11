@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "test": "node test/solver.test.js && node test/graph.test.js && node test/sim.test.js && node test/proc.test.js && node test/campaign.test.js",
-    "test:ui": "node test/ui.play.js /tmp/play.png && node test/ui.c2.js /tmp/c2.png && node test/ui.c3.js /tmp/c3.png && node test/ui.c4.js /tmp/c4.png && node test/ui.c5.js /tmp/c5.png && node test/ui.c6.js /tmp/c6.png"
+    "test:ui": "node test/ui.play.js /tmp/play.png && node test/ui.c2.js /tmp/c2.png && node test/ui.c3.js /tmp/c3.png && node test/ui.c4.js /tmp/c4.png && node test/ui.c5.js /tmp/c5.png && node test/ui.c6.js /tmp/c6.png && node test/ui.c7.js /tmp/c7.png"
   },
   "devDependencies": {
     "playwright": "^1.65.0"

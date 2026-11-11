@@ -104,6 +104,21 @@ DI.ctrlValve = function (W, id) {
   return null;
 };
 
+// Every control valve on the supply path of a system valve, nearest first: the same walk, carried on through each
+// control valve, backflow preventer, check valve and pump to the supply. Used by the main drain follow-up
+// (DI.dropCheck): a partly closed valve anywhere upstream lowers the residual reading.
+DI.supplyValves = function (W, id) {
+  const v = W.parts.get(id), out = []; if (!v) return out;
+  const seen = new Set(), q = [[v.x, v.y, W.ports(v).i]];
+  for (let h = 0; h < q.length && h < 4000; h++) {
+    const [x, y, d] = q[h]; if (!W.linked(x, y, d)) continue; const nx = x + DI.DX[d], ny = y + DI.DY[d], k = W.k(nx, ny); if (seen.has(k)) continue; seen.add(k);
+    const o = W.at(nx, ny);
+    if (o) { if (DI.SYSV[o.type]) continue; if (o.type === 'gate') out.push(o); const pt = W.ports(o); if (pt.i >= 0 && pt.o === DI.OPP[d]) q.push([nx, ny, pt.i]); continue; }
+    for (let e = 0; e < 4; e++) if (e !== DI.OPP[d]) q.push([nx, ny, e]);
+  }
+  return out;
+};
+
 // ---------- water delivery
 // Full zone volume = pipe + a fittings allowance + the valve trim (project settings, ASSUMED 5 % and 2 gal).
 // inf.vol stays pipe only; every delivery rule is judged on the zone volume.

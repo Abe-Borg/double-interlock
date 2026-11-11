@@ -49,7 +49,10 @@ DI.G = {
 // and the order of the steps; the operator's own step time is an info stat on the same line. The air refill is
 // compressor time and gets its own line against the 30 min limit (Fire Tutor wording: it never says FAIL, and it
 // says why a refill ran over); the total is reported beside them. None of these lines can fail the drill, and the
-// rating is separate from the contract's stars.
+// rating is separate from the contract's stars. Cycle 7 (Fire Tutor, FP Lead): the operator's steps and the main
+// drain test are two time lines, the water is two gallon lines (never a total), the shared-compressor note prints
+// whenever zones share the supply, and the return-to-normal errors and the main drain follow-up are listed as
+// informational lines in plain language.
 // Only the drill's incident is scored; every other recovery (a trip test, a sandbox incident) is practice and
 // shows as a checklist on the valve. A zone that filled with every head closed because P was left latched is
 // reported as its own line: an unattended low-air failure, not a discharge.
@@ -58,29 +61,93 @@ DI.G = {
 //   the supply cannot fill the largest zone alone in 30 min (the code check fails): the compressor is too small;
 //   the code check passes and the zone shares its supply: the zones filled together (parallel split);
 //   the code check passes on a supply of its own: the time went elsewhere.
-// limit = the refill limit in seconds (DI.refillLimit: 30 min, or 60 on a refrigerated site); default 30 min.
+// limit = the refill limit in seconds (DI.refillLimit of the zone: 30 min, or 60 for a zone wholly in freezer rooms
+// held below 5 F); default 30 min. seq = sequential refill is on (DI.refillSeq): over the limit with the code check
+// passing, the sentence is the FP Lead's, word for word: the sequence total is informational and not a code limit.
 DI.wordNum = (n) => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] || String(n);
-DI.refillLine = function (sec, az, limit) {
+DI.refillLine = function (sec, az, limit, seq) {
   const L = limit || DI.REFILL_LIMIT, m = DI.fmt(sec / 60, 1) + ' min', lim = DI.fmt(L / 60) + ' min', alone = az && !az.below ? DI.fmt(az.tAlone, 1) + ' min' : '';
   if (sec <= L) return 'Air refill: ' + m + ' (limit ' + lim + '). OK.';
   if (!alone) return 'Air refill: ' + m + ', over the ' + lim + ' limit. The compressor is too small for this zone. Size it to refill the largest zone to normal pressure in ' + lim + '.';
+  if (seq) return 'PASS: each zone restores in ' + lim + ' or less when filled alone (largest ' + alone + '). The sequential campus refill total of ' + m + ' is informational and not a code limit.';
   // Fire Tutor wording: say plainly that the compressor passes
   if (az.shared) return 'Air refill: ' + m + ' with all ' + DI.wordNum(az.shared + 1) + ' zones refilling at once. NFPA 13 sizes the compressor to refill one system in ' + lim + '. The largest zone alone refills in about ' + Math.round(az.tAlone) + ' min, so the compressor is sized correctly.';
   return 'Air refill: ' + m + ', over the ' + lim + ' limit. The sizing check passes (this zone alone fills in ' + alone + '), so the time went elsewhere: look for a leak, or a nitrogen generator finishing the fill.';
 };
+// Water of a drill, never added together (Fire Tutor): what left through open heads (and breaks), and what a main
+// drain test sent down the drain. S = the sim, or a stats object (the drill result keeps a copy).
+DI.headGal = (S) => { const st = (S && S.stats) || S || {}; return Math.max(0, (st.gallons || 0) - (st.mdGal || 0)); };
+DI.drainGal = (S) => { const st = (S && S.stats) || S || {}; return st.mdGal || 0; };
+DI.galLines = (S) => ['Discharged through the open head: ' + DI.fmt(DI.headGal(S)) + ' gal'].concat(DI.drainGal(S) > 0 ? ['Main drain test: ' + DI.fmt(DI.drainGal(S)) + ' gal (to drain, not to the floor)'] : []);
+// The shared-compressor note of the drill report (Fire Tutor), pass or fail, whenever the zone's supply serves more
+// than one zone. The section is the edition's own (DI.refillRef), never a fixed string. '' on a supply of its own.
+DI.sharedNote = function (S, id) {
+  const az = DI.airSizing(S, id), gov = az ? S.sysd.info.get(az.gov) : null; if (!az || !az.shared || !gov) return '';
+  return 'Note: ' + (az.shared + 1) + ' zones share this compressor. NFPA 13 sizes it to refill the largest zone to normal pressure in ' + DI.fmt(az.limit) + ' min. ' + (isFinite(az.tAlone) ? 'This one does it in ' + DI.fmt(az.tAlone, 1) + ' min.' : 'This one cannot do it.') + ' [' + DI.refillRef(S.W, gov) + ']';
+};
+// Main drain follow-up (FP Lead, Fire Tutor). A test with a drop over 10 percent against a baseline is "investigated"
+// by a `drop-check` entry on that valve (the Check the valves upstream button), by a control valve on its supply path
+// reopened through the reopen gate, or by a later passing main drain test, at or after the test. PRACTICE scoring.
+DI.dropFollowed = function (S, act) {
+  const A = S.acts, i = A.indexOf(act), gates = new Set(DI.supplyValves(S.W, act.id).map((g) => g.id));
+  for (let k = i + 1; k < A.length; k++) { const q = A[k];
+    if ((q.kind === 'drop-check' && q.id === act.id) || (q.kind === 'open-valve' && gates.has(q.id)) || (q.kind === 'main-drain-test' && q.id === act.id && q.pass === true)) return true; }
+  return false;
+};
+// "Check the valves upstream": reports the opening of every control valve on the supply path of system valve `id`
+// and logs the check. Returns the text.
+DI.dropCheck = function (S, id) {
+  const v = S.W.parts.get(id); if (!v || !DI.SYSV[v.type]) return 'No system valve.';
+  const gs = DI.supplyValves(S.W, id), part = gs.filter((g) => g.p.open < 0.99);
+  const text = gs.length ? 'Valves upstream of ' + DI.sysName(S, id) + ': ' + gs.map((g) => 'control valve #' + g.id + ' ' + DI.fmt(g.p.open * 100) + '% open').join(', ') + '. ' + (part.length ? part.length + ' not fully open: open ' + (part.length > 1 ? 'them' : 'it') + ' fully, then run the main drain test again.' : 'All fully open. If the residual is still low, the cause is further upstream (the supply itself): find it and correct it.')
+    : 'No control valve found upstream of ' + DI.sysName(S, id) + '. If the residual is still low, the cause is in the supply itself.';
+  S.act('drop-check', id, { n: gs.length, part: part.length }); S.say(text, part.length ? 'warn' : '');
+  return text;
+};
+// The main drain lines of a drill report: the skipped test, the baseline, the hint and the one scored error.
+// r = the drill's recovery score (or null), id = its zone.
+DI.drillDrainLines = function (S, r, id) {
+  const out = [], t0 = S.drill.t0, st13 = r && r.steps.find((q) => q.kind === 'open-valve'), st14 = r && r.steps.find((q) => q.kind === 'drain-test');
+  if (st13 && st14 && st13.done && !st13.na && !st14.done) out.push([false, DI.MDT_SKIPPED, true]);
+  for (const q of S.acts) { if (q.kind !== 'main-drain-test' || q.t < t0 || !S.W.parts.get(q.id)) continue;
+    const nm = DI.sysName(S, q.id);
+    if (!(q.base > 0)) { out.push([false, 'Main drain test on ' + nm + ': no earlier test to compare with, so record as baseline. ' + DI.MDT_BASELINE, true]); continue; }
+    if (!(q.drop > DI.MDT_DROP)) continue;
+    out.push(DI.dropFollowed(S, q) ? [false, 'Main drain test on ' + nm + ': ' + DI.mdtHint(q.drop) + ' Investigated.', true] : [false, DI.MDT_NOT_INVESTIGATED + ' (' + nm + '). ' + DI.mdtHint(q.drop), true]);
+  }
+  return out;
+};
+// The return-to-normal lines of a drill report (FP Lead): one informational line per error, clock and plain text, for
+// every step finished since the drill started and every step still pending. They never fail the drill, and no goal,
+// star or review finding reads them (not until the scoring has settled for a cycle).
+DI.drillReturnLines = function (S) {
+  const out = [], t0 = S.drill.t0, line = (e) => [false, DI.clock(e.t) + ' ' + DI.rtLine(e), true];
+  for (const q of S.acts) { if (q.kind !== 'return-normal' || q.t < t0 || !S.W.parts.get(q.id)) continue;
+    const nm = DI.sysName(S, q.id);
+    if (Array.isArray(q.errs)) { if (!q.errs.length) out.push([true, 'Return to normal, ' + nm + ': ' + DI.RT_CLEAN, true]); else { out.push([false, 'Return to normal, ' + nm + ': ' + q.errs.length + ' error(s)' + (q.aborted ? ', ended by the valve tripping' : ''), true]); for (const e of q.errs) out.push(line(e)); } }
+    else out.push([!(q.err > 0), 'Return to normal, ' + nm + ': ' + (q.err || 0) + ' error(s)', true]);       // an entry from before Cycle 7 carries only the count
+  }
+  for (const [id, s] of S.ss) if (s.ret && Array.isArray(s.rtErr) && s.rtErr.length) { out.push([false, 'Return to normal, ' + DI.sysName(S, id) + ': not finished, ' + s.rtErr.length + ' error(s) so far', true]); for (const e of s.rtErr) out.push(line(e)); }
+  return out;
+};
 DI.drillRecovery = function (S, what) {
   const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), r = a ? DI.recoveryScore(S, a.id, S.drill.t0) : null; if (!r) return [];
-  const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase()), tier = DI.recoveryTier(r), T = DI.RECOVERY_TIERS, L = DI.refillLimit(S.W);
+  const inf = S.sysd.info.get(a.id), miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase()), tier = DI.recoveryTier(r), T = DI.RECOVERY_TIERS, L = DI.refillLimit(S.W, inf);
   const ws = r.waterStopped === null ? 'Water not stopped: the control valve is not closed' : 'Water stopped ' + Math.round(r.waterStopped) + ' s after the alarm';
   const out = [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
-    [tier > 0, 'Recovery rating: ' + tier + ' of 3 stars. ' + ws + ' (3 stars at ' + T[0].s + ' s or less, 2 at ' + T[1].s + ' s or less; any complete in-order recovery is 1; ASSUMED, informational). ' +
-      (r.opTime === null ? 'Recovery not finished.' : 'Operator steps took ' + Math.round(r.opTime) + ' s' + (r.inOrder ? '.' : ', out of order.')), true]];
-  // the main drain test of step 14: a 10 percent drop does not fail the step, it asks for a follow-up
-  const mdt = S.acts.find((q) => q.kind === 'main-drain-test' && q.id === a.id && q.t >= r.t0 && q.pass === false);
-  if (mdt && (r.steps.find((st) => st.kind === 'drain-test') || {}).done) out.push([false, 'Main drain test: ' + DI.MDT_FOLLOW, true]);
-  if (r.air && S.sysd.info.has(a.id)) out.push([r.refill <= L, DI.refillLine(r.refill, DI.airSizing(S, a.id), L) + ' [' + DI.refillRef(S.W, S.sysd.info.get(a.id)) + ']', true]);
+    [tier > 0, 'Recovery rating: ' + tier + ' of 3 stars. ' + ws + ' (3 stars at ' + T[0].s + ' s or less, 2 at ' + T[1].s + ' s or less; any complete in-order recovery is 1; ASSUMED, informational).', true],
+    [false, DI.RECOVERY_TIP, true],
+    // two time lines, never one sum: the operator's own steps, and the main drain test of step 14
+    [false, r.opTime === null ? 'Recovery not finished.' : 'Operator steps took: ' + Math.round(r.opTime) + ' s' + (r.inOrder ? '' : ' (out of order)'), true]];
+  if (r.mdtTime > 0) out.push([false, 'Main drain test took: ' + Math.round(r.mdtTime) + ' s', true]);
+  out.push(...DI.drillDrainLines(S, r, a.id));
+  // two gallon lines, never a total
+  for (const t of DI.galLines(S)) out.push([false, t, true]);
+  if (r.air && inf) out.push([r.refill <= L, DI.refillLine(r.refill, DI.airSizing(S, a.id), L, DI.refillSeq(S.W)) + ' [' + DI.refillRef(S.W, inf) + ']', true]);
+  if (inf) { const note = DI.sharedNote(S, a.id); if (note) out.push([false, note, true]); }
   if (r.time !== null) out.push([false, 'Total recovery ' + DI.dur(r.time) + (r.refill > r.time / 2 ? ', mostly the compressor' : ''), true]);
   for (const z of S.acts) if (z.kind === 'zone-filled' && z.why === 'low-air' && z.t >= S.drill.t0) if (S.W.parts.get(z.id)) out.push([false, 'Water-filled zone: ' + DI.sysName(S, z.id) + ' filled because P was left latched (unattended low-air failure), no discharge', true]);
+  out.push(...DI.drillReturnLines(S));
   return out;
 };
 

@@ -35,7 +35,7 @@ DI.panelHolds = (trim, alive, wired) => ({ sol: !!alive, pull: !!alive, mrzL: !!
 // ---------- rows and columns
 DI.CE_COLS = ['Input', 'Tag', 'SignalClass', 'PanelAnnunciation', 'SS_Transmit', 'LocalNAC', 'Solenoid', 'HVAC_Hook', 'EPO_Hook'];
 // key = the row, sig = its own signal in DI.inClass terms, in = the input vector the row stands for.
-// Vector fields: alert, action, fire1, fire2, manual, mrz, p, lowAir, highAir, waterflow, tamper, supplyAir,
+// Vector fields: alert, action, fire1, fire2, manual, mrz, p, lowAir, highAir, avcTamper, waterflow, tamper, supplyAir,
 // power ('AC' | 'Battery' | 'Dead'), plus acFail, lowBatt, chgFail, lostComm naming the power rows and dactChan (one
 // of the two DACT channels down; a signal on the DACT path only).
 DI.CE_ROWS = [
@@ -53,6 +53,7 @@ DI.CE_ROWS = [
   { key: 'tamper', sig: 'tamper', label: 'Control valve tamper', tag: '[CODE]', in: { tamper: true } },
   { key: 'lowAir', sig: 'lowAir', label: 'Low air (never a release input)', tag: '[CODE]', in: { lowAir: true } },
   { key: 'highAir', sig: 'highAir', label: 'High air (never a release input)', tag: '[CODE]', in: { highAir: true } },
+  { key: 'avcTamper', sig: 'avcTamper', label: 'AVC bypass open, tamper switch (optional)', tag: DI.AVC_TAMPER_TAG, in: { avcTamper: true } },
   { key: 'supplyAir', sig: 'supplyAir', label: 'Loss of supply air (compressor / N2 source)', tag: '[PRACTICE]', in: { supplyAir: true } },
   { key: 'acFail', sig: 'acFail', label: 'Panel AC failure (on battery)', tag: '[CODE]; delay [OWNER/AHJ]', in: { power: 'Battery', acFail: true } },
   { key: 'lowBatt', sig: 'lowBatt', label: 'Panel low battery', tag: '[OWNER/listing], ASSUMED', in: { lowBatt: true } },
@@ -62,9 +63,11 @@ DI.CE_ROWS = [
 ];
 DI.CE_LEGEND = ['[CODE] a code requirement', '[OWNER] an owner, insurer or AHJ election', '[PRACTICE] industry or maker practice', 'NEEDS PE REVIEW an engineer-of-record choice', 'ASSUMED a value the Leads did not fix'];
 DI.CE_LIVE = 'ACTIVE NOW';
-DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, door release, the control of the compressor, notification circuits, the battery standby calculation (the panel and plan review carry it), a disconnected battery (a trouble in the signal schedule, PRACTICE) and the live state of the DACT queue (the annunciator shows it). Dry and wet valves have no release logic and no matrix.';
+DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, door release, the control of the compressor, notification circuits, the battery standby calculation and the charger rating (the panel and plan review carry them), a disconnected battery (a trouble in the signal schedule, PRACTICE) and the live state of the DACT queue, restorals included (the annunciator and the log show it). Dry and wet valves have no release logic and no matrix.';
 // FA Lead, word for word: the matrix stays design intent, and this note says what an outage does to it.
-DI.CE_DACT_NOTE = 'With both DACT channels failed, signals are not transmitted until a channel restores. Panel shows comm-failure trouble. See Cycle 6 Q2.';
+// Cycle 7: the first two sentences are the Lead's; the rest states the restore order of C7-1 (alarm, supervisory,
+// trouble, then OPEN as the unelected class, then restorals) and the one case that still loses a live alarm.
+DI.CE_DACT_NOTE = 'With both DACT channels failed, signals are not transmitted until a channel restores. Panel shows comm-failure trouble. On restore a signal that is still active is always re-sent, with its original event time: alarm, supervisory, trouble, then a class not elected (OPEN), then restorals. A panel that dies with signals queued sends none of them (hazard case). See Cycle 6 Q2 and Cycle 7 C7-1.';
 
 // ---------- one input vector in, one result out
 // Returns { D, P, mrz, open, sol, signals, ss, class, annunciated, transmit, nac, fd, hvac, epo, panelDelay, ssDelay, lost }.
@@ -93,6 +96,7 @@ DI.ceEval = function (W, v, vec, sigKey) {
   if (x.waterflow || rs.open) put('waterflow');                       // the valve opens, water enters the pipe, the pressure switch reports it
   if (x.lowAir && !rs.open) put('lowAir');                            // air signals belong to a set valve
   if (x.highAir && !rs.open) put('highAir');
+  if (x.avcTamper && v.p.avcTamper === 1 && !rs.open) put('avcTamper');      // only where the optional switch is fitted on this zone
   if (x.tamper) { const g = DI.ctrlValve(W, v.id); if (g) put('tamper', { wired: !!W.panelOf(g.id) }); }
   if (x.supplyAir) put('supplyAir');
   if (wired) {
@@ -127,7 +131,7 @@ DI.ceKeyOf = function (S, id, o) {
   // raises its local-only signal, but it is no input here, so it must not mark a row active.
   const inZone = (d) => { const r = W.roomAt[W.k(d.x, d.y)]; return !!r && inf.rooms.has(r) && !!pn && W.panelOf(d.id) === pn; };
   if (part.id === id) {
-    const m = { la: 'lowAir', ha: 'highAir', sa: 'supplyAir', wf: 'waterflow', pl: 'pLatch', rl: 'release', im: 'impair' }[k.slice(0, 2)];
+    const m = { la: 'lowAir', ha: 'highAir', av: 'avcTamper', sa: 'supplyAir', wf: 'waterflow', pl: 'pLatch', rl: 'release', im: 'impair' }[k.slice(0, 2)];
     return m || (k.startsWith('ms') ? (DI.relState(W, v).mrz ? 'mrz' : 'manual') : null);
   }
   if (part.type === 'vesda' && k[0] === 'v') return inZone(part) ? DI.ASD_STAGES[+k.slice(k.indexOf('.') + 1) - 1][0] : null;
@@ -150,10 +154,14 @@ DI.ceMatrix = function (S, id) {
   const W = S.W, v = W.parts.get(id); if (!v || v.type !== 'prev' || !S.sysd.info.has(id)) return null;
   const R = (DI.setJuris(W), DI.ref72(W)), ed72 = DI.ed72(W), el = v.p.trim !== 'el-pn', type = DI.stationType(W, v), pn = W.panelOf(id), gate = DI.ctrlValve(W, id);
   const hv = DI.hvacHook(W), epo = DI.epoHook(W), cpk = DI.commPath(W), path = DI.COMM_PATH[cpk], acMin = Math.round(DI.acDelay(W) / 60) + ' min', cmT = DI.delayText(DI.commDelay(W));
+  const vea = DI.isVea(W), anyTamper = [...W.parts.values()].some((p) => (p.type === 'prev' || p.type === 'dryv') && p.p.avcTamper === 1);
   // matrix keys active on this zone now. A stage the detector has passed is not active, except Fire 1: D is a level check.
   const keys = new Set(); for (const o of S.sig.values()) { const k = DI.ceKeyOf(S, id, o); if (k && (!o.sup || k === 'fire1')) keys.add(k); }
   const off = (r) => (r.key === 'mrz' && type !== 'MANUAL RELEASE' ? (el ? 'not on this site: bypass OFF' : 'not on this site: electric / pneumatic trim (the bypass applies to electric / electric only)')
     : r.key === 'manual' && type !== 'DETECTION' ? 'not on this site: bypass ON, the station is typed MANUAL RELEASE' : r.key === 'tamper' && !gate ? 'not on this site: no control valve upstream'
+    : r.key === 'avcTamper' && v.p.avcTamper !== 1 ? (anyTamper ? 'not fitted on this zone (optional; ' + DI.AVC_TAMPER_TAG + ')' : 'not fitted on this site (optional; ' + DI.AVC_TAMPER_TAG + ')')
+    // a Fire 1-only detector model (VEA) has no Alert, Action or Fire 2 stage: those rows are not available, never on
+    : vea && (r.key === 'alert' || r.key === 'action') ? 'not available: ' + DI.VEA_NA + ' (' + DI.ASD_MODELS.VEA.label + ' is Fire 1 only)' : vea && r.in.fire2 ? 'not available (this detector model has no Fire 2)'
     : r.key === 'dactChan' && cpk !== 'dact' ? 'not on this site: path is ' + (cpk === 'ip' ? 'IP' : path.short) : '');
   // SS_Transmit: what reaches the supervising station, and whether the fire department is dispatched (the signal
   // schedule, DI.SIG_FD). e = the row's whole result: on a release row it is Fire 1 and waterflow that dispatch, the
@@ -191,10 +199,11 @@ DI.ceMatrix = function (S, id) {
     'NFPA 72 edition: ' + ed72 + ' (site setting, separate from NFPA 13: adoption is by the AHJ and can differ, PRACTICE. Auto follows the NFPA 13 edition).',
     DI.CE_DACT_NOTE,
   ];
+  if (vea) notes.splice(notes.length - 1, 0, 'Detector model: ' + DI.ASD_MODELS.VEA.label + ', Fire 1 only (' + DI.veaFire1(W) + ' %/ft). Alert, Action and Fire 2 are ' + DI.VEA_NA + ': those rows are not available, and a Fire 2 HVAC hook can never trip.');
   const imp = DI.impairments(S).filter((q) => q.id === id).map((q) => q.text);
   return { id, name: DI.sysName(S, id), trim: v.p.trim, trimName: DI.trimOf(v).name, bypass: type === 'MANUAL RELEASE', wired: !!pn,
     head: ['Trim: ' + DI.trimOf(v).name, 'Manual Release zone bypass (9(c)): ' + (type === 'MANUAL RELEASE' ? 'ON' : W.cfg && W.cfg.manualReleaseBypassP ? 'ON for the site, not on this trim' : 'OFF'),
-      'HVAC hook: ' + (hv === 'none' ? 'none' : 'on ' + DI.HVAC_HOOKS[hv]), 'EPO hook: ' + (epo ? 'ON (waterflow only)' : 'OFF'), 'Releasing panel: ' + (pn ? '#' + pn.id + (pn.p.alive === false ? ' (DEAD)' : '') : 'NOT WIRED')],
+      'HVAC hook: ' + (hv === 'none' ? 'none' : hv === 'fire2' && vea ? 'on Fire 2: not available (this detector model has no Fire 2)' : 'on ' + DI.HVAC_HOOKS[hv]), 'EPO hook: ' + (epo ? 'ON (waterflow only)' : 'OFF'), 'Releasing panel: ' + (pn ? '#' + pn.id + (pn.p.alive === false ? ' (DEAD)' : '') : 'NOT WIRED')],
     hooks: { hvac: hv, epo }, cols: DI.CE_COLS.slice(), rows, notes, liveLabel: DI.CE_LIVE, legend: DI.CE_LEGEND.slice(), excluded: DI.CE_EXCLUDED, imp };
 };
 
@@ -212,6 +221,7 @@ DI.standbyNotes = function (W) {
   return ['Required battery = (standby load x standby hours + alarm load x alarm time) x a sizing factor. The factor follows the NFPA 72 edition, never the NFPA 13 edition: x1.20 in 2019, x1.25 in 2022 and 2025 [CODE]. In force here: NFPA 72-' + ed + ', x' + f.toFixed(2) + ' (' + R.battFactor + '; capacity ' + R.battStby + ', where adopted, AHJ to confirm).',
     'Generator-backed panel: batteries for ' + DI.GEN_BATT_H + ' h and the generator covers 24 h. 2025 only (' + DI.REF72[2025].battGen + '); optional, default battery only; ignored under 2019 and 2022. NEEDS PE REVIEW. ' + (DI.panelGen(W) ? 'ON for this site.' : W.cfg && W.cfg.panelGen === true ? 'Set for this site, and ignored: NFPA 72-' + ed + ' is in force.' : 'OFF for this site.'),
     'Charger [CODE]: keeps the battery fully charged and recharges it within ' + DI.RECHARGE_H + ' h after one full discharge (' + R.chgRecharge + '); the panel detects a charger failure and it is a trouble (' + R.chgFail + '). Listed or component-recognized rechargeable batteries: ' + R.battListed + '. The rule about restoring a failed charger before half the battery is used is for supervising-station equipment only and is not modelled.',
+    'Charger rating (ASSUMED listing values, not code): a charger restores amperes x ' + DI.RECHARGE_H + ' h of battery (no taper, no efficiency loss). Plan review fails a battery larger than its charger can restore in ' + DI.RECHARGE_H + ' h: a bigger battery needs a bigger charger, the ' + DI.RECHARGE_H + ' h never stretches. "Matched to the battery" (the default) raises no finding.',
     'NOT FOUND in any edition: a low-battery voltage, battery-disconnect supervision, a charger ampere rating. The low-battery trouble is the listing value, ' + DI.LOWBATT_V + ' V on a 24 V system (ASSUMED, PRACTICE); a disconnected battery is modelled as a trouble (PRACTICE, not code).',
     'The FM row (90 h + 10 min) is an owner / insurer election of its own, never automatic with insurer = FM: the default ' + DI.PANEL_LOADS.ah + ' Ah battery does not meet it. The THIN screen (margin under ' + DI.STBY_THIN * 100 + ' %) is PRACTICE, NEEDS PE REVIEW. Panel loads (' + DI.PANEL_LOADS.iStby + ' A standby, ' + DI.PANEL_LOADS.iAlarm + ' A alarm) are ASSUMED listing values.'];
 };
@@ -230,6 +240,8 @@ DI.SCHED_NOTE = 'Alert, Action and a latched P never call the fire department by
 DI.signalSchedule = function (W) {
   return Object.keys(DI.SIG_META).map((key) => {
     const m = DI.SIG_META[key], cls = DI.inClass(W, key), pre = key === 'alert' || key === 'action';
+    // a Fire 1-only detector model (VEA): Alert, Action and Fire 2 are not published for it and never occur
+    if (DI.isVea(W) && (pre || key === 'fire2')) return { key, label: m.label, class: cls, ss: DI.VEA_NA, fd: DI.VEA_NA, tag: m.tag, na: true };
     return { key, label: m.label, class: cls, ss: pre ? 'OWNER; supervisory is the usual default' : cls === 'OPEN' ? 'Not elected' : 'Yes',
       fd: DI.SIG_FD[key] ? 'Yes' : pre || key === 'pLatch' ? 'No' : 'No; station only', tag: m.tag };
   });

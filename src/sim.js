@@ -80,6 +80,10 @@ DI.Sim = class {
     return !!(p && p.p.emerg) && this.genT >= 0 && this.t - this.genT > 10;
   }
   step(dt) {
+    // Return to normal after an air test: while a system drain is letting air out of a zone in that step, a long step
+    // is split into pieces of DI.RET_SUBSTEP, so the result does not depend on the time step (SIMPLIFICATION, PRACTICE).
+    // The split sits before the clock advances and before the coarse return; the pieces add up to dt exactly.
+    if (dt > DI.RET_SUBSTEP + 1e-9 && DI.retDrainOpen(this)) { const n = Math.ceil(dt / DI.RET_SUBSTEP - 1e-9), t1 = this.t + dt; for (let i = 0; i < n; i++) this.step(dt / n); this.t = t1; return; }
     const W = this.W;
     if (this.ver !== W.ver) this.sync();
     this.t += dt;
@@ -290,10 +294,12 @@ DI.Sim.prototype.warp = function (sec, maxMs, until) {
 // came in on test. Without it every delay clock (AC failure, a failed DACT channel) would restart at a load.
 // dq, dqSeq: the DACT queue, so a save made in an outage keeps its attempts, states and original event times. A save
 // from before Cycle 6 has none: the entries are made again from `sig` on the first step, RETRY or HELD by age.
+// Cycle 7 entry fields travel with the entries: kind ('rest' = a restoral), rs (a restoral is owed), rsT (when it
+// was sent). A Cycle 6 save has none of them: no restoral is queued for an entry that was already SENT.
 // genT: when utility power was lost. The standby generator (generator-backed pumps, and the generator-backed panel,
 // which it carries for DI.GEN_RUN_S) is timed from it, so it has to survive a load: the settle would otherwise leave
 // it near 0 and a save made late in the game would find the generator's 24 h already spent.
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW', 'floodK', 'rtErr', 'rtEv', 'rtDr'];
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW', 'floodK', 'rtErr', 'rtEv', 'rtDr', 'rtMin', 'rtP0'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
   return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null,
@@ -323,6 +329,9 @@ DI.Sim.prototype.restore = function (j) {
   // The outage clock, after the settle (which restarts it near 0). A save from before it was stored, made with the
   // power off, reads as an outage that began just long enough ago for the generator to be running.
   this.genT = this.W.power ? -1 : j.genT >= 0 ? j.genT : Math.max(0, this.t - DI.GEN_START_S - 1);
+  // what the load itself changed (World.fromJSON), said once: after the settle, which clears the log
+  // (loadNotes keeps them for the front end, which clears its log panel when a scenario opens: DI.startScenario)
+  if (this.W.notes) { for (const t of this.W.notes) this.say(t, 'warn'); this.loadNotes = this.W.notes.slice(); delete this.W.notes; }
   if (j.sig) {
     this.sigSeen = new Map(j.sig);
     for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; o.had = !!q.had; } }

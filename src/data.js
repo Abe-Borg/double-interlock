@@ -31,22 +31,22 @@ DI.PARTS = {
     desc: 'Hose valves outside the pump house for acceptance and annual flow tests (churn, 100%, 150%).', props: { open: 0 } },
   wetv: { name: 'Wet Riser (Alarm Check)', cat: 'system', cost: 6500, ports: 2, key: '1',
     desc: 'Pipe is full of water all the time. Fastest, simplest, most reliable. Cannot freeze; one broken sprinkler = water now.',
-    props: { drain: 0, itc: 0 } },
+    props: { drain: 0, itc: 0, wfL: false } },      // wfL: the waterflow alarm is latched at the panel (cleared by a panel reset)
   dryv: { name: 'Dry Pipe Valve', cat: 'system', cost: 14500, ports: 2, key: '2',
     desc: 'Pipe holds air; a differential clapper holds water back. Sprinkler opens, air drops, valve trips. For spaces that freeze.',
-    props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1, avc: 1, avcBy: 0 } },     // avc: an air maintenance device (AVC) is fitted, 0 = compressor direct; avcBy: its bypass is open
+    props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1, avc: 1, avcBy: 0, avcTamper: 0, wfL: false } },     // avc: an air maintenance device (AVC) is fitted, 0 = compressor direct; avcBy: its bypass is open; avcTamper: an optional tamper switch on the bypass (PRACTICE)
   prev: { name: 'Preaction Valve', cat: 'system', cost: 24000, ports: 2, key: '3',
     desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
-    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, avc: 1, avcBy: 0, pull: false, sol: false, solOut: false, mrzL: false } },   // mrzL: Manual Release zone release latched; avc / avcBy: the AVC and its bypass (DI.avcOn)
+    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, avc: 1, avcBy: 0, avcTamper: 0, wfL: false, pull: false, sol: false, solOut: false, mrzL: false } },   // mrzL: Manual Release zone release latched; avc / avcBy / avcTamper: the AVC, its bypass and the optional bypass tamper switch; wfL: waterflow latched at the panel
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
-    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false, cutOut: 0 } },      // cutOut: psi, 0 = none; a sizing input only on a compressor direct to the system (DI.sizingP), and the drift target of an open AVC bypass
+    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false, cutOut: 0, maxPsi: 0, relief: 0 } },      // cutOut: psi, 0 = none; a sizing input only on a compressor direct to the system (DI.sizingP). maxPsi / relief: rated max discharge and relief setpoint, psi, 0 = not modeled / none: the ceiling of an open AVC bypass (DI.bypassTarget)
   n2: { name: 'Nitrogen Generator', cat: 'air', cost: 29000, ports: 0, key: 'N',
     desc: 'Membrane generator: 98%+ nitrogen as supervisory gas. Starves the oxygen corrosion that eats dry and preaction pipe.',
     props: { scfm: 2.5, on: false, runSec: 0, starts: 0, fault: false } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
     desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. Standby battery sized for the site’s standby basis.',
-    props: { silenced: false, chan: [1, 1], ah: 26, iStby: 0.5, iAlarm: 2, chgFail: false, battDisc: false } },     // chan: the two DACT channels, 1 = up (DACT path only). ah: battery pick; iStby / iAlarm: loads in A (ASSUMED, listing values); chgFail / battDisc: sandbox faults
+    props: { silenced: false, chan: [1, 1], ah: 26, iStby: 0.5, iAlarm: 2, chgFail: false, battDisc: false, chgA: 0 } },     // chan: the two DACT channels, 1 = up (DACT path only). ah: battery pick; iStby / iAlarm: loads in A (ASSUMED, listing values); chgFail / battDisc: sandbox faults; chgA: charger amperes, 0 = matched to the battery (ASSUMED)
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
     desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
@@ -67,12 +67,13 @@ DI.LISTED = { smoke: { min: 0.5, max: 4.0 } };
 // Recorded, not merged: the 2020 Honeywell VEP sheet (VESDA-E-VEP V.02, 04/20) prints the same metric ranges
 // with different imperial figures (0.0016 to 0.625 Alert / Action, 0.0031 to 0.625 Fire 1, 0.0063 to 6.25
 // Fire 2). The July 2025 UL 268 7th Ed. sheet governs for the US models.
-// Not in the table: FAAST and TITANUS (see README), and VEA, which is recorded here and not modelled:
-//   VESDA-E VEA, Enhanced Fire 1 = 1.23 %/ft (Xtralis Doc. 36348_03, primary). The Gamewell sheet prints 1.3: an OEM
-//   variant, kept as a note only. Discrete Fire 1 settings 0.5 / 1.23 / 2.5 %/ft; Alert and Action are not printed.
-//   It is not a model because the engine assumes four stages (DI.detThr, the level loop in DI.alarmStep): VEA would
-//   need stages marked unavailable and a Fire 2 value that the sheets pulled do not give. It waits for a datasheet
-//   pull of its Fire 2 behaviour (FA Lead). UL Product iQ stays "not checked".
+// Not in the table: FAAST and TITANUS (see README).
+// VEA (Cycle 7, FA Lead) is a Fire 1-only model: one stage, picked from three discrete settings.
+//   VESDA-E VEA, Fire 1 = 0.5 (High) / 1.23 (Enhanced) / 2.5 (Standard) %/ft (Xtralis Doc. 36348_03) [HB]. The Gamewell
+//   sheet 9021-61037 prints Enhanced as 1.3 (4.0 %/m): a source mismatch, shown as a note beside the pick, never a
+//   fourth choice and never merged with 1.23. Alert, Action and Fire 2 values are NOT FOUND: the model has no such
+//   stage and nothing is printed for them. Default pick 1.23 where NFPA 76 is not adopted, 0.5 where it is
+//   (DI.veaDefault; "telecom space" is mapped to that site flag: PRACTICE). UL Product iQ stays "not checked".
 DI.ASD_SRC = '[HB, datasheet; UL Product iQ not checked]';
 DI.ASD_STAGES = [['alert', 'Alert'], ['action', 'Action'], ['fire1', 'Fire 1'], ['fire2', 'Fire 2']];
 DI.ASD_MODELS = {
@@ -80,15 +81,24 @@ DI.ASD_MODELS = {
     range: { alert: [0.0015, 0.614], action: [0.0015, 0.614], fire1: [0.0030, 0.614], fire2: [0.0061, 6.575] } },
   VEU: { label: 'VESDA-E VEU', models: 'VEU-A00-UL, VEU-A10-UL', doc: 'Xtralis Doc. 36107_05, Part AD36107-005, November 2024, p. 2', src: 'xtralis.com/file/12017',
     range: { alert: [0.0003, 0.614], action: [0.0003, 0.614], fire1: [0.0003, 0.614], fire2: [0.0003, 6.575] } },
+  VEA: { label: 'VESDA-E VEA', models: '', doc: 'Xtralis Doc. 36348_03', src: '', fire1Only: true, pick: [0.5, 1.23, 2.5], pickName: ['High', 'Enhanced', 'Standard'], primary: 1.23, oem: 1.3,
+    oemNote: 'Source mismatch: the Gamewell sheet 9021-61037 prints the Enhanced setting as 1.3 %/ft (4.0 %/m). The Xtralis sheet (Doc. 36348_03) prints 1.23 and is the one used; 1.3 is not a setting here. [HB]',
+    range: {} },
 };
 DI.ASD_DEFAULT = 'VEP';
-// recorded, not modelled (shown in the manual; never offered as a model)
+// the source record of the VEA figures, kept for the manual's source note (the model itself is DI.ASD_MODELS.VEA)
 DI.ASD_RECORDED = { VEA: { label: 'VESDA-E VEA', doc: 'Xtralis Doc. 36348_03', fire1: [0.5, 1.23, 2.5], primary: 1.23, oem: 1.3,
-  note: 'VESDA-E VEA, recorded and not modelled: Enhanced Fire 1 = 1.23 %/ft (Xtralis Doc. 36348_03, primary). The Gamewell sheet prints 1.3, an OEM variant, kept as a note only. Discrete Fire 1 settings 0.5 / 1.23 / 2.5 %/ft; Alert and Action are not printed and no Fire 2 value was pulled, so it cannot be a four-stage model yet.' } };
+  note: 'VESDA-E VEA source record: Fire 1 settings 0.5 (High) / 1.23 (Enhanced) / 2.5 (Standard) %/ft (Xtralis Doc. 36348_03, primary). The Gamewell sheet 9021-61037 prints Enhanced as 1.3 (4.0 %/m), a source mismatch kept as a note only. Alert, Action and Fire 2 values are not published in the sheets pulled, so the model is Fire 1 only.' } };
 // site setting W.cfg.asdModel: the key if it is in the table, else the default (an old save has no key)
 DI.asdModel = (W) => { const k = W && W.cfg ? W.cfg.asdModel : undefined; return typeof k === 'string' && Object.prototype.hasOwnProperty.call(DI.ASD_MODELS, k) ? k : DI.ASD_DEFAULT; };
-// the four [min, max] pairs of the site's model, in DI.detThr order
-DI.asdRange = (W) => { const r = DI.ASD_MODELS[DI.asdModel(W)].range; return DI.ASD_STAGES.map(([k]) => r[k]); };
+// the four [min, max] pairs of the site's model, in DI.detThr order (null = no listed range printed for that stage: VEA)
+DI.asdRange = (W) => { const r = DI.ASD_MODELS[DI.asdModel(W)].range; return DI.ASD_STAGES.map(([k]) => r[k] || null); };
+// VEA: a Fire 1-only detector. Its one threshold is W.cfg.detThr[2] where thresholds are stored, else the default pick.
+// A stored value that is not one of the three settings is kept as it is and fails plan review (never clamped).
+DI.isVea = (W) => DI.asdModel(W) === 'VEA';
+DI.veaDefault = (W) => (W && W.cfg && W.cfg.nfpa76Adopted ? 0.5 : DI.ASD_MODELS.VEA.primary);
+DI.veaFire1 = (W) => { const t = W && W.cfg ? W.cfg.detThr : null; return Array.isArray(t) && t.length === 4 && typeof t[2] === 'number' ? t[2] : DI.veaDefault(W); };
+DI.VEA_NA = 'not published for this model';
 
 // Site / project settings with a default (W.cfg, saved with the world). All ASSUMED and tunable.
 //   spotThr  spot detector alarm threshold, %/ft (example value)
@@ -96,7 +106,7 @@ DI.asdRange = (W) => { const r = DI.ASD_MODELS[DI.asdModel(W)].range; return DI.
 //   insurer  'none' | 'FM' (FM adds the 30 s delivery limit at any volume; NEEDS PE REVIEW)
 DI.CFG_DEFAULT = { spotThr: 1.3, fitPct: 5, trimGal: 2, insurer: 'none' };
 // Other settings read with a default when absent (an old save loads unchanged): dactHold (DI.dactHold, true), standby
-// (DI.standbyKey, 'nfpa5'), panelGen (DI.panelGen, false), refrigerated (DI.refrigerated, gas.js, false).
+// (DI.standbyKey, 'nfpa5'), panelGen (DI.panelGen, false), refillSeq (DI.refillSeq, gas.js, false).
 DI.cfgNum = (W, key, lo) => { const v = W && W.cfg ? W.cfg[key] : undefined; return typeof v === 'number' && isFinite(v) && v >= (lo || 0) ? v : DI.CFG_DEFAULT[key]; };
 DI.spotThr = (W) => { const v = DI.cfgNum(W, 'spotThr'); return v > 0 ? v : DI.CFG_DEFAULT.spotThr; };
 DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
@@ -105,7 +115,7 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // engineer elects it. A latched P is a release input whose class has not been elected: OPEN by default,
 // ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
 // Fixed classes, no setting (DI.SIG_FIXED): Fire 1, Fire 2, manual station, Manual Release zone, release circuit,
-// waterflow and a spot detector ALARM; low and high air, valve tamper and a contract impairment SUPV; panel AC, low
+// waterflow and a spot detector ALARM; low and high air, valve tamper, the optional AVC bypass tamper and a contract impairment SUPV; panel AC, low
 // battery, loss of communication, a failed DACT channel, a failed DACT transmission, a charger failure, a
 // disconnected battery and loss of supply air TRBL. Loss of supply air is TRBL
 // [PRACTICE] (FA Lead, 2026-11-10 3:01 PM PT): a compressor or N2 power or controller fault is equipment trouble,
@@ -115,7 +125,7 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // The registry is the whole list: every signal the game raises has a key here or in DI.SIG_CLASS. DI.inClass is
 // the one reader of a class. add(...) in DI.alarmStep takes the registry key, never a class, and the
 // cause-and-effect matrix and the signal schedule (cause.js) read the same keys.
-DI.SIG_FIXED = { fire1: 'ALARM', fire2: 'ALARM', manual: 'ALARM', mrz: 'ALARM', release: 'ALARM', waterflow: 'ALARM', lowAir: 'SUPV', highAir: 'SUPV', tamper: 'SUPV',
+DI.SIG_FIXED = { fire1: 'ALARM', fire2: 'ALARM', manual: 'ALARM', mrz: 'ALARM', release: 'ALARM', waterflow: 'ALARM', lowAir: 'SUPV', highAir: 'SUPV', tamper: 'SUPV', avcTamper: 'SUPV',
   supplyAir: 'TRBL', acFail: 'TRBL', lowBatt: 'TRBL', lostComm: 'TRBL', impair: 'SUPV', dactFail: 'TRBL', chgFail: 'TRBL', battDisc: 'TRBL',
   spot: 'ALARM', pumpRun: 'SUPV', pumpMode: 'SUPV', pumpPower: 'SUPV', pumpFail: 'TRBL', pumpFuel: 'SUPV', pumpBatt: 'TRBL', tankLow: 'SUPV', lowTemp: 'SUPV', dactChan: 'TRBL' };
 // Fire-department dispatch (FA Lead signal schedule). Alarm signals go to the fire department [CODE, section not
@@ -127,6 +137,7 @@ DI.SIG_CLASS = { alert: ['SUPV', 'ALARM'], action: ['SUPV', 'ALARM'], pLatch: ['
 DI.SIG_DEFAULT = { alert: 'SUPV', action: 'SUPV', pLatch: 'OPEN' };
 DI.sigClass = (W, key) => { const c = W && W.cfg && W.cfg.sigClass, v = c ? c[key] : undefined; return DI.SIG_CLASS[key].includes(v) ? v : DI.SIG_DEFAULT[key]; };
 DI.inClass = (W, key) => (Object.prototype.hasOwnProperty.call(DI.SIG_CLASS, key) ? DI.sigClass(W, key) : DI.SIG_FIXED[key]);
+DI.AVC_TAMPER_TAG = 'PRACTICE (no code requirement verified for the air bypass)';
 // The signal schedule (DI.signalSchedule, cause.js): label and tag of every registry key, in the FA Lead's table
 // order (the first thirteen), then the keys the Lead's table does not list. The tag is the Lead's wording where
 // the table has the row; the rest are marked as ours.
@@ -150,6 +161,7 @@ DI.inClass = (W, key) => (Object.prototype.hasOwnProperty.call(DI.SIG_CLASS, key
     spot: { label: 'Spot smoke detector', tag: ours },
     release: { label: 'Release circuit active (a panel output)', tag: ours },
     impair: { label: 'Impairment: Manual Release zone bypass (contract)', tag: ours },
+    avcTamper: { label: 'AVC bypass tamper switch (optional, per zone)', tag: DI.AVC_TAMPER_TAG + '; ' + stn },
     lostComm: { label: 'Loss of communication (panel dead, or a missed DACT test)', tag: ours },
     dactChan: { label: 'DACT channel failed', tag: ours },
     dactFail: { label: 'DACT transmission failed (after the maximum attempts)', tag: '[CODE: failure indication at the premises after the maximum attempts]' },
@@ -193,6 +205,15 @@ DI.standbyRow = (W) => DI.STANDBY.find((q) => q.key === DI.standbyKey(W));
 DI.STBY_FACTOR = { 2019: 1.20, 2022: 1.25, 2025: 1.25 };
 DI.STBY_THIN = 0.20;                      // PRACTICE screen, NEEDS PE REVIEW: a margin under 20 % is THIN
 DI.BATT_AH = [7, 12, 18, 26, 33, 55, 65, 100];        // ASSUMED battery picks, Ah. The pick is free (SIMPLIFICATION)
+// Charger (FA Lead, Cycle 7). No charger ampere rating is in NFPA 72 §10.6.10 in any edition: the picks are listing
+// values, ASSUMED. chgA = 0 is "matched to the battery" (ASSUMED): no charger finding, recharge at H / 48.
+// DI.chargerAh: the Ah a charger restores inside the 48 h recharge window = amperes x 48 (ASSUMED: no taper, no
+// efficiency loss). A battery above that is a review FAIL: the 48 h never stretches for a bigger battery.
+// Costs are ASSUMED and never read by a goal: the default panel (26 Ah, matched charger) costs what it always did.
+DI.CHG_A = [0, 1, 2, 3, 4, 6, 10];
+DI.BATT_COST_PER_AH = 12;
+DI.CHG_COST = { 0: 0, 1: 150, 2: 220, 3: 290, 4: 360, 6: 480, 10: 700 };
+DI.chargerAh = (panel) => { const a = panel && panel.p ? panel.p.chgA : 0; return a > 0 ? a * DI.RECHARGE_H : Infinity; };
 DI.PANEL_LOADS = { ah: 26, iStby: 0.5, iAlarm: 2 };   // ASSUMED defaults (listing values): battery Ah, standby A, alarm A
 // Generator-backed panel (site setting W.cfg.panelGen, optional, default battery only): batteries for 4 h and the
 // generator covers 24 h. 2025 only (NFPA 72-2025 10.6.7.3.1(2)); under 2019 / 2022 the setting is ignored with a note.
@@ -214,8 +235,12 @@ DI.standbyCalc = function (W, panel) {
 // Hours of standby the fitted battery gives in the game: the basis hours, less in proportion where the pick is
 // under the requirement. A larger battery is not credited with more hours (SIMPLIFICATION).
 DI.panelH = function (W, panel) { const c = DI.standbyCalc(W, panel); return c.h * Math.min(1, c.ah / c.req); };
-// Recharge [CODE NFPA 72 10.6.10.3.2]: within 48 h after one full discharge. The charge rate is capacity / 48.
+// Recharge [CODE NFPA 72 10.6.10.3.2, identical in 2019 / 2022 / 2025]: within 48 h after one full discharge. The charge
+// rate is capacity / 48, or slower where the fitted charger is too small for the battery (DI.chargeRate).
 DI.RECHARGE_H = 48;
+// hours of standby restored per hour on AC: the slower of H / 48 and what the charger's amperes give (chgA / ah x H).
+// A larger charger never charges faster than H / 48 (SIMPLIFICATION).
+DI.chargeRate = function (panel, H) { const q = (panel && panel.p) || {}, ah = q.ah > 0 ? q.ah : DI.PANEL_LOADS.ah; return q.chgA > 0 ? Math.min(H / DI.RECHARGE_H, q.chgA / ah * H) : H / DI.RECHARGE_H; };
 // Low battery: the code states no low-battery threshold (NOT FOUND in 2019, 2022 or 2025). It requires the voltage to be
 // monitored and a trouble on failure. The trouble here is the listing's low-voltage setpoint: 20.4 V on a 24 V system,
 // ASSUMED [PRACTICE]. Voltage is a straight line from the end of discharge (19.8 V) to float (27.0 V), both ASSUMED
@@ -272,10 +297,15 @@ DI.TRIMS = {
 };
 DI.P_MARGIN = 5;                    // ASSUMED: minimum psi between the low-air setpoint and P trip
 // AVC (air maintenance device) and its bypass. With the bypass open the AVC does not regulate and the zone drifts to
-// the source's own limit: the highest compressor cut-out on the zone, or this figure where none is set (ASSUMED).
+// what the compressor can deliver (DI.bypassTarget, FP Lead, Cycle 7): its cut-out where one is set, else its rated
+// max discharge or its relief setpoint, whichever is lower. Where the compressor is not modeled (no maxPsi) the
+// figure below is used: 60 psi, ASSUMED. Never the zone's 40 psi test pressure.
 DI.AVC_BYPASS_PSI = 60;
 DI.avcFitted = (v) => v.p.avc !== 0;                       // an old save has no prop: fitted
 DI.avcBypassed = (v) => DI.avcFitted(v) && !!v.p.avcBy;   // fitted, and not regulating
+// the optional tamper switch on the bypass reads "open": fitted (v.p.avcTamper === 1) and the bypass is open
+DI.bypassTamper = (v) => v.p.avcTamper === 1 && DI.avcBypassed(v);
+DI.AVC_NOTE = 'The bypass is normally closed. Leaving it open is a classic way to get high air or over-pressure.';
 DI.trimOf = (v) => DI.TRIMS[v.p.trim] || DI.TRIMS['el-el'];
 DI.loadTrim = function (v, key) {   // load a maker preset onto a preaction valve
   const t = DI.TRIMS[key]; if (!t) return;
@@ -291,6 +321,8 @@ DI.PUMP_GPM = [500, 750, 1000, 1500, 2000, 2500];
 DI.PUMP_PSI = [80, 100, 125, 150, 175];
 DI.COMP_SCFM = [2, 5, 10, 20];
 DI.COMP_CUTOUT = [0, 45, 50, 55, 60];   // ASSUMED choices for the compressor cut-out pressure, psi (0 = none). Sizing input only: see DI.sizingP
+DI.COMP_MAXPSI = [0, 60, 100, 125, 175];   // ASSUMED choices for the rated max discharge, psi (0 = not modeled: DI.AVC_BYPASS_PSI is used)
+DI.COMP_RELIEF = [0, 60, 75, 100, 125];    // ASSUMED choices for the relief valve setpoint, psi (0 = none)
 DI.N2_SCFM = [1, 2.5, 5];
 DI.SPK_K = 5.6;                     // standard spray sprinkler K-factor (gpm/psi^0.5)
 DI.SPK_COST = 140;                  // $ per sprinkler tile (head + branch pipe is priced separately)
@@ -308,6 +340,8 @@ DI.partCost = (type, props) => {
   if (type === 'comp') return 1800 + (props ? props.scfm : 5) * 320;
   if (type === 'n2') return 19000 + (props ? props.scfm : 2.5) * 4000;
   if (type === 'dryv') return d.cost + (props && props.qod ? 2800 : 0);
+  // panel: the battery by Ah against the default pick, plus the charger by its amperes (both ASSUMED)
+  if (type === 'panel' && props) return d.cost + Math.round(((props.ah > 0 ? props.ah : DI.PANEL_LOADS.ah) - DI.PANEL_LOADS.ah) * DI.BATT_COST_PER_AH) + (DI.CHG_COST[props.chgA] || 0);
   return d.cost;
 };
 

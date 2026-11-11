@@ -99,6 +99,10 @@ DI.ROOMS = {
   elec: { name: 'Electrical / UPS Room', haz: 'OH1', val: 4e5, wetDmg: 0.9, smokeDmg: 0.6, cond: true, col: '#2f2a3d', ceil: 14, spotRelease: true },
   batt: { name: 'Battery Room', haz: 'OH2', val: 3e5, wetDmg: 0.5, smokeDmg: 0.5, cond: true, col: '#3a2a2f', ceil: 14 },
   dock: { name: 'Loading Dock', haz: 'OH2', val: 1.5e4, wetDmg: 0.1, smokeDmg: 0.05, cond: false, col: '#2e3328', ceil: 18 },
+  // Freezer / cold dock (Cycle 7): the dock row with a contents value of its own (ASSUMED). The room property `below5`
+  // ("maintained below 5 F", default false) makes it a freezer for the 60 min refill limit (DI.refillLimit); with it
+  // off it is a cold dock and gets the normal 30 min. Its temperature is not held at 5 F (SIMPLIFICATION).
+  cold: { name: 'Freezer / Cold Dock', haz: 'OH2', val: 2.5e4, wetDmg: 0.1, smokeDmg: 0.05, cond: false, col: '#24343d', ceil: 18 },
   stor: { name: 'Storage / Staging', haz: 'OH2', val: 3e4, wetDmg: 0.3, smokeDmg: 0.1, cond: true, col: '#33301f', ceil: 16 },
   riser: { name: 'Riser Room', haz: 'OH1', val: 2e3, wetDmg: 0.02, smokeDmg: 0.02, cond: true, col: '#22303a', ceil: 12 },
   pump: { name: 'Fire Pump House', haz: 'OH1', val: 4e3, wetDmg: 0.02, smokeDmg: 0.02, cond: true, col: '#242f2c', ceil: 14 },
