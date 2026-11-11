@@ -34,13 +34,20 @@ DI.asdFindings = function (W) {
 };
 // VEA (Fire 1 only): the stored Fire 1 must be one of the three listed settings. Anything else is a finding (stage 2).
 DI.veaFindings = function (W) {
-  const M = DI.ASD_MODELS.VEA, f1 = DI.veaFire1(W);
-  return M.pick.includes(f1) ? [] : [{ stage: 2, text: 'Aspirating Fire 1 threshold ' + f1 + ' %/ft is not a listed VEA setting: the ' + M.label + ' offers ' + M.pick.map((x, i) => x + ' (' + M.pickName[i] + ')').join(', ') + ' %/ft only ' + DI.ASD_SRC + '. Pick one of the three.', ref: M.doc + '; NFPA 72 Ch. 14 (ITM)' }];
+  const M = DI.ASD_MODELS.VEA, f1 = DI.veaFire1(W), ref = M.doc + '; NFPA 72 Ch. 14 (ITM)', only = ' %/ft is not a listed VEA setting: the ' + M.label + ' offers ' + M.pick.map((x, i) => x + ' (' + M.pickName[i] + ')').join(', ') + ' %/ft only ' + DI.ASD_SRC + '. Pick one of the three.';
+  const out = M.pick.includes(f1) ? [] : [{ stage: 2, text: 'Aspirating Fire 1 threshold ' + f1 + only, ref }];
+  // a room's own pick (Cycle 8) is checked the same way; the picker offers only the three
+  for (const room of (W && W.rooms) || []) if (typeof room.f1 === 'number' && !M.pick.includes(room.f1)) out.push({ stage: 2, text: 'Aspirating Fire 1 threshold ' + room.f1 + ' %/ft in ' + room.name + only.replace(' %/ft is not', ' is not'), ref });
+  return out;
 };
 // The thresholds the detection loop reads, in stage order. VEA has one stage: Fire 1. Its Alert, Action and Fire 2 do
 // not exist (Infinity: never reached), so D is still the same level check, lvl >= DI.FIRE1.
-DI.asdThr = (W) => (DI.isVea(W) ? [Infinity, Infinity, DI.veaFire1(W), Infinity] : DI.detThr(W));
-// NFPA 76, where the site has adopted it: plain ceilings. Alert at 0.2 %/ft or less, and the alarm ceiling of
+// Cycle 8 (FA Lead): a VEA detector reads the Fire 1 of the room it sits in (DI.veaFire1At: the room's own pick, else
+// the site pick, else 0.5 in an NFPA 76 telecom room and 1.23 anywhere else). The room argument is optional and is
+// read for VEA only: every other model, and the spot detector, read the site thresholds in every room.
+DI.asdThr = (W, room) => (DI.isVea(W) ? [Infinity, Infinity, DI.veaFire1At(W, room), Infinity] : DI.detThr(W));
+// NFPA 76, by room since Cycle 8 (FA Lead): it applies in a telecom room (DI.n76Applies; the site flag is only the
+// default for telecom rooms) that holds an aspirating detector. Plain ceilings. Alert at 0.2 %/ft or less, and the alarm ceiling of
 // 1.0 %/ft applied to Fire 1, the first alarm stage (FA Lead). The 1.0 %/ft figure is VERIFIED (NFPA 76-2024
 // §8.5.3.1.2.5, Alarm condition, air-sampling: "3.2 percent per meter (1.0 percent per foot) obscuration (effective
 // sensitivity at each port)"; the same figure in 76-2020). Mapping that Alarm condition to Fire 1, on a VEA detector
@@ -48,31 +55,46 @@ DI.asdThr = (W) => (DI.isVea(W) ? [Infinity, Infinity, DI.veaFire1(W), Infinity]
 // nothing is written: the ceilings only check. A VEA detector has no Alert stage, so only the Fire 1 ceiling applies.
 DI.N76_REF = 'NFPA 76-2024 §8.5.3.1.2.5';
 DI.N76_TAG = 'The 1.0 %/ft figure is VERIFIED (' + DI.N76_REF + '); applying it to Fire 1 is PRACTICE, NEEDS PE REVIEW.';
-// The NFPA 76 findings for this site: [{ code, sev, text }], empty unless NFPA 76 is adopted and a ceiling is exceeded. Pure.
-DI.n76Flags = function (W) {
-  if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return [];
-  const P = DI.PRESETS.nfpa76, vea = DI.isVea(W), t = DI.asdThr(W), out = [];
-  if (!vea && t[0] > P.alert) out.push({ code: 'N76_ALERT_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Alert must be ' + P.alert + ' %/ft or less (it is ' + t[0] + ').' });
-  if (t[2] > P.alarm) out.push({ code: 'N76_ALARM_OVER', sev: 'fail', text: 'NFPA 76 is adopted on this site: Fire 1, the first alarm stage, must be ' + P.alarm.toFixed(1) + ' %/ft or less (it is ' + t[2] + '). ' + DI.N76_TAG });
+// The rooms the NFPA 76 ceilings are checked in: a telecom room where NFPA 76 applies and an aspirating detector sits.
+DI.n76Rooms = function (W) {
+  if (!W || !Array.isArray(W.rooms) || !W.parts) return [];
+  const has = new Set(); for (const p of W.parts.values()) if (p.type === 'vesda') has.add(W.roomAt[W.k(p.x, p.y)]);
+  return W.rooms.filter((room) => DI.n76Applies(W, room) && has.has(room.id));
+};
+DI.N76_NO_ROOM = 'no NFPA 76 room: NFPA 76 applies by room, in a Telecom / MMR room that holds an aspirating detector, and this site has none';
+// The NFPA 76 findings: [{ code, sev, text, room, x, y }], one per ceiling exceeded per NFPA 76 room, each naming the
+// room. Empty where no room is an NFPA 76 room. Alert is the site Alert (VEP and VEU only: VEA has no Alert stage);
+// Fire 1 is the room's own on a VEA detector (DI.asdThr(W, room)). Pure. `only` = one room (the inspector).
+DI.n76Flags = function (W, only) {
+  const P = DI.PRESETS.nfpa76, vea = DI.isVea(W), out = [];
+  for (const room of DI.n76Rooms(W)) { if (only && only !== room) continue;
+    const t = DI.asdThr(W, room), at = { room: room.id, x: room.x, y: room.y };
+    if (!vea && t[0] > P.alert) out.push(Object.assign({ code: 'N76_ALERT_OVER', sev: 'fail', text: 'NFPA 76 applies in ' + room.name + ': Alert must be ' + P.alert + ' %/ft or less (it is ' + t[0] + ').' }, at));
+    if (t[2] > P.alarm) out.push(Object.assign({ code: 'N76_ALARM_OVER', sev: 'fail', text: 'NFPA 76 applies in ' + room.name + ': Fire 1, the first alarm stage, must be ' + P.alarm.toFixed(1) + ' %/ft or less (it is ' + t[2] + '). ' + DI.N76_TAG }, at)); }
   return out;
 };
 // The note shown where NFPA 76 is adopted: where the listing of the site's detector model is the tighter limit on
 // Fire 1 (VEP, VEU) the NFPA 76 alarm ceiling can never bind; on a VEA detector the ceiling does bind, for two of
 // its three settings. '' where NFPA 76 is not adopted.
 DI.n76Note = function (W) {
-  if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return '';
-  const P = DI.PRESETS.nfpa76, M = DI.ASD_MODELS[DI.asdModel(W)];
-  if (M.fire1Only) return 'NFPA 76 ceiling: Fire 1 ' + P.alarm.toFixed(1) + ' %/ft. On the ' + M.label + ' the ceiling binds: ' + M.pick.filter((x) => x > P.alarm).join(' and ') + ' %/ft are above it, ' + M.pick.filter((x) => x <= P.alarm).join(' and ') + ' %/ft meets it (the listing is not tighter than ' + P.alarm.toFixed(1) + '). This model has no Alert stage. ' + DI.N76_TAG;
+  const rooms = DI.n76Rooms(W);
+  // the site flag is on and nothing is checked: say so (a site with the flag off and no NFPA 76 room has no note)
+  if (!rooms.length) return W && W.cfg && W.cfg.nfpa76Adopted ? 'NFPA 76 is set as the default for telecom rooms on this site, and there is ' + DI.N76_NO_ROOM + '. No room is checked.' : '';
+  const P = DI.PRESETS.nfpa76, M = DI.ASD_MODELS[DI.asdModel(W)], where = 'NFPA 76 rooms: ' + rooms.map((r) => r.name).join(', ') + '. ';
+  if (M.fire1Only) return where + 'NFPA 76 ceiling: Fire 1 ' + P.alarm.toFixed(1) + ' %/ft. On the ' + M.label + ' the ceiling binds: ' + M.pick.filter((x) => x > P.alarm).join(' and ') + ' %/ft are above it, ' + M.pick.filter((x) => x <= P.alarm).join(' and ') + ' %/ft meets it (the listing is not tighter than ' + P.alarm.toFixed(1) + '). This model has no Alert stage. ' + DI.N76_TAG;
   const max = M.range.fire1[1];
-  return max < P.alarm ? 'NFPA 76 ceilings: Alert ' + P.alert + ', Fire 1 ' + P.alarm.toFixed(1) + ' %/ft. The ' + M.label + ' listing (Fire 1 maximum ' + DI.asdFmt(max) + ') is tighter, so the listing binds first. [PRACTICE, NEEDS PE REVIEW].' : '';
+  return max < P.alarm ? where + 'NFPA 76 ceilings: Alert ' + P.alert + ', Fire 1 ' + P.alarm.toFixed(1) + ' %/ft. The ' + M.label + ' listing (Fire 1 maximum ' + DI.asdFmt(max) + ') is tighter, so the listing binds first. [PRACTICE, NEEDS PE REVIEW].' : '';
 };
 // "Check against NFPA 76": reads the site thresholds against the two ceilings and says so. It writes nothing.
 DI.n76Check = function (W) {
-  if (!(W && W.cfg && W.cfg.nfpa76Adopted)) return 'NFPA 76 is not adopted on this site.';
-  const P = DI.PRESETS.nfpa76, t = DI.asdThr(W), yn = (ok) => (ok ? 'yes' : 'no');
-  if (DI.isVea(W)) return 'NFPA 76 check: Fire 1 ' + t[2] + ' (meets ' + P.alarm.toFixed(1) + ': ' + yn(t[2] <= P.alarm) + '). This model has no Alert stage.';
-  return 'NFPA 76 check: Alert ' + t[0] + ' (meets ' + P.alert + ': ' + yn(t[0] <= P.alert) + '), Fire 1 ' + t[2] + ' (meets ' + P.alarm.toFixed(1) + ': ' + yn(t[2] <= P.alarm) + ').';
+  const rooms = DI.n76Rooms(W); if (!rooms.length) return 'NFPA 76 check: ' + DI.N76_NO_ROOM + '.';
+  const P = DI.PRESETS.nfpa76, yn = (ok) => (ok ? 'yes' : 'no'), vea = DI.isVea(W);
+  return rooms.map((room) => { const t = DI.asdThr(W, room);
+    return vea ? 'NFPA 76 check, ' + room.name + ': Fire 1 ' + t[2] + ' (meets ' + P.alarm.toFixed(1) + ': ' + yn(t[2] <= P.alarm) + '). This model has no Alert stage.'
+      : 'NFPA 76 check, ' + room.name + ': Alert ' + t[0] + ' (meets ' + P.alert + ': ' + yn(t[0] <= P.alert) + '), Fire 1 ' + t[2] + ' (meets ' + P.alarm.toFixed(1) + ': ' + yn(t[2] <= P.alarm) + ').'; }).join(' ');
 };
+DI.N76_MIGRATED = 'NFPA 76 now applies by room. This save has no telecom room, so no room is checked until you set one (room type Telecom / MMR, or NFPA 76 applies here).';
+DI.N76_PICK_KEPT = 'The VEA Fire 1 default of 0.5 %/ft that the site NFPA 76 setting gave is now stored as the site pick, so every room keeps the sensitivity it had.';
 DI.PANEL_DEAD_MSG = 'The panel is dead: no power, no display. Nothing can be reset or silenced. Restore power, or use the mechanical emergency release at the trim.';
 DI.FD_TRAVEL = 420;                       // seconds from dispatch to water on the FDC
 
@@ -139,7 +161,7 @@ DI.alarmStep = function (S, dt) {
   for (const p of W.parts.values()) {
     if (p.type !== 'vesda' && p.type !== 'smoke') continue;
     // VEA is a Fire 1-only detector (DI.asdThr): its one threshold is read as stage 3, and it never reports another stage
-    const vea = p.type === 'vesda' && DI.isVea(W), room = W.room(p.x, p.y), L = room ? S.smoke[room.id] : 0, T = p.type === 'vesda' ? DI.asdThr(W) : [DI.spotThr(W)];
+    const vea = p.type === 'vesda' && DI.isVea(W), room = W.room(p.x, p.y), L = room ? S.smoke[room.id] : 0, T = p.type === 'vesda' ? (vea ? DI.asdThr(W, room) : DI.asdThr(W)) : [DI.spotThr(W)];
     let lvl = 0; if (vea) lvl = L >= T[DI.FIRE1 - 1] ? DI.FIRE1 : 0; else while (lvl < T.length && L >= T[lvl]) lvl++;
     p.p.obs = L; if (lvl > p.p.lvl) p.p.lvl = lvl; p.p.live = lvl;
     const dpn = W.panelOf(p.id); if (dpn && !dpn.p.alive) p.p.lvl = lvl;      // a dead panel holds no latches: only a live reading counts when it comes back
@@ -168,8 +190,9 @@ DI.alarmStep = function (S, dt) {
   for (const [id, s] of S.ss) {
     const v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v) continue;
     const nm = DI.sysName(S, id);
-    // Waterflow latches at the panel until a panel reset (C7-1c: listed-panel PRACTICE, NEEDS PE REVIEW; no general
-    // latch rule is on disk). v.p.wfL is the latch: set while the switch reads flow on a live panel, cleared by
+    // Waterflow latches at the panel until a panel reset (C7-1c; the label is DI.ref72(W).latch, FA Lead, Cycle 8:
+    // PRACTICE with code support, NEEDS PE REVIEW; §23.8.2.2 is indirect support and never quoted as a latch rule, and
+    // no NFPA 72 sentence says fire alarms latch until manual reset). v.p.wfL is the latch: set while the switch reads flow on a live panel, cleared by
     // DI.panelReset once the flow has stopped. A dead or missing panel holds no latch. A flow raised on test does not
     // latch (SIMPLIFICATION: the test ends with its flow). hold = the signal is kept by the latch alone: the flow is
     // over, so it starts no new dispatch. A new flow on a zone that is still latched is judged on its own (on test or
@@ -368,8 +391,17 @@ DI.dactLabel = function (e) {
   return e.state === 'RETRY' ? 'RETRYING ' + e.n + ' of ' + DI.DACT_TRIES : e.state === 'HELD' ? 'HELD, COMM FAILURE' : e.state === 'SENT' ? 'SENT ' + DI.hhmm(e.sentT) + ' (late)' + (e.rsT >= 0 ? ', RESTORAL ' + DI.hhmm(e.rsT) : '')
     : e.why === 'dead' ? DI.DACT_HAZARD_LABEL : 'NOT SENT (hold off)';
 };
-// The restoral line of the log. Reporting restorals is VERIFIED for NFPA 72-2022 and 2025; the 2019 text is not on disk.
-DI.restoralTag = (W) => (DI.ed72(W) === 2019 ? '  [VERIFY: ' + DI.ref72(W).restoral + ']' : '');
+// Reporting restorals is [CODE] in 2019, 2022 and 2025 (DI.ref72(W).restoral, §26.2.5.1; the FA Lead holds the 2019
+// text since Cycle 8), so the log line carries no tag in any edition. Kept as a no-op for old callers.
+DI.restoralTag = () => '';
+// The footnote of the supervising station queue (FA Lead, Cycle 8): the three station-side duties, [CODE] in 2019, 2022
+// and 2025 alike, with the sections of the NFPA 72 edition in force. On a Canadian row CA-2019 is only the NFPA 72-2019
+// label: CAN/ULC-S561 is not held, and the rule is never presented as Canadian code.
+DI.CA_STATION_NOTE = 'CA-2019 is the NFPA 72-2019 label only. CAN/ULC-S561 is not held (on hold). The station rule is not shown as Canadian code.';
+DI.stationNote = function (W) {
+  const R = DI.ref72(W), ca = DI.setJuris(W).country !== 'US';
+  return 'Restorals are reported to the station (' + R.restoral + '). An alarm sent late still dispatches: a received fire alarm is retransmitted at once (' + R.retransmit + '). Verification (' + R.stnVerify + ') is not a late-signal or no-dispatch path. [CODE]' + (ca ? ' ' + DI.CA_STATION_NOTE : '');
+};
 DI.DQ_KEEP = 40;                         // finished entries kept for the station queue display
 DI.dactStep = function (S) {
   const W = S.W, Q = S.dq; if (S.settling) return false;
@@ -405,7 +437,7 @@ DI.dactStep = function (S) {
   const rank = (e) => (e.comm ? 4 : e.cls === 'ALARM' ? 0 : e.cls === 'SUPV' ? 1 : e.cls === 'TRBL' ? 2 : 3);
   // phase: unsent originals, then restorals, then the communications-failure entry
   const phase = (e) => (e.comm ? 2 : e.rs || e.kind === 'rest' ? 1 : 0), ev = (e) => 'event ' + DI.hhmm(e.t0) + (e.tClr !== undefined ? ', cleared ' + DI.hhmm(e.tClr) + ' before sending' : '');
-  const restored = (e, t) => { S.say('RESTORAL ' + DI.hhmm(t) + ' (late): ' + e.text + ' (event ' + DI.hhmm(e.t0) + ', restored ' + DI.hhmm(e.tClr) + ')' + DI.restoralTag(W), ''); S.act('restoral', e.panel, { key: e.key, cls: e.cls }); };
+  const restored = (e, t) => { S.say('RESTORAL ' + DI.hhmm(t) + ' (late): ' + e.text + ' (event ' + DI.hhmm(e.t0) + ', restored ' + DI.hhmm(e.tClr) + ')', ''); S.act('restoral', e.panel, { key: e.key, cls: e.cls }); };
   for (const pn of panels) {
     const q = pn.p; if (q.alive === false || isDown(pn)) continue;
     if (q.dnT >= 0) {            // a channel is back
@@ -438,7 +470,7 @@ DI.dactStep = function (S) {
   for (let i = 0; done > DI.DQ_KEEP && i < Q.length;) { if (due(Q[i]) || live.has(Q[i])) i++; else { Q.splice(i, 1); done--; } }
   return late;
 };
-// Restorals (FA Lead, Cycle 7; DI.ref72(W).restoral: VERIFIED for NFPA 72-2022 and 2025, VERIFY for 2019). Called by
+// Restorals (FA Lead, Cycle 7; DI.ref72(W).restoral: [CODE], VERIFIED for NFPA 72-2019, 2022 and 2025). Called by
 // DI.alarmStep with the signals of the tick before. A signal the supervising station has (it was transmitted, or its
 // queue entry was sent) that is no longer a condition at the panel is reported as restored:
 //   the path is up    one log line and one `restoral` entry in the operator log
@@ -458,7 +490,7 @@ DI.restoralStep = function (S, old) {
       continue;
     }
     if (o.q && o.q.state === 'SENT') o.q.rsT = S.t;
-    S.say('RESTORAL to station: ' + o.text + ' (event ' + DI.hhmm(o.t0) + ', restored ' + DI.hhmm(S.t) + ')' + DI.restoralTag(W), '');
+    S.say('RESTORAL to station: ' + o.text + ' (event ' + DI.hhmm(o.t0) + ', restored ' + DI.hhmm(S.t) + ')', '');
     S.act('restoral', pn.id, { key, cls: o.type });
   }
 };
@@ -558,14 +590,21 @@ DI.RECOVERY = [['silence', 'Silence the panel'], ['find-head', 'Find the operate
 // Step 14, the main drain test, exists in the scored drill incident only (Fire Tutor): DI.recoveryScore appends it
 // when it is called with `from` (the drill call). Practice and every other call keep the thirteen steps, and the
 // main drain test is a tip there. Running it after a control valve is reopened is company practice; the code-required
-// test at that point is the valve status test (DI.REF25). DI.MDT_LINE is the Tutor's instruction, word for word.
-DI.RECOVERY_DRAIN = ['drain-test', 'Main drain test: record static and residual pressure, then close the drain slowly'];
-DI.MDT_LINE = 'Main drain test: with the control valve fully open, open the main drain fully, record static and residual pressure, then close it slowly. A big drop compared to the last test means a valve may be partly closed.';
-// The follow-up when the residual is more than 10 percent under the last test (Fire Tutor, word for word; X = the
-// drop, one decimal). The 10 percent is shown to the player as a common rule of thumb; the result's own reference
-// line keeps the NFPA 25 cite (DI.REF25.passRule, VERIFIED, FP Lead).
+// test at that point is the valve status test (DI.REF25). Cycle 8 (Fire Tutor correction): the step 14 label is the
+// Tutor's, word for word. DI.MDT_LINE keeps the Tutor's procedure sentence, starts with "Company practice." and ends
+// with a sentence that is ASSUMED wording (Tutor to confirm).
+DI.RECOVERY_DRAIN = ['drain-test', 'Main drain test (company practice). NFPA 25 requires a valve status test after a control valve is reopened (2023 13.3.3.4).'];
+DI.MDT_LINE = 'Company practice. Main drain test: with the control valve fully open, open the main drain fully, record static and residual pressure, then close it slowly. A 10 percent drop in full flow pressure against the last test means find the cause (NFPA 25).';
+// The follow-up when the full flow pressure is more than 10 percent under the last test (Fire Tutor, word for word;
+// X = the drop, one decimal). NFPA 25: a 10 percent drop means find the cause and correct it if necessary. It is a
+// trigger to investigate, not an automatic fail: the result reads INVESTIGATE (res.invest), and its reference line
+// is DI.REF25.passLine (VERIFIED, FP Lead; the sentence is the Tutor's). The trigger is strictly more than 10 percent.
 DI.MDT_DROP = 0.10;
-DI.mdtHint = (drop) => 'Residual pressure is ' + (drop * 100).toFixed(1) + '% lower than the last test. A valve may be partly closed. Check that the zone control valve and the supply valves upstream (riser control valve, PIV, backflow preventer valves) are fully open, then test again.';
+// strictly more than 10 percent (a reading of exactly 10.0 percent is not over it; the 1e-9 is rounding room only)
+DI.mdtBig = (drop) => drop > DI.MDT_DROP + 1e-9;
+DI.mdtHint = (drop) => 'Full flow pressure is ' + (drop * 100).toFixed(1) + ' percent lower than the last test. NFPA 25 says find the cause. A partly closed valve is the usual one. Check the zone control valve and the supply valves upstream (riser control valve, PIV, backflow preventer valves).';
+// the badge of a test result: PASS, FAIL, or INVESTIGATE for a main drain test with a drop over 10 percent
+DI.resBadge = (r) => (r && r.invest ? 'INVESTIGATE' : r && r.pass ? 'PASS' : 'FAIL');
 DI.MDT_SKIPPED = 'Main drain test not done. After any control valve is closed and reopened, run one to prove the valve is fully open.';
 DI.MDT_BASELINE = 'Recorded as the baseline for the next test.';
 DI.MDT_NOT_INVESTIGATED = '10% drop not investigated';
@@ -575,6 +614,9 @@ DI.MDT_NOT_INVESTIGATED = '10% drop not investigated';
 // operator's own step time, the main drain test time and the air refill are reported beside it and never rated.
 DI.RECOVERY_TIERS = [{ stars: 3, s: 60 }, { stars: 2, s: 150 }];
 DI.RECOVERY_TIP = 'In a real building, getting to the riser takes minutes. Know where each zone’s control valve is before an event.';
+// Fire Tutor (Cycle 8): added under the tip when water was stopped in under DI.RISER_NOTE_S seconds (30 s, the Tutor's figure)
+DI.RISER_NOTE_S = 30;
+DI.RISER_NOTE = 'Your time assumes you were standing at the riser.';
 // 0 = not complete or not in order; else 3 or 2 stars by "water stopped", else 1. Its own report line.
 DI.recoveryTier = function (r) {
   if (!r || !r.complete || !r.inOrder) return 0;

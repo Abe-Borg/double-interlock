@@ -57,9 +57,12 @@ function readRows(file, opts) {
   if (bad.length) throw new Error('Truth-table fixture is not self-consistent: ' + bad.join('; '));
   return rows;
 }
-function runRow(DI, row) {
-  const on = (k) => row[k] === '1';
-  const W = new DI.World(40, 14); W.addRoom('hall', 20, 1, 12, 9);
+// opts (optional, the runner's own rig, never the fixture): room = the room type of the rig (default a data hall),
+// cfg = site settings to add. On a Fire 1-only detector model (VEA) the smoke level is taken from the Fire 1 that
+// detector reads in its room, so the same rows can be played with a telecom room at each VEA setting.
+function runRow(DI, row, opts) {
+  const on = (k) => row[k] === '1', o = opts || {};
+  const W = new DI.World(40, 14); W.addRoom(o.room || 'hall', 20, 1, 12, 9); if (o.cfg) Object.assign(W.cfg, JSON.parse(JSON.stringify(o.cfg)));
   W.addPart('city', 1, 6, 0, { stat: 90, resid: 70, flow: 1500 }); for (let x = 2; x <= 13; x++) W.setPipe(x, 6, 6, 0);
   const v = W.addPart('prev', 14, 6, 0); for (let x = 15; x <= 19; x++) W.setPipe(x, 6, 6, 0);
   for (let y = 2; y <= 9; y++) W.setPipe(20, y, 4, 0, true);
@@ -85,7 +88,8 @@ function runRow(DI, row) {
   const type = DI.stationType(W, v);
   if (on('Manual') && type !== 'DETECTION') throw new Error(row.Row + ': Manual = 1 needs a station typed DETECTION, but this row types it ' + type + '. The rig has one station.');
   if ((on('Manual') && type === 'DETECTION') || (on('ManualReleaseZone') && type === 'MANUAL RELEASE')) stn.p.on = true;
-  const thr = DI.detThr(W), lvl = on('Fire2') ? thr[3] * 2 : on('Fire1') ? (thr[2] + thr[3]) / 2 : 0;
+  const vea = DI.isVea(W), f1 = vea ? DI.asdThr(W, W.rooms[0])[2] : 0;
+  const thr = DI.detThr(W), lvl = vea ? (on('Fire2') ? f1 * 4 : on('Fire1') ? f1 * 1.5 : 0) : on('Fire2') ? thr[3] * 2 : on('Fire1') ? (thr[2] + thr[3]) / 2 : 0;
   for (let t = 0; t < 60; t += 0.25) { S.smoke[1] = lvl; S.step(0.25); }
   // what the supervising station has now: monitored, transmitted, and not a stage the detector has passed
   const station = () => { const seen = [...S.sig.values()].filter((o) => o.mon && o.tx && !o.sup), has = (type2) => seen.some((o) => o.type === type2);
@@ -102,4 +106,4 @@ function runRow(DI, row) {
   const sigs = [...S.sig.values()].filter((o) => !o.sup).map((o) => ({ key: o.key, ce: DI.ceKeyOf ? DI.ceKeyOf(S, v.id, o) : null, class: o.type, dark: !!o.dark, mon: !!o.mon, tx: !!o.tx, lost: !!o.lost }));
   return { row: row.Row, trim: row.Trim, notes: row.Notes, want: row, got, diff, ok: diff.length === 0, mrzL: !!v.p.mrzL, pull: !!v.p.pull, pre, skipped, sigs, rig: { W, S, v, pn } };
 }
-module.exports = { FILE, FIXTURE_SHA16, CHECKED, sha16, checkFixture, rowProblems, readRows, runRow, run: (DI, file, opts) => readRows(file, opts).map((r) => runRow(DI, r)) };
+module.exports = { FILE, FIXTURE_SHA16, CHECKED, sha16, checkFixture, rowProblems, readRows, runRow, run: (DI, file, opts) => readRows(file, opts).map((r) => runRow(DI, r, opts && opts.rig)) };

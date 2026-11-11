@@ -15,7 +15,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   (2025: it also covers a shared N2 source),
 //   refillCold / refillN2Cold = 60 min for refrigerated spaces maintained below 5 F (VERIFIED: 2019 / 2022 §8.2.6.3.3
 //   and §8.2.6.8.5; 2025 §8.2.7.4 for every source). Applied per zone (DI.refillLimit(W, inf), Cycle 7): only where
-//   every room the zone protects is a Freezer / Cold Dock room with "maintained below 5 F" set. The old site flag
+//   every room the zone protects is a Refrigerated Space room with "held below 5 F" set. The old site flag
 //   W.cfg.refrigerated is gone (World.fromJSON deletes it).
 // 2025: held. 2022 keeps the 2019 numbering (the renumber to §8.2.4 is 2025). Verified for 2022 (FP Lead, raw
 // 13-FP006-2022-8.2.3.txt and earlier pulls): §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6, Table 8.2.3.6.1, §8.2.3.7,
@@ -47,9 +47,24 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   battListed  listed or component-recognized rechargeable batteries (2022 / 2025; 2019 has no such rule)
 //   battGen     the generator-backed case: batteries for 4 h (2025 only)
 //   restoral    restoral signals are reported to the supervising station for every alarm, supervisory and trouble
-//               signal (VERIFIED for 2022 and 2025, §26.2.5.1; the 2019 text is NOT ON DISK: the key says VERIFY)
+//               signal (§26.2.5.1 [CODE]: VERIFIED in 2019, 2022 and 2025; FA Lead, Cycle 8, LiNK 72-138 holds the
+//               2019 text and it matches 2022 / 2025 for this duty)
 //   retransmit  a fire alarm signal received by the supervising station is retransmitted to the communications
-//               center at once, so an alarm that is sent late still dispatches (VERIFIED 2022 / 2025 §26.2.1.2; 2019 VERIFY)
+//               center at once, so an alarm that is sent late still dispatches (§26.2.1.2 [CODE], VERIFIED in all three)
+//   stnVerify   alarm signal verification by the station (§26.2.2 [CODE], all three editions): it is not a
+//               late-signal or no-dispatch path
+//   latch       the label of the waterflow latch (FA Lead, Cycle 8): PRACTICE with code support, NEEDS PE REVIEW.
+//               §10.11.6 (same number and sentence in all three editions: "Resetting of alarm signals shall comply
+//               with 23.8.2.2") and §10.18.1.2 (2019: §10.18.1.1.2, same words) are [CODE]; §23.8.2.2 is about combined
+//               subsystems sharing equipment, its wording differs by edition, and it is INDIRECT support: never
+//               quoted as a latch rule. No NFPA 72 sentence says fire alarms latch until manual reset; §10.14.2
+//               covers supervisory latching only.
+//   nacVd       the basis of the NAC voltage-drop check (DI.nacCalc, data.js): [CODE] in 2025 only (§18.3.7.1 to
+//               §18.3.7.6). 2022 §18.3.7 ends at §18.3.7.2 and 2019 has no §18.3.7: the same method is PRACTICE there.
+//   nacDoc      NAC voltage-drop calculations are a required documentation item (§7.2.1(8) [CODE], all three editions)
+// Not in the table: §26.2.1.4 (subsequent signals) exists in 2022 and 2025 only, is not modelled in any edition and is
+// never shown on a 2019 build. CA-2019 is the NFPA 72-2019 label only: CAN/ULC-S561 is not held (on hold), so the
+// station rule is never shown as Canadian code.
 // Hold and send after a communications failure has no key: it is NOT FOUND in all three editions (PRACTICE).
 (function () {
   const r72 = (yr, o) => { const p = 'NFPA 72-' + yr + ' '; return { ipFail: p + o.ip, multiFail: p + o.multi, dactTest: p + o.test,
@@ -59,20 +74,27 @@ var DI = globalThis.DI || (globalThis.DI = {});
     priority: p + '§10.7.2, §10.7.7', silenceTrouble: p + '§10.15.9.1; §10.15.10.7 for a Ch. 26 premises unit',
     battStby: p + '§10.6.7.2', battFactor: p + o.factor, chgRecharge: p + '§10.6.10.3.2', chgFail: p + '§10.6.10.6.1 to .2',
     battListed: o.listed ? p + o.listed : 'no such rule in ' + yr + ' (2022 / 2025: §10.6.10.1.3)', battGen: o.gen ? p + o.gen : 'not in ' + yr + ' (2025: §10.6.7.3.1(2))',
-    restoral: o.rest ? p + o.rest : p + '§26.2.5 (VERIFY: the ' + yr + ' text is not on disk; 2022 / 2025: §26.2.5.1)', retransmit: o.retx ? p + o.retx : p + '§26.2.1 (VERIFY: the ' + yr + ' text is not on disk; 2022 / 2025: §26.2.1.2)' }; };
+    restoral: p + o.rest, retransmit: p + o.retx, stnVerify: p + '§26.2.2',
+    latch: 'PRACTICE with code support (' + p + '§10.11.6, §23.8.2.2 [indirect], ' + o.reset + '), NEEDS PE REVIEW',
+    nacVd: o.nac ? p + o.nac + ' [CODE]' : 'PRACTICE: ' + p + o.nacNone + '; the method here is the 2025 §18.3.7.1 to .6 method', nacDoc: p + '§7.2.1(8)' }; };
   DI.REF72 = {
-    2019: r72(2019, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.1.5(6)', missed: '§26.6.4.2.2(H)', chan: '§26.6.4.1.4(B)(3)', tries: '§26.6.4.1.3(B)-(D)', factor: '§10.6.7.2.1.1' }),
-    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', rest: '§26.2.5.1', retx: '§26.2.1.2' }),
+    2019: r72(2019, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.1.5(6)', missed: '§26.6.4.2.2(H)', chan: '§26.6.4.1.4(B)(3)', tries: '§26.6.4.1.3(B)-(D)', factor: '§10.6.7.2.1.1', rest: '§26.2.5.1', retx: '§26.2.1.2', reset: '§10.18.1.1.2', nacNone: 'has no §18.3.7' }),
+    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', rest: '§26.2.5.1', retx: '§26.2.1.2', reset: '§10.18.1.2', nacNone: '§18.3.7 ends at §18.3.7.2' }),
     2025: r72(2025, { ip: '§26.6.3.3.2(2) (annunciated per §10.15)', multi: '§26.6.3.4(1) (a 6 h supervision interval, not a failure-annunciation time: ASSUMED 6 h; 2025 annunciation time not found)',
-      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', gen: '§10.6.7.3.1(2)', rest: '§26.2.5.1', retx: '§26.2.1.2' }),
+      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', gen: '§10.6.7.3.1(2)', rest: '§26.2.5.1', retx: '§26.2.1.2', reset: '§10.18.1.2', nac: '§18.3.7.1 to §18.3.7.6' }),
   };
-  // NFPA 25 references (FP Lead, 2026-11-10), text only. VERIFIED: the annual main drain test and its 10 percent
-  // rule; the valve status test after a control valve is closed and reopened (2023 / 2026 body; 2020 table row only).
+  // NFPA 25 references (FP Lead, 2026-11-10; Fire Tutor correction, Cycle 8), text only. VERIFIED: the annual main drain
+  // test and its 10 percent text (a drop of 10 percent in full flow pressure against the acceptance test or earlier
+  // tests means find the cause and correct it if necessary: a trigger to investigate, not an automatic fail); the valve
+  // status test after a control valve is closed and reopened (2023 / 2026 body; 2020 table row only).
   // Running the main drain test at that point is company practice, and the static-then-full-flow procedure is
   // ASSUMED teaching practice. The code term is "full flow pressure", not "residual".
   DI.REF25 = {
     mainDrain: 'NFPA 25-2023 §13.2.2 (2020 §13.2.3), annual main drain test; 10 percent reduction in full flow pressure vs the original acceptance or previous tests: find the cause, correct if necessary (§13.2.2.3; 2020 §13.2.3.3) [VERIFIED]',
     passRule: 'NFPA 25-2023 §13.2.2.3 (2020 §13.2.3.3)',
+    // Fire Tutor (Cycle 8), word for word after the cite: a trigger to investigate, not an automatic fail
+    passLine: 'NFPA 25-2023 §13.2.2.3 (2020 §13.2.3.3): a 10 percent drop in full flow pressure vs the acceptance test or earlier tests means find the cause and correct it if necessary.',
+    valveStatusShort: 'NFPA 25-2023 §13.3.3.4',
     valveStatus: 'valve status test after a control valve is closed and reopened (NFPA 25-2023 / 2026 §13.3.3.4; 2020 Table 13.1.1.2 row) [VERIFIED duty and timing]',
     practice: 'running the main drain test at that point is company practice; the static-then-full-flow procedure is ASSUMED teaching practice',
   };
@@ -99,7 +121,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     'US-2019': { country: 'US', nfpa13: 2019, nfpa72: 2019, area: 52000, nfpa76Adopted: false, ref: r19, delta: d19 },
     // Canada: data row only, never offered in the menu. Same references as US-2019. Its NFPA 72 setting is ignored (auto).
     'CA-2019': { country: 'CA', nfpa13: 2019, nfpa72: 2019, area: 52000, nfpa76Adopted: false, hidden: true, ref: r19, delta: d19,
-      note: 'ASSUMED: NFPA 13-2019 via NBC 2020 / BCBC 2024; verify before ship' },
+      note: 'ASSUMED: NFPA 13-2019 via NBC 2020 / BCBC 2024; verify before ship. ' + 'CA-2019 is the NFPA 72-2019 label only. CAN/ULC-S561 is not held (on hold). The station rule is not shown as Canadian code.' },
   };
 })();
 // Water-delivery numbers (same values in 2019 and 2025, FP Lead). Volumes are full zone volume in gallons

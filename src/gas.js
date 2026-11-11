@@ -62,13 +62,14 @@ DI.airTarget = (S, id, v) => { const q = S.procs.find((x) => x.kind === 'leak' &
 // s.fill1 = the first measured fill of the zone (commissioning), set once; s.fillTime = the last refill.
 // Refrigerated spaces maintained below 5 F get 60 min instead of 30 (FP Lead, VERIFIED: 2019 / 2022 §8.2.6.3.3 and
 // §8.2.6.8.5, 2025 §8.2.7.4). Per zone since Cycle 7 (FP Lead): a zone gets 60 min only when EVERY room it protects is
-// a Freezer / Cold Dock room (DI.ROOMS.cold) with "maintained below 5 F" set (room.below5, default false). That
-// "every room" reading is ASSUMED, NEEDS PE REVIEW. A cold dock that is not held below 5 F, a zone that also covers
+// a Refrigerated Space room (DI.ROOMS.cold) with "held below 5 F" set (room.below5, default false). That
+// "every room" reading is ASSUMED, NEEDS PE REVIEW. A cooled dock that is not held below 5 F (35 F, say), a zone that also covers
 // any other room, and every zone of a typical data center get 30 min. The old site-wide flag is gone (World.fromJSON deletes it from a save).
 DI.REFILL_LIMIT = 1800;                 // seconds, all editions
 DI.REFILL_LIMIT_COLD = 3600;            // seconds, a zone wholly in freezer rooms held below 5 F, all editions
 DI.COLD_MIGRATED = 'The site refrigerated setting was replaced by a per-zone setting (freezer room held below 5 F). Your zones now use 30 min until a freezer room is set.';
-DI.COLD_NOTE = 'The 60 min refill limit applies per zone, only in a freezer room held below 5 F. Set it on the room.';
+DI.COLD_NOTE = 'The 60 min refill limit applies per zone, only in a freezer room held below 5 F. A cooled dock at 35 F does not qualify. Set it on the room.';
+DI.COLD_OLD_NAME = 'Freezer / Cold Dock';     // the Cycle 7 name of the room type: a save that still carries it as a room name is renamed on load
 // inf = the zone (S.sysd.info.get(id)). With no zone given the answer is the general 30 min.
 DI.refrigerated = function (W, inf) {
   if (!W || !inf || !inf.rooms || !inf.rooms.size) return false;
@@ -114,16 +115,12 @@ DI.refillState = function (S, id) {
   return { t, first: s.fill1 > 0 ? s.fill1 : null, limit: L, over: t !== null && t > L, running, tAlone: az ? az.tAlone : null, shared: az ? az.shared : 0, ref: DI.refillRef(W, inf), seq: DI.refillSeq(W) };
 };
 // The inspector rows: [text, class]. first = the "First fill (commissioning)" row, else the "Last refill" row (which
-// is the running clock while the zone is filling). A time over the limit is amber, never a fail: where the zones
-// share a compressor and the largest one alone passes the code check, the row says why it ran over.
+// is the running clock while the zone is filling). Cycle 8 (FP Lead): a measured time is never compared with the
+// limit as if it were the code check, so the rows carry no limit, no verdict and no colour at any length. The code
+// check is the Air supply sizing row (DI.airSizing). DI.refillState(...).over is still computed; no UI reads it.
 DI.refillText = function (S, id, first) {
   const r = DI.refillState(S, id), t = r ? (first ? r.first : r.t) : null; if (t === null) return ['-', ''];
-  const m = DI.fmt(t / 60, 1), lim = DI.fmt(r.limit / 60), over = t > r.limit;
-  const sized = ' NFPA 13 sizes the compressor for one system: the largest zone alone fills in about ' + Math.round(r.tAlone) + ' min, so the compressor is sized correctly';
-  const why = !(over && r.shared && r.tAlone !== null && r.tAlone <= r.limit / 60) ? '' : r.seq ? ' - zones on a shared compressor fill one at a time, largest first (' + DI.SEQ_NOTE + '): a wait is part of this time and is not a code limit.' + sized
-    : ' - zones fill together on a shared compressor (SIMPLIFICATION: parallel split).' + sized;
-  if (!first && r.running) return [m + ' of ' + lim + ' min' + why, 'warn'];
-  return over ? [m + ' min, over the ' + lim + ' min limit' + why, 'warn'] : [m + ' min of the ' + lim + ' min limit: OK', 'good'];
+  return [DI.fmt(t / 60, 1) + ' min' + (!first && r.running ? ' so far' : '') + ' (measured, informational)', ''];
 };
 // The pressure a zone's air supply is sized for (FP Lead, Cycle 6). With an AVC (air maintenance device) regulating,
 // it is the zone's normal set point: the cut-out never enters the minimum scfm. Only on a compressor direct to the
@@ -144,6 +141,22 @@ DI.compLimit = (c) => (c.cutOut > 0 ? c.cutOut : Math.min(c.maxPsi > 0 ? c.maxPs
 DI.bypassTarget = function (W, inf) {
   let c = 0; for (const q of inf.src) { const p = W.parts.get(q); if (p && p.type === 'comp') c = Math.max(c, DI.compLimit(p.p)); }
   return c || DI.AVC_BYPASS_PSI;
+};
+// Compressor relief warnings (FP Lead, Cycle 8; PRACTICE checks on ASSUMED picks). Per compressor with a relief
+// setpoint, up to two plan-review warnings, never a FAIL, and nothing here reads or writes a gas rate:
+//   (1) the relief is at or below the compressor cut-out, or at or below the high-air setpoint of a zone it feeds
+//       (the "AVC high" of the FP Lead's answer: that reading is ASSUMED): the relief will lift during normal operation
+//   (2) the relief is above the rated max discharge
+// The drift rule (DI.compLimit, DI.bypassTarget) does not change: a cut-out still rules over a lower relief, and
+// warning (1) is the flag for that configuration. Returns [{ text }], empty for the defaults (relief 0).
+DI.COMP_WARN_REF = 'Company practice (ASSUMED picks; PRACTICE check)';
+DI.compWarnings = function (S, comp) {
+  const c = comp.p, out = [], who = 'Compressor #' + comp.id + ' relief (' + c.relief + ' psi) '; if (!(c.relief > 0)) return out;
+  let hi = 0, hiId = 0; for (const [zid, z] of S.sysd.info) { const v = S.W.parts.get(zid); if (v && z.src.includes(comp.id) && v.p.hiAir > hi) { hi = v.p.hiAir; hiId = zid; } }
+  if (c.cutOut > 0 && c.relief <= c.cutOut) out.push({ text: who + 'is at or below the cut-out ' + c.cutOut + ' psi: the relief will lift during normal operation.' });
+  else if (hi > 0 && c.relief <= hi) out.push({ text: who + 'is at or below the zone high air ' + hi + ' psi (' + DI.sysName(S, hiId) + '): the relief will lift during normal operation.' });
+  if (c.maxPsi > 0 && c.relief > c.maxPsi) out.push({ text: who + 'is above its rated max discharge (' + c.maxPsi + ' psi).' });
+  return out;
 };
 // Air supply sizing for zone `id` (FP Lead): an ideal-gas screen, not a quoted NFPA equation.
 //   min    = V_ft3 x (P / 14.7) / 30 on the governing zone: the bare minimum scfm (each zone with its own minutes: 60
@@ -177,7 +190,11 @@ DI.airSizing = function (S, id) {
 //   The correct path is the trim air / test bleed (DI.bleedToNormal), or a refill where normal is above test pressure.
 // The step ends only when the operator presses Finish (DI.returnFinish): nothing clears it by itself. DI.returnReady
 // (the gate is met) only drives a hint. Scored while s.ret is true, one error per event (s.rtErr: [{ t, why, miss }]):
-//   finish-early     Finish was pressed with the gate not met: refused, and each refused press is one error (ASSUMED).
+//   finish-early     Finish was pressed with the gate not met: refused. Cycle 8 (FP Lead, PRACTICE): one error for each
+//                    unchanged set of blockers. A refused press is a new error only when its blocker set holds a
+//                    blocker that was not in the last refused set (s.rtLast); the same set again, or a set that only
+//                    shrank, adds none. s.rtPress counts every refused press (an information line, not errors).
+//                    s.rtLast is cleared when the gate comes true, so a blocker that returns afterwards counts.
 //                    miss = what was missing: a drain open, not in the normal band, P still latched, a supervisory active
 //   main-drain-flow  the main drain flowed supply water (not the Tests-button main drain test, which is deliberate)
 //   low-air          pressure fell below low air (the low-air supervisory came in)
@@ -193,16 +210,20 @@ DI.airSizing = function (S, id) {
 // The result is a practice `return` result on the valve: never a contract goal, never a contract star.
 DI.RT_COACH = 'Use the trim air bleed to trim down to normal. Drains dump air too fast or flow supply water.';
 DI.RT_RANK = { 'finish-early': 0, 'main-drain-flow': 1, 'low-air': 2, 'p-latch': 3, 'water-flow': 4 };
-// Player text of each error: what happened, why it matters, how to avoid it. The P-latched, water-flow and clean-pass
-// sentences are the Fire Tutor's, word for word. The low-air, main-drain-flow and finish-early sentences are written
-// in the same form and are ASSUMED wording (Tutor to confirm).
+// Player text of each error: what happened, why it matters, how to avoid it. Every sentence is the Fire Tutor's, word
+// for word (P-latched, water-flow and the clean pass since Cycle 7; low air with a drain open, main drain flow and
+// Finish too early since Cycle 8), with one exception: DI.RT_LOW_NODRAIN, a low-air episode with no drain open, is
+// ASSUMED wording (Tutor to confirm). DI.RT_ISO is appended to a low-air sentence when the air supply was isolated
+// at the event (the entry carries `drain` and `iso`, recorded at the crossing).
 DI.RT_TEXT = {
   'p-latch': 'Pressure fell to the trip point, so the panel latched the pressure-loss input. With detection also active, both release conditions were met and the valve would release. Restore air above low air before panel reset #2.',
   'water-flow': 'Water flow was detected. That sends a fire alarm signal. Keep the control valve closed until the head is replaced and the system is reset.',
-  'low-air': 'Pressure fell below low air, so the low-air supervisory came in. The zone could not hold its air. Use the trim air bleed to come down to normal; drains dump air too fast.',
-  'main-drain-flow': 'The main drain flowed supply water with the control valve open. That is a main drain flow test, and it bleeds no system air. Close it and use the trim air bleed.',
+  'main-drain-flow': 'You opened the main drain with the control valve open. That flows supply water. It’s a main drain test, not a way to let out system air, because the main drain is below the DI valve. Close it and use the trim air bleed.',
 };
-DI.RT_EARLY = ['Finish was pressed before the zone was ready: ', '. Close every drain, bring the pressure into the normal band above low air and above the P set point, reset P, clear the supervisory, then press Finish.'];
+DI.RT_LOW_DRAIN = 'You let air out through a drain, and pressure fell below low air. That sets off the low-air supervisory signal, and if pressure keeps falling it reaches the P set point. To lower pressure, use the trim air bleed in small steps; drains let air out too fast.';
+DI.RT_LOW_NODRAIN = 'Pressure fell below low air, so the low-air supervisory came in and the zone could not hold its air. If pressure keeps falling it reaches the P set point.';
+DI.RT_ISO = ' If the air supply is isolated, restore it first.';
+DI.RT_EARLY = ['Finish was pressed before the zone was ready: ', '. Close every drain. Bring air into the normal band, above low air and above the P set point. Reset the panel to clear the pressure-loss (P) latch. Clear any supervisory signal (low air, high air, AVC bypass, valve off normal). Then press Finish.'];
 DI.RT_CLEAN = 'Clean return to normal. Air held above low air, both panel resets were done in order, drains were closed, the control valve is fully open, and supervision is back to normal.';
 DI.RT_READY = 'All conditions met. Press Finish return to normal.';
 // short names for the inspector row
@@ -210,12 +231,20 @@ DI.RT_NAME = { 'finish-early': 'Finish pressed too early', 'main-drain-flow': 'm
 // One error as player text. An entry from a save made before Cycle 7 (a drain left open when the zone was otherwise
 // ready) reads as a Finish that was not possible yet.
 DI.rtLine = function (e) {
+  // low air: by what let the air out. An entry from before Cycle 8 carries neither flag and reads as a drain (the
+  // only way to get there then was a drain or a lost supply; the Tutor's sentence is the one it was scored under).
+  if (e.why === 'low-air') return (e.drain === false ? DI.RT_LOW_NODRAIN : DI.RT_LOW_DRAIN) + (e.iso ? DI.RT_ISO : '');
   if (DI.RT_TEXT[e.why]) return DI.RT_TEXT[e.why];
   const miss = e.miss && e.miss.length ? e.miss : ['a drain is open'];
   return DI.RT_EARLY[0] + miss.join('; ') + DI.RT_EARLY[1];
 };
 DI.rtName = (e) => DI.RT_NAME[e.why] || DI.RT_NAME['finish-early'];
-DI.rtClear = function (s) { s.rtErr = []; s.rtEv = null; s.rtDr = {}; delete s.rtMin; delete s.rtP0; };
+DI.rtClear = function (s) { s.rtErr = []; s.rtEv = null; s.rtDr = {}; s.rtPress = 0; s.rtLast = null; delete s.rtMin; delete s.rtP0; };
+// how often Finish was refused in the pending step (0 on a save from before Cycle 8)
+DI.rtPresses = (s) => (s && s.rtPress > 0 ? s.rtPress : 0);
+DI.rtTimes = (n) => n + (n === 1 ? ' time' : ' times');
+// the information line about refused presses: raw presses beside the errors they counted as
+DI.rtPressLine = (n, m) => 'Finish was pressed ' + n + ' time(s) before the zone was ready; counted as ' + m + ' error(s), one for each new set of blockers (informational).';
 // add an error, or raise the entry at index `at` to `why` if that is more severe. Returns the entry's index.
 DI.rtNote = function (s, why, t, at) {
   const e = at !== undefined && at !== null ? s.rtErr[at] : null;
@@ -290,7 +319,9 @@ DI.returnWatch = function (S, id, v, s, pl0, dt) {
   if (md && !D.m) { D.m = 1; coach(); } else if (!md && D.m) { delete D.m; delete D.me; delete D.mf; }
   if (sd && !D.s) { D.s = 1; coach(); } else if (!sd && D.s) delete D.s;
   // 2. the low-pressure episode: one error, raised to the P latch if the pressure reaches P inside it
-  if (s.set && lo < q.loAir && s.rtEv === null) s.rtEv = DI.rtNote(s, 'low-air', cross(q.loAir));
+  // (the entry records what was open at the crossing: a system drain open now or opened in this episode, and whether
+  // the air supply was isolated; DI.rtLine picks the sentence from them)
+  if (s.set && lo < q.loAir && s.rtEv === null) { s.rtEv = DI.rtNote(s, 'low-air', cross(q.loAir)); const e = s.rtErr[s.rtEv]; e.drain = !!(q.sdrain || D.s); e.iso = !q.airValve; }
   const latched = pre && q.pLatch && !pl0;
   if (latched || (pre && s.armed && lo < q.pTrip)) {
     const e = s.rtEv !== null ? s.rtErr[s.rtEv] : null;
@@ -307,11 +338,14 @@ DI.returnWatch = function (S, id, v, s, pl0, dt) {
     S.say(nm + ': the main drain is flowing supply water. It is on the supply side of the clapper and bleeds no system air. Close it and use the trim air bleed.', 'warn');
   }
   // 4. the hint, once each time the gate comes true: the step itself waits for Finish
-  if (DI.returnGate(S, id).ok) { if (!D.rdy) { D.rdy = 1; S.say(nm + ': ' + DI.RT_READY, 'good'); } } else if (D.rdy) delete D.rdy;
+  // (the gate coming true also forgets the last refused blocker set: a blocker that comes back later is a new one)
+  if (DI.returnGate(S, id).ok) { s.rtLast = null; if (!D.rdy) { D.rdy = 1; S.say(nm + ': ' + DI.RT_READY, 'good'); } } else if (D.rdy) delete D.rdy;
 };
 // File (or refresh) the practice `return` result of zone `id` with the errors so far. done = the step is over.
-DI.returnResult = function (S, id, errs, done) {
+// presses = refused Finish presses so far: an information line under the errors, never an error by itself.
+DI.returnResult = function (S, id, errs, done, presses) {
   const nm = DI.sysName(S, id), lines = errs.length ? errs.map((e) => DI.clock(e.t) + ' ' + DI.rtLine(e)) : [DI.RT_CLEAN];
+  if (presses > 0) lines.push(DI.rtPressLine(presses, errs.filter((e) => e.why === 'finish-early').length));
   let res = null; for (let i = S.results.length - 1; i >= 0; i--) { const r = S.results[i]; if (r.kind === 'return' && r.id === id) { if (r.open) res = r; break; } }
   if (!res) { res = { kind: 'return', id }; S.results.push(res); }
   Object.assign(res, { t: S.t, name: nm, pass: done && !errs.length, title: 'Return to normal', say: 0, errs: errs.map((e) => Object.assign({}, e)), lines, open: !done });
@@ -320,21 +354,23 @@ DI.returnResult = function (S, id, errs, done) {
 };
 // The Finish button (FP Lead, Cycle 7; PRACTICE). It ends the step only when every condition of DI.returnGate holds:
 // then it logs `return-normal` with the errors of the step and files the practice result. Pressed too early it is
-// refused, the press is scored as one error naming what was missing (each refused press counts: ASSUMED), and the
-// step stays pending. Returns '' or the refusal text.
+// refused and answered with what was missing, every time, and the step stays pending. Cycle 8 (FP Lead, PRACTICE): the
+// refusal is a new error only when the blocker set holds a blocker that was not in the last refused set; the raw
+// presses are counted in s.rtPress and reported as information. Returns '' or the refusal text.
 DI.returnFinish = function (S, id) {
   const v = S.W.parts.get(id), s = S.ss.get(id); if (!v || !s || !s.ret || v.type === 'wetv') return 'No return to normal is pending on this zone.';
   const pre = v.type === 'prev', nm = DI.sysName(S, id), G = DI.returnGate(S, id);
   if (!Array.isArray(s.rtErr)) s.rtErr = [];
   if (!G.ok) {
-    const e = s.rtErr[DI.rtNote(s, 'finish-early', S.t)]; e.miss = G.miss.slice();
-    const text = DI.rtLine(e); S.say(nm + ': ' + text, 'warn'); S.act('return-early', id, { miss: e.miss.slice() });
-    DI.bus.emit('result', DI.returnResult(S, id, s.rtErr, false)); return text;
+    const last = Array.isArray(s.rtLast) ? s.rtLast : null, newErr = !last || G.miss.some((m) => !last.includes(m)), e = { t: S.t, why: 'finish-early', miss: G.miss.slice() };
+    s.rtPress = DI.rtPresses(s) + 1; s.rtLast = G.miss.slice(); if (newErr) s.rtErr.push(e);
+    const text = DI.rtLine(e); S.say(nm + ': ' + text, 'warn'); S.act('return-early', id, { miss: e.miss.slice(), n: s.rtPress, newErr });
+    DI.bus.emit('result', DI.returnResult(S, id, s.rtErr, false, s.rtPress)); return text;
   }
-  const errs = s.rtErr.map((e) => Object.assign({}, e));
-  s.ret = false; DI.rtClear(s); S.act('return-normal', id, { err: errs.length, errs });
+  const errs = s.rtErr.map((e) => Object.assign({}, e)), presses = DI.rtPresses(s);
+  s.ret = false; DI.rtClear(s); S.act('return-normal', id, { err: errs.length, errs, presses });
   S.say(nm + ': Returned to normal set point: ' + DI.fmt(s.P, 1) + ' psi, above low air' + (pre ? ' and the P set point' : '') + ', supervisory clear.', 'good');
-  const res = DI.returnResult(S, id, errs, true);
+  const res = DI.returnResult(S, id, errs, true, presses);
   S.say(res.title + ': ' + (res.pass ? 'no errors' : errs.length + ' error(s)') + ' (practice)', res.pass ? 'good' : 'warn'); DI.bus.emit('result', res);
   return '';
 };
@@ -343,9 +379,9 @@ DI.returnFinish = function (S, id) {
 DI.returnAbort = function (S, id, s) {
   if (!Array.isArray(s.rtErr)) s.rtErr = [];
   DI.rtNote(s, 'water-flow', s.tripT >= 0 ? s.tripT : S.t, s.rtEv);
-  const errs = s.rtErr.map((e) => Object.assign({}, e));
-  s.ret = false; DI.rtClear(s); S.act('return-normal', id, { err: errs.length, errs, aborted: true });
-  const res = DI.returnResult(S, id, errs, true);
+  const errs = s.rtErr.map((e) => Object.assign({}, e)), presses = DI.rtPresses(s);
+  s.ret = false; DI.rtClear(s); S.act('return-normal', id, { err: errs.length, errs, aborted: true, presses });
+  const res = DI.returnResult(S, id, errs, true, presses);
   S.say(DI.sysName(S, id) + ': the return to normal ended with the valve tripped. ' + DI.RT_TEXT['water-flow'], 'bad'); DI.bus.emit('result', res);
 };
 // After a 24 h air test the zone is returned to its normal set point (FP Lead). Above normal, the operator bleeds

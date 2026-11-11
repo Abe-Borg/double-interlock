@@ -28,6 +28,8 @@ DI.migratePart = function (p) {
     const L = DI.PANEL_LOADS; if (!(q.ah > 0)) q.ah = L.ah; if (!(q.iStby > 0)) q.iStby = L.iStby; if (!(q.iAlarm > 0)) q.iAlarm = L.iAlarm;
     if (q.chgFail === undefined) q.chgFail = false; if (q.battDisc === undefined) q.battDisc = false;
     if (!(q.chgA >= 0)) q.chgA = 0;                                   // Cycle 7: charger matched to the battery
+    // Cycle 8: the notification circuit of the voltage-drop check, off (a Cycle 7 save raises no finding)
+    if (!(q.nacOn >= 0)) q.nacOn = 0; if (!(q.nacAwg > 0)) q.nacAwg = 14; if (!(q.nacFt > 0)) q.nacFt = 200; if (!(q.nacN > 0)) q.nacN = 8; if (!(q.nacCd > 0)) q.nacCd = 75; if (!(q.nacV >= 0)) q.nacV = 0;
   } else if (p.type === 'wetv') {
     if (q.wfL === undefined) q.wfL = false;
   } else if (p.type === 'dryv') {
@@ -42,6 +44,7 @@ DI.migratePart = function (p) {
   return p;
 };
 
+DI.SAVE_V = 8;
 DI.World = class {
   constructor(w, h) {
     this.w = w; this.h = h;
@@ -62,8 +65,8 @@ DI.World = class {
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
     // site / project settings: edition, ed72, nfpa76Adopted, pipeCut, detThr, spotThr, asdModel, sigClass, fitPct, trimGal,
-    // insurer, manualReleaseBypassP, commPath, acDelayMin, dactHold, standby, panelGen, refillSeq and the two hook
-    // elections of cause.js. Read them through
+    // insurer, manualReleaseBypassP, commPath, acDelayMin, dactHold, standby, panelGen, refillSeq, ownerRefill, nec and the
+    // two hook elections of cause.js. Read them through
     // the DI helpers, which supply the defaults. (An old save may still carry the retired NFPA 76 stage key: nothing reads it.)
     this.cfg = {};
   }
@@ -71,7 +74,9 @@ DI.World = class {
   inb(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
   room(x, y) { const r = this.roomAt[this.k(x, y)]; return r ? this.rooms[r - 1] : null; }
   addRoom(type, x, y, w, h, name) {
-    // a Freezer / Cold Dock room carries `below5` (maintained below 5 F), default false: see DI.refillLimit
+    // a Refrigerated Space room (type `cold`) carries `below5` (held below 5 F), default false: see DI.refillLimit
+    // a Telecom / MMR room (type `tel`) may carry `n76` (true / false: NFPA 76 applies here; absent = the site setting),
+    // and any room may carry `f1` (the VEA Fire 1 pick of that room; absent = none): see DI.n76Applies, DI.veaFire1At
     const r = { id: this.rooms.length + 1, type, x, y, w, h, name: name || DI.ROOMS[type].name, temp: 70 };
     this.rooms.push(r);
     for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) this.roomAt[this.k(i, j)] = r.id;
@@ -160,13 +165,16 @@ DI.World = class {
 
   toJSON() {
     const rle = (a) => { const o = []; let i = 0; while (i < a.length) { let j = i; while (j < a.length && a[j] === a[i]) j++; o.push(a[i], j - i); i = j; } return o; };
-    return { w: this.w, h: this.h, rooms: this.rooms, pd: rle(this.pd), pk: rle(this.pk), spk: rle(this.spk), air: rle(this.air), cut: rle(this.cut),
+    // v = the save format (8 since Cycle 8): World.fromJSON runs the NFPA 76 migration only on a save without it
+    return { v: DI.SAVE_V, w: this.w, h: this.h, rooms: this.rooms, pd: rle(this.pd), pk: rle(this.pk), spk: rle(this.spk), air: rle(this.air), cut: rle(this.cut),
       parts: [...this.parts.values()], wires: this.wires, nextId: this.nextId, money: this.money, outTemp: this.outTemp, power: this.power, cfg: this.cfg };
   }
   static fromJSON(j) {
     const W = new DI.World(j.w, j.h);
     const un = (r, a) => { let k = 0; for (let i = 0; i < r.length; i += 2) { a.fill(r[i], k, k + r[i + 1]); k += r[i + 1]; } };
-    for (const r of j.rooms) { const room = W.addRoom(r.type, r.x, r.y, r.w, r.h, r.name); if (r.below5 === true) room.below5 = true; }
+    // (a cold room saved under the Cycle 7 default name gets the new one: the name must not say a cold dock qualifies)
+    for (const r of j.rooms) { const room = W.addRoom(r.type, r.x, r.y, r.w, r.h, r.type === 'cold' && r.name === DI.COLD_OLD_NAME ? undefined : r.name); if (r.below5 === true) room.below5 = true;
+      if (r.n76 === true || r.n76 === false) room.n76 = r.n76; if (typeof r.f1 === 'number') room.f1 = r.f1; }
     un(j.pd, W.pd); un(j.pk, W.pk); un(j.spk, W.spk); un(j.air, W.air); if (j.cut) un(j.cut, W.cut);
     for (const p of j.parts) { DI.migratePart(p); W.parts.set(p.id, p); W.partAt[W.k(p.x, p.y)] = p.id; }
     W.cfg = Object.assign({}, j.cfg || {}); delete W.cfg.pipePolicy;      // the role-based schedule policy is gone: an old save gets the default size cut
@@ -174,6 +182,16 @@ DI.World = class {
     // it set loads with the flag deleted and every zone at 30 min; Sim.restore says so once (W.notes). ASSUMED migration.
     if (W.cfg.refrigerated === true) W.notes = [DI.COLD_MIGRATED];
     delete W.cfg.refrigerated;
+    // Cycle 8: NFPA 76 applies by room (a telecom room), and the site flag is only the default for telecom rooms. A
+    // save from before that (no `v`) with the flag on: (1) a VEA site with no stored Fire 1 pick read 0.5 everywhere
+    // through the flag, so 0.5 is written as the site pick and every room keeps the sensitivity it had; (2) it has
+    // no telecom room, so no room is checked any more: Sim.restore says so once (W.notes). Flag off: nothing changes.
+    if (!(j.v >= 8) && W.cfg.nfpa76Adopted === true) {
+      const notes = [];
+      if (!W.rooms.some((r) => r.type === 'tel')) notes.push(DI.N76_MIGRATED);
+      if (DI.isVea(W) && DI.veaSitePick(W) === null) { const t = DI.VESDA_T.slice(); t[2] = DI.VEA_TEL; W.cfg.detThr = t; notes.push(DI.N76_PICK_KEPT); }
+      if (notes.length) W.notes = (W.notes || []).concat(notes);
+    }
     W.wires = j.wires || []; W.nextId = j.nextId; W.money = j.money; W.outTemp = j.outTemp === undefined ? 70 : j.outTemp;
     W.power = j.power !== false;          // utility power is saved with the world; a save from before that has no field and reads on
     return W;

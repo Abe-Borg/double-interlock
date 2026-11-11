@@ -32,10 +32,18 @@ Read README.md first for what the game is.
   the return-to-normal logic.
 - `node test/ui.c7.js out.png` runs the Cycle 7 UI checks (Playwright): the Finish return to normal button in
   every mode, its refusal and clean pass, the compressor picks and the AVC bypass tamper switch, the Site dialog
-  (per-zone note, air refill order, the VEA model and its Fire 1 pick), the Freezer / Cold Dock room toggle, the
+  (per-zone note, air refill order, the VEA model and its Fire 1 pick), the Refrigerated Space room toggle, the
   charger pick, RESTORAL and HAZARD CASE in the station queue, the main drain hint and "Check the valves
   upstream", and the drill report lines. Run it after a change to `ui.js`, `inspect.js`, `scen.js` (the report),
   the DACT queue, the return-to-normal logic or the detector model.
+- `node test/ui.c8.js out.png` runs the Cycle 8 UI checks (Playwright): the NAC block on the panel (off by
+  default, the FAIL and THIN cases, labels by edition, NEC 2026, the Canadian hold), the Site rows (NEC edition,
+  owner / insurer refill target), the drill report (code check above measured, the shared note, the realism and
+  other-drains lines), the neutral refill rows, Finish pressed three times, the compressor relief warnings, the
+  Refrigerated Space and Telecom / MMR rooms with NFPA 76 by room, the latch label on the signal schedule, the
+  station queue footnote on a 2019 site, INVESTIGATE, step 14 as company practice, and an old save with the NFPA
+  76 flag on. Run it after a change to `ui.js`, `inspect.js`, `scen.js`, `review.js`, the NAC calculation, the
+  NFPA 76 room logic or `World.fromJSON`.
 - `sim.test.js` (A112) checks that `double-interlock.html` is what `build-standalone.js` makes from `src/` as it
   stands: build first, then test.
 - `package.json` exists for the scripts only (`npm test`, `npm run test:ui`). `npm install` is needed only for
@@ -64,12 +72,14 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   `pipeCut`, `detThr`, `spotThr`, `asdModel`, `sigClass`, `fitPct`, `trimGal`, `insurer`,
   `manualReleaseBypassP`, `commPath`, `acDelayMin`, `hvacHook`, `epoHook`, since Cycle 6 `dactHold` (stored
   only when false), `standby` (only when not `nfpa5`) and `panelGen` (only when true), and since Cycle 7
-  `refillSeq` (only when true). `refrigerated` is gone: `World.fromJSON` deletes it and leaves a note in
+  `refillSeq` (only when true), and since Cycle 8 `ownerRefill` (minutes, only when a target is set) and `nec`
+  (only when `'2026'`). `nfpa76Adopted` is now only the default for telecom rooms (`DI.n76Applies`).
+  `refrigerated` is gone: `World.fromJSON` deletes it and leaves a note in
   `W.notes`, which `Sim.restore` logs once. Read them
   through the helpers (`DI.setJuris`, `DI.ed72`, `DI.ref72`, `DI.pipeCut`, `DI.detThr`, `DI.spotThr`,
   `DI.asdModel`, `DI.asdRange`, `DI.sigClass`, `DI.inClass`, `DI.cfgNum`, `DI.insurer`, `DI.commPath`,
   `DI.commDelay`, `DI.acDelay`, `DI.hvacHook`, `DI.epoHook`, `DI.dactHold`, `DI.standbyKey`, `DI.panelGen`,
-  `DI.refillSeq`, `DI.isVea`, `DI.veaFire1`), which supply the defaults: nothing is written into `W.cfg` until a setting is
+  `DI.refillSeq`, `DI.isVea`, `DI.veaFire1`, `DI.veaFire1At`, `DI.n76Applies`, `DI.ownerRefill`, `DI.nec`), which supply the defaults: nothing is written into `W.cfg` until a setting is
   changed. A settings change must bump `W.ver`. An old save may still carry `n76AlarmStage`, or `hvacHook`
   `'crah'` / `'damper'` (read as the Fire 1 trigger).
   `DI.juris` is the active edition row; `Sim.sync()` and `DI.review()` refresh it from the world.
@@ -83,7 +93,13 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   Cycle 7 props, migrated the same way: every system valve's `wfL` (the waterflow alarm is latched at the panel);
   a dry or preaction valve's `avcTamper` (1 = the optional bypass tamper switch is fitted); a compressor's `maxPsi`
   and `relief` (0 = not modeled / none); a panel's `chgA` (charger amperes, 0 = matched to the battery). A room of
-  type `cold` may carry `below5` (true only; `toJSON` / `fromJSON` keep it).
+  type `cold` (named Refrigerated Space since Cycle 8; the type id is unchanged) may carry `below5` (true only;
+  `toJSON` / `fromJSON` keep it). Cycle 8 props, migrated the same way: a panel's `nacOn` (0 = the NAC check is
+  off, the default), `nacAwg`, `nacFt`, `nacN`, `nacCd`, `nacV` (0 = start voltage not given). A room of type
+  `tel` may carry `n76` (true / false; absent = the site setting), and any room `f1` (the VEA Fire 1 pick of that
+  room); `fromJSON` keeps both. `World.toJSON` writes `v: DI.SAVE_V` (8): `fromJSON` runs the NFPA 76 migration
+  only on a save without it (the flag on: `DI.N76_MIGRATED` in `W.notes`, and on a VEA site with no stored pick
+  0.5 is written as the site pick, `DI.N76_PICK_KEPT`).
 - The front end writes `W.cfg` in one place only, `ui.siteSet`, and it refuses outside the sandbox: in a
   contract the Site dialog is read-only. A contract fixes settings with an optional `cfg` object on the
   scenario, merged by `DI.buildScenario(sc)` (which `startScenario`, the tests and the campaign all use).
@@ -95,7 +111,7 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   `errs` = the error list, `aborted` when the valve tripped), since Cycle 6 alarm (one per new ALARM-class signal,
   the device as `id`), return-coach and main-drain-test (`stat`, `resid`, `q`, `pass`, `ts` = when the test started,
   and since Cycle 7 `drop` and, where there was a baseline, `base`), and since Cycle 7 restoral (the panel as `id`,
-  `key`, `cls`), return-early (a refused Finish, `miss`) and drop-check. Most entries are edge-detected in `gasPre` and `controllers`, so they are recorded
+  `key`, `cls`), return-early (a refused Finish, `miss`, and since Cycle 8 `n` = the press number and `newErr`) and drop-check; since Cycle 8 return-normal also carries `presses`. Most entries are edge-detected in `gasPre` and `controllers`, so they are recorded
   whoever acted (UI, bot or test). `DI.recoveryScore` reads it. It is capped at `DI.ACTS_MAX`; `DI.trimActs`
   drops closed history first and never the opening `incident` entry of an open incident.
 - A control valve is operated through `DI.setGate(S, id, want)` (inspector button, reference bot). It holds
@@ -165,9 +181,13 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   Step 14, the main drain test (`DI.RECOVERY_DRAIN`, Fire Tutor), is appended by `DI.recoveryScore` only when it
   is called with `from` (the drill call): done by a `main-drain-test` act started at or after the control valve
   was back open, with both readings; a 10 percent drop adds a prompt, it never fails the step. The inspector
-  checklist stays 13 numbered rows and shows "Drill step 14" as its own row in the scored incident. `DI.MDT_LINE`
-  is the Tutor's instruction, word for word: do not reword it. The NFPA 25 cites are `DI.REF25`; the code term is
-  "full flow pressure".
+  checklist stays 13 numbered rows and shows "Drill step 14" as its own row in the scored incident. Cycle 8 (Fire
+  Tutor correction): the step 14 label (`DI.RECOVERY_DRAIN[1]`) is the Tutor's, word for word: the main drain test
+  there is company practice, and what NFPA 25 requires after a reopen is the valve status test. `DI.MDT_LINE`
+  starts with "Company practice.", keeps the Tutor's procedure sentence, and its last sentence is ASSUMED wording:
+  do not reword the first two parts. The NFPA 25 cites are `DI.REF25` (`passLine` is the Tutor's sentence, word
+  for word); the code term is "full flow pressure". The phrase the Tutor withdrew (the 10 percent as a loose
+  shop saying) must not come back anywhere in `src/`, README.md or this file (A115 greps for it).
 - Head replacement on a dry or preaction system goes through `DI.headSafe`: control valve closed, air / N2
   supply isolated, pipe water-free at `DI.SAFE_PSI` or less. "Drain closed" is not a condition.
 - Air out an open drain is air. The system drain is a water emitter only while water is at it
@@ -212,10 +232,17 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   it cleared; a restoral dispatches nothing and is never dropped under hold OFF. The one path that still loses a
   live alarm is the panel dying with the entry queued (`why: 'dead'`): it is labeled `DI.DACT_HAZARD_LABEL` and
   carries `DI.DACT_HAZARD`, the FA Lead's text word for word (`DI.dactHazard(W)` swaps in the 2019 section
-  numbers). Nothing models the station's 6 h test. Restoral citations are `DI.ref72(W).restoral` / `.retransmit`:
-  VERIFIED for 2022 and 2025, VERIFY for 2019 (the log line carries the tag there).
-- Waterflow latches at the panel until a panel reset (`v.p.wfL`; PRACTICE, NEEDS PE REVIEW: no general latch rule
-  is on disk). The switch itself (`s.alarm`, `proc.js`, the gong) is unchanged and nothing but `alarmStep` and
+  numbers). Nothing models the station's 6 h test. Restoral citations are `DI.ref72(W).restoral` / `.retransmit`
+  / `.stnVerify` (§26.2.5.1, §26.2.1.2, §26.2.2): [CODE], VERIFIED for 2019, 2022 and 2025 since Cycle 8, so no
+  log line carries a tag (`DI.restoralTag` is a no-op) and no 2019 or CA-2019 text may say VERIFY or that the text
+  is missing. §26.2.1.4 is 2022 and 2025 only, unmodelled, and never shown on a 2019 build. CA-2019 is the NFPA
+  72-2019 label only: `DI.CA_STATION_NOTE` (ULC S561 is on hold) goes wherever the station text prints on a
+  Canadian row (`DI.stationNote(W)`, the footnote of the station queue), and nothing presents the station rule as
+  Canadian code.
+- Waterflow latches at the panel until a panel reset (`v.p.wfL`). Its label is `DI.ref72(W).latch` (FA Lead,
+  Cycle 8): "PRACTICE with code support (§10.11.6, §23.8.2.2 [indirect], §10.18.1.2; 2019: §10.18.1.1.2), NEEDS PE
+  REVIEW". §23.8.2.2 is indirect support and is never quoted as a latch rule; no NFPA 72 sentence says fire alarms
+  latch until manual reset. Use the key, never a retyped label. The switch itself (`s.alarm`, `proc.js`, the gong) is unchanged and nothing but `alarmStep` and
   `DI.panelReset` reads the latch. A dead or missing panel holds none; a flow raised on test does not latch; a
   signal held by the latch alone (`o.hold`) starts no dispatch. Never feed it to D, P or `DI.relState`.
 - A silenced trouble resounds after `DI.TROUBLE_RESOUND_S` (86,400 s) while a trouble of that panel is active.
@@ -247,8 +274,8 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   water then leaves through an open head the log explains it once (`s.floodW`, the `reopen-flood` entry).
 - Sequential refill (`W.cfg.refillSeq`, default off, PRACTICE): a source serves one calling zone at a time, the
   largest `DI.zoneVolume` first, ties by the lowest zone ID (`head` in `DI.gasPre`). The parallel path must stay
-  as it was, and the code check (`DI.airSizing`) never changes with the toggle. `DI.refillLine(sec, az, limit,
-  seq)` carries the FP Lead's PASS sentence word for word.
+  as it was, and the code check (`DI.airSizing`) never changes with the toggle. `DI.seqLine(S, id, sec)` carries
+  the FP Lead's PASS sentence word for word.
 - Refill: `DI.REFILL_LIMIT` is 1,800 s in every edition. `DI.REFILL_LIMIT_COLD`, 3,600 s, applies per zone
   (Cycle 7): only where every room the zone protects is a `cold` room with `below5 === true` (`DI.refrigerated(W,
   inf)`; the "every room" reading is ASSUMED, NEEDS PE REVIEW). Read the limit with `DI.refillLimit(W, inf)` and
@@ -262,7 +289,23 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
 - The measured clock is informational. No goal, review fail or drill result may be keyed to it, to
   `s.fillTime` (last refill) or to `s.fill1` (first fill; the one exception is the existing dock goal of
   contract 2): zones on a shared compressor fill at the same time here (`DI.PARALLEL_SPLIT`), so reference
-  builds run over on commissioning. Clock and report text never say FAIL (`DI.refillText`, `DI.refillLine`).
+  builds run over on commissioning. Clock and report text never say FAIL. Cycle 8 (FP Lead): a measured time is
+  never compared with the limit as if it were the code check. The inspector rows (`DI.refillText`) read
+  "<m> min (measured, informational)" with a neutral class at any length: no limit, no OK, no amber
+  (`DI.refillState(...).over` still computes; no UI may read it). The drill report prints two labeled lines, the
+  code check on top: `DI.codeCheckLine(S, id)` (the largest zone alone from 0 psig against the limit; "Passes." or
+  "Fails: ..."; its flag is `!az.below`) and `DI.measuredLine(S, id, sec)` (informational; it must never contain
+  "limit", "OK" or "over"), then `DI.seqLine`, and `DI.sharedLine` where zones share the supply. The sentences are
+  the Fire Tutor's, the order and the labels the FP Lead's. `DI.refillLine` and `DI.sharedNote` are gone.
+- Owner / insurer refill target (`W.cfg.ownerRefill`, `DI.ownerRefill(W)`, picks `DI.OWNER_REFILL`, FP Lead, Cycle
+  8): judged like the code check, on `az.tAlone` (method ASSUMED). Over the target with the code check passing is
+  one review WARNING that starts "Owner/insurer criterion:", never a fail; over the code limit it stays the code
+  FAIL with no second finding; a target at or above the zone's limit raises nothing. `DI.ownerLine` is its drill
+  report line. No goal, clock or measured line reads it.
+- Compressor relief warnings (`DI.compWarnings`, FP Lead, Cycle 8; PRACTICE checks on ASSUMED picks): relief at or
+  below the cut-out, or at or below the high air of a zone the compressor feeds; and relief above the rated max
+  discharge. Warnings only, never a fail, and they never read or write a gas rate. `DI.compLimit` and
+  `DI.bypassTarget` do not change with them: a cut-out still rules over a lower relief.
 - The contract 5 recovery rating (`DI.recoveryTier`, `DI.RECOVERY_TIERS`: 60 s / 150 s, ASSUMED) reads
   `waterStopped` (the alarm to the control valve closed) plus complete and in order, never `refill` or `opTime`,
   and is a report line only: contract stars (`main.js`) do not read it.
@@ -270,14 +313,20 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   "Operator steps took: N s" and "Main drain test took: N s" as two lines, never one sum. Water is two lines too
   (`DI.galLines`: `DI.headGal`, `DI.drainGal`), never a total; `S.stats.gallons` itself is unchanged. Head water
   is what is left after the two drain tallies of `Sim.account`: `mdGal` (a main drain, a wet riser's included) and
-  `otGal` (system drain, inspector's test, test header: its own third line, only when there is some). A new
-  emitter kind has to be put in one of the three, or it reads as head discharge. The
-  shared-compressor note (`DI.sharedNote`) prints whenever zones share the supply and builds its section from
-  `DI.refillRef`. Return-to-normal errors (`DI.drillReturnLines`) and the main drain follow-up
+  `otGal` (system drain, inspector's test, test header: its own third line, only when there is some; its wording
+  is the Tutor's since Cycle 8). A new
+  emitter kind has to be put in one of the three, or it reads as head discharge. The code-check line and the
+  shared-compressor note (`DI.sharedLine`) print whenever the zone has an air supply, an unfinished recovery
+  included, and build their section from `DI.refillRef`; the measured line needs a measured refill. Under
+  `DI.RECOVERY_TIP` the report adds `DI.RISER_NOTE` when water was stopped in under `DI.RISER_NOTE_S` (30 s).
+  Return-to-normal errors (`DI.drillReturnLines`) and the main drain follow-up
   (`DI.drillDrainLines`) are informational lines `[false, text, true]`: no goal, star or review finding may read
   them until the scoring has settled for a cycle.
-- Main drain follow-up: a drop over `DI.MDT_DROP` against a baseline never fails step 14. `DI.mdtHint(drop)` and
-  `DI.MDT_SKIPPED` are the Tutor's words: do not reword them. "Investigated" is `DI.dropFollowed`: a `drop-check`
+- Main drain follow-up: a drop over `DI.MDT_DROP` against a baseline never fails step 14 (`DI.mdtBig`: strictly
+  more than 10 percent). It is a trigger to investigate, not an automatic fail (NFPA 25, Fire Tutor correction,
+  Cycle 8): the result keeps `pass: false` (`DI.dropFollowed` reads it) and carries `invest: true`, and the badge
+  and the log read INVESTIGATE (`DI.resBadge`), never FAIL. Its reference line is `DI.REF25.passLine`.
+  `DI.mdtHint(drop)` and `DI.MDT_SKIPPED` are the Tutor's words: do not reword them. "Investigated" is `DI.dropFollowed`: a `drop-check`
   act, an `open-valve` act on a control valve of the supply path (`DI.supplyValves`), or a later passing test.
   With no baseline nothing is scored. There is no timed nag.
 - Supervising-station timing follows NFPA 72. Its citations are `DI.REF72`, keyed by the NFPA 72 edition, which
@@ -304,7 +353,12 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   itself: `DI.returnReady` only drives a hint. Finish is accepted when every condition of `DI.returnGate` holds:
   in band, above low air, not above high air, above P with margin AND `pLatch` reset, supply open AND AVC bypass
   closed, no tamper on the control valve, no air test running, every drain closed. Otherwise the press is refused
-  and scored as one `finish-early` error with `miss` (each refused press counts: ASSUMED). The one other way out
+  and answered with what was missing, every time. Cycle 8 (FP Lead, PRACTICE): a refusal is a new `finish-early`
+  error only when its blocker set (`G.miss`, compared as strings) holds a blocker that was not in the last
+  refused set (`s.rtLast`): the same set again, or a set that only shrank, adds none (that reading is ASSUMED).
+  `s.rtLast` is reset when the gate comes true (`DI.returnWatch`) and by `DI.rtClear`, so a blocker that returns
+  afterwards counts. `s.rtPress` counts every refused press and is reported as information (`DI.rtPressLine`),
+  never as errors. Both are in `DI.SS_KEYS`. The one other way out
   is a trip (`DI.returnAbort`, the `water-flow` error).
 - Drains in that step (FP Lead): never hard-block, model the consequence. `DI.returnWatch` coaches once per
   opening (`DI.RT_COACH`, word for word) and scores one error per event in `s.rtErr` (`finish-early`,
@@ -317,21 +371,50 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   balance. The result is a practice `return` result on the valve: no goal and no contract star may read it.
 - Return-step text (Fire Tutor): the names in `DI.RT_RANK` are internal and must never reach the player: the
   result, the log, the inspector and the drill report print `DI.rtLine` / `DI.rtName` only (A100 greps for the
-  tags). `DI.RT_TEXT['p-latch']`, `DI.RT_TEXT['water-flow']` and `DI.RT_CLEAN` are the Tutor's, word for word; the
-  low-air, main-drain-flow and finish-early texts are ASSUMED wording.
+  tags). Every sentence is the Tutor's, word for word, since Cycle 8: `DI.RT_TEXT['p-latch']`,
+  `DI.RT_TEXT['water-flow']`, `DI.RT_TEXT['main-drain-flow']`, `DI.RT_CLEAN`, `DI.RT_EARLY` (Finish too early) and
+  `DI.RT_LOW_DRAIN` (low air with a drain open). The one exception is `DI.RT_LOW_NODRAIN` (low air with no drain
+  open): ASSUMED wording. A low-air entry records `drain` and `iso` at the crossing; `DI.rtLine` picks the
+  sentence from them and appends `DI.RT_ISO` when the supply was isolated.
 - The aspirating listed ranges are per model and per stage (`DI.ASD_MODELS`, datasheet values): show
-  `DI.ASD_SRC` beside every range. Thresholds are never clamped, rounded or moved to fit. NFPA 76, where
-  adopted, is two ceilings: Alert 0.2 and Fire 1 (the first alarm stage) 1.0 %/ft, PRACTICE, NEEDS PE REVIEW
+  `DI.ASD_SRC` beside every range. Thresholds are never clamped, rounded or moved to fit. NFPA 76 is two
+  ceilings: Alert 0.2 and Fire 1 (the first alarm stage) 1.0 %/ft, PRACTICE, NEEDS PE REVIEW
   (`DI.n76Flags`, `DI.n76Note`). `DI.n76Check` only reads: nothing may write a threshold from them, and
   there is no stage election, OPEN chip or CONFLICT flag. The 1.0 %/ft figure is VERIFIED (`DI.N76_TAG`); mapping
   it to Fire 1 stays PRACTICE, NEEDS PE REVIEW.
+- NFPA 76 applies by room (FA Lead, Cycle 8). Only a room of type `tel` (Telecom / MMR) can be an NFPA 76 space;
+  a hall never is. `DI.n76Applies(W, room)` = the room's own `n76` where set, else the site flag
+  `W.cfg.nfpa76Adopted`, which is only the default for telecom rooms. The ceilings are checked in
+  `DI.n76Rooms(W)` (an NFPA 76 room that holds a `vesda` part), one finding per ceiling per room, each naming the
+  room; with no such room the note and the check say so (`DI.N76_NO_ROOM`). Which rooms count is PRACTICE, NEEDS PE
+  REVIEW. Do not bring back a site-wide reading: it pushed 0.5 %/ft onto halls. The room type is changed in the
+  Sandbox only (hall to telecom and back), and no contract uses it.
 - VEA (`DI.ASD_MODELS.VEA`, Cycle 7) is a Fire 1-only model: `range` is empty, `DI.asdRange` gives null per stage,
-  and the detection loop reads `DI.asdThr(W)` = `[Infinity, Infinity, fire1, Infinity]`, so only the FIRE 1 row is
-  ever raised and `p.p.rel = p.p.lvl >= DI.FIRE1` is untouched. Its Fire 1 is `DI.veaFire1(W)`: `W.cfg.detThr[2]`
-  where thresholds are stored, else the default pick (1.23, or 0.5 where NFPA 76 is adopted). A stored value that
+  and the detection loop reads `DI.asdThr(W, room)` = `[Infinity, Infinity, fire1, Infinity]`, so only the FIRE 1
+  row is ever raised and `p.p.rel = p.p.lvl >= DI.FIRE1` is untouched. Since Cycle 8 its Fire 1 is per room,
+  `DI.veaFire1At(W, room)`: the room's own pick (`room.f1`), else the site pick (`W.cfg.detThr[2]` where
+  thresholds are stored), else the default by room: 0.5 where `DI.n76Applies`, 1.23 anywhere else, whatever the
+  site flag. `DI.veaFire1(W)` is the site value (no room). The detection loop passes the room for VEA only; VEP,
+  VEU and the spot detector read the site thresholds in every room and have no per-room pick. A stored value that
   is not 0.5 / 1.23 / 2.5 is kept and fails review (never clamped); the Gamewell 1.3 is a note, never a setting.
   Print nothing for its Alert, Action or Fire 2 (`DI.VEA_NA`). `DI.detThr` sits in the pinned first 30 lines of
   `alarm.js`: do not edit it for this, use `DI.asdThr`. `DI.ASD_RECORDED.VEA` is only the manual's source note.
+- NAC voltage drop (`DI.nacCalc`, `DI.nacFinding`, `data.js`; FA Lead, Cycle 8) is a plan-review check only: one
+  DC circuit per panel, Class B, end-line-loaded, default off (`nacOn`). `R = 2 x ft x ohm / 1000`: both
+  conductors are counted through the length and the Table 8 value (`DI.NAC_OHM`, NFPA 70-2023 Ch. 9 Table 8, [CODE
+  NEC 2023]) is never doubled. FAIL below `DI.NAC_VMIN` (16 V, ASSUMED); WARN when the margin is under
+  `DI.NAC_THIN` (20 %, PRACTICE) or the start voltage is ASSUMED (`DI.NAC_V_END`, 20.4 V); a clean pass is one
+  `info` line. Appliance currents (`DI.NAC_CD`) are ASSUMED listing values, never [CODE]. The basis label is
+  `DI.ref72(W).nacVd`: [CODE] in 2025 only, PRACTICE on 2019 and 2022; `.nacDoc` is §7.2.1(8). On a Canadian row
+  it is not evaluated (`DI.NAC_CA_HOLD`). `W.cfg.nec` `'2026'` shows the 2023 ohms as ASSUMED / VERIFY and never
+  names 2026 as the source. It must never raise a signal, gain a registry key or a matrix row, or feed D, P, the
+  release, a hook or `DI.standbyCalc` (A121 greps the functions): keep those identifiers out of them.
+- No elevator recall, shunt-trip, waterflow or door device ever feeds the DI release (FA Lead, joint ruling
+  8cb97c21, PRACTICE). Release stays (D: Fire 1 OR a DETECTION-typed manual station) AND P, plus the locked
+  Manual Release zone path. Such devices are fire alarm outputs and monitor points only; a lobby smoke detector
+  that shares a zone with hall detection is still not D; a shunt trip is not an EPO hook. None exists in the game
+  yet. A131 guards it: the allow-list of registry keys that may be release inputs (`fire1`, `manual`, `mrz`) is
+  in the test, so a new input has to be added there on purpose.
 - Water delivery is judged on full zone volume (`DI.zoneVolume`: pipe + fittings % + trim gal), never on
   `inf.vol` alone. Dry: 60 s timed test above 500 gal, 750 gal with a QOD. Double interlock: above
   500 gal, and a QOD does not extend it. FM (insurer setting, default none) adds 30 s at any volume; the
@@ -440,9 +523,26 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
 - `DI.returnStep` text and the step's life changed in Cycle 7: after a bleed or refill a test must call
   `DI.returnFinish` to end the step, and a refused press adds an error. `DI.returnWatch` takes `(S, id, v, s, pl0,
   dt)`.
-- Two inspector rows start with "Charger": the pick label and the status row, which is `Charger check`.
+- Two inspector rows start with "Charger": the pick label and the status row, which is `Charger check`. The NAC
+  block has the same trap: the pick label starts with "Start voltage at the panel", the status row is
+  `Start voltage used`.
 - The c5 reference fills from 0 psig measure a little under `tAlone` (the sizing uses the zone volume with
   fittings and trim, and the clock stops at the "set" point): compare with a tolerance, not for equality.
+- A117 pins the sha16 of the plan review of every contract (as built, after the bot, after the settle), taken at
+  the Cycle 7 head: a change that alters review text or order on a reference build has to update those pins on
+  purpose. Add a finding type so that it stays silent on the defaults.
+- `sim.test.js` must not load `manual.js` in its own process (the static block reads the source only while
+  `DI.MANUAL` is undefined). The Cycle 8 block reads the evaluated manual from a child process (`manual8`).
+- A test that plays an old save has to `delete jw.v`, or the NFPA 76 migration does not run. A room of type `tel`
+  is named "Telecom / MMR (NFPA 76 space)" by default: a test that greps findings for "NFPA 76" should name the
+  room (the tests use "MMR 1"), or a coverage finding matches.
+- A refused Finish no longer adds an error on every press: count `s.rtPress` for presses and `s.rtErr` for
+  errors. The gate reads flags, so a test can set `drain`, `avcBy` or `pLatch` and press without stepping; the
+  reset of `s.rtLast` needs one step with the gate true.
+- `TT.runRow(DI, row, opts)` takes `opts.room` and `opts.cfg` for the runner's own rig (a telecom room, a VEA
+  site); the fixture is not involved. On VEA the smoke level is taken from the room's Fire 1.
+- `DI.nacCalc(...).maxFt` is the exact length; the number shown (`DI.nacMaxFt`) is rounded down so that it
+  passes. `below` and `thin` carry a rounding allowance, as `DI.mdtBig` does for the 10 percent.
 - `World.fromJSON` migrates old saves (`DI.migratePart`): it drops `mode`, loads the el-el preset where
   setpoints are missing and flags the valve so `Sim.restore` re-pressurizes it. Extend that function
   when part props change.
