@@ -71,7 +71,8 @@
   // (DI.RECOVERY): silence, find the head, close the control valve, isolate the air / N2 supply, open the drain
   // and wait for 0 psi and no water, panel reset #1 if detection is latched, replace the head, reset the clapper
   // at the riser if the valve tripped (drain still open), close the drain, restore the supply and wait for the
-  // air, reset the trim (El/Pn), panel reset #2, reopen the control valve through the reopen gate (DI.setGate).
+  // air, reset the trim (El/Pn), panel reset #2, reopen the control valve through the reopen gate (DI.setGate), and
+  // in a drill the main drain test on the scored incident's zone (step 14).
   // Phase 0 makes the pipe safe and repairs it; phase 1 puts it back. A new trip or head sends it back to 0.
   DI.botOps = function (S) {
     const W = S.W, gates = W.byType('gate');
@@ -118,6 +119,9 @@
         g.p.bot = false;
       }
       if (g && g.p.open < 0.99) continue;
+      // Step 14, drill only: the main drain test on the scored incident's zone, once the control valve is back open.
+      if (pre && S.drill && !S.drill.done && !S.drill.botMdt) { const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0); if (a && a.id === id) { S.drill.botMdt = true; DI.startTest(S, 'drain', id); continue; } }
+      if (S.procs.some((q) => q.kind === 'drain' && q.id === id)) continue;
       s.botOp = false; s.botSil = false;
     }
     // a false alarm that latched D on a healthy valve: reset the panel once detection is quiet. A valve under

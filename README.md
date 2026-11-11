@@ -39,7 +39,7 @@ Every contract is the same three steps.
 | 2 | Cold Dock | Dry pipe system for an unheated dock | Differential valve and trip point, +30% area, no gridding, 500/750 gal of zone volume and 60 s, 30-minute compressor, restoring after a trip |
 | 3 | Churn | Tank, electric fire pump, jockey pump | Pump curve (churn, 100%, 150%), tank duration, NFPA 20 pressure settings, flow test |
 | 4 | Lights Out | Diesel pump, FDC | Second driver, lead/lag staggering, fuel and batteries, weekly run, supervisory signals |
-| 5 | Double Interlock | Preaction for a 48,000 sq ft data hall | The two interlocks (detection AND P), aspirating stages, zone volume and the 500 gal tip-over (pass the 60 s timed test or rezone), the thirteen-step recovery in order, why a latched P is reset only after the air is back, why the control valve is reopened last |
+| 5 | Double Interlock | Preaction for a 48,000 sq ft data hall | The two interlocks (detection AND P), aspirating stages, zone volume and the 500 gal tip-over (pass the 60 s timed test or rezone), the thirteen-step recovery in order (fourteen in the drill, which ends with the main drain test) and stopping the water fast, why a latched P is reset only after the air is back, why the control valve is reopened last |
 | 6 | Rust Never Sleeps | Nitrogen retrofit on a corroded system | Oxygen corrosion, the 24 h air test (40 psi, end reading 38.5 psi or more) and how a failed one can leave P latched, fill-and-purge to 98%, and why nitrogen earns no pipe-size credit (C stays 100) |
 | 7 | Hyperscale | A whole campus from a bare site | Choosing systems per space, one supply for the worst demand, a valve gallery, running a bad night |
 | - | Sandbox | Anything | Unlimited budget, an Incident menu (power, weather, false smoke, pipe break), fires on demand, skip ahead five years |
@@ -120,14 +120,26 @@ pressure), sand compressed air, teal nitrogen. White dashes are flow. Hover any 
   reset is done with the system drain still open and leaves the drain as it is.
 - **A dead panel.** On AC failure the panel shows the trouble at once and runs on its battery. The
   supervising station is told only after the AC-fail delay (60 to 180 min, a site setting; power back
-  sooner and nothing is sent). LOW BATTERY comes in at the battery's listed low-voltage setpoint
-  (shown as 1/12 of capacity left), then the panel dies. Dead means dark: no display, no LEDs, nothing
+  sooner and nothing is sent). On battery it still alarms and releases. LOW BATTERY comes in at the
+  battery's listed low-voltage setpoint (20.4 V on a 24 V system, ASSUMED), then the panel dies. A
+  failed charger and a disconnected battery are troubles of their own. Dead means dark: no display, no LEDs, nothing
   to silence or reset (the buttons are disabled and say why). The status bar reads PANEL DEAD at once.
   The supervising station's loss-of-communication line appears only after its supervision interval
   (60 min on a single IP path), and the valve rows the panel feeds read `not displayed: panel dead`.
   On an electric / electric trim the P latch lives in the panel, so it is lost with the panel and read
   again when power returns: P comes back if the pipe is still low. Power coming back is not a release;
   the inputs are.
+- **A DACT outage.** On the DACT path, with both channels down nothing from the panel reaches the
+  supervising station, alarms included, and nothing is dispatched from it. The panel tries each signal
+  10 times, 90 s each, then shows DACT TRANSMISSION FAILED. When a channel is back the held queue is
+  sent in priority order (alarm, supervisory, trouble) with the original event times, and the
+  annunciator's **Supervising station queue** shows the live state: RETRYING 3 of 10, then HELD, COMM
+  FAILURE, then SENT hh:mm (late). Hold and send is a site setting (on by default).
+- **Drains and the AVC.** The main drain is on the supply side of the clapper: open, it flows supply
+  water and never bleeds system air. The system drain is downstream: it bleeds air fast and coarse
+  (about 17 psi a second), so it overshoots through low air into P. The AVC (air maintenance device)
+  is a device of its own with a bypass: bypass open, nothing regulates and the zone climbs to the
+  compressor cut-out (or 60 psi) and into HIGH AIR.
 - **A water-filled zone.** With P left latched, one detection event trips the valve and fills the
   pipe. If a head is open it discharges. If every head is closed nothing discharges: the zone is
   water-filled, which is logged as an unattended low-air failure, not a discharge, and has to be
@@ -165,8 +177,10 @@ The sim obeys a set of company locks. They are not options.
   station typed DETECTION` and the second term on an electric / electric trim only (OFF by default,
   NEEDS PE REVIEW). Only Fire 1 releases. Alert never arms a release and Fire 2 never releases by
   itself. Low air is never a release input. A latched P is never reported as supervisory.
-- **Panel failure never releases water.** The panel runs on a 24 h standby battery, reports trouble,
-  and a dead panel leaves the solenoid shut. Recovery is the mechanical emergency release by a person.
+- **Panel failure never releases water.** The panel runs on its standby battery (24 h + 5 min of alarm
+  on the default basis), reports trouble, and a dead panel leaves the solenoid shut. Recovery is the
+  mechanical emergency release by a person. Release = (D AND P) does not depend on the DACT, the
+  battery, the charger or any drain.
 - **Fixtures belong to the Lead who owns them.** `fixtures/di-release-truth-table.csv` is copied
   verbatim and never edited or reformatted in this repository. `test/truth-table.js` pins the sha256 of
   the raw bytes (first 16 hex, `cb3462b268359c6e`); a new Lead file is copied byte for byte and the pin
@@ -196,13 +210,21 @@ object on the scenario; none does yet, so every contract is winnable with the de
 | Signal class: latched P (release input) | not elected (OPEN) / alarm / trouble. Supervisory is blocked | not elected (ASSUMED) |
 | Manual Release zone bypasses P | off / on. In a contract an ON bypass is an impairment: a supervisory on the panel and a tag on the valve | off |
 | Supervising-station path (OWNER) | single IP path (a dead panel is annunciated after 60 min) / multiple paths (6 h) / DACT (6 h, its test interval: ASSUMED). On the DACT path a failed channel is a trouble sent on the other channel within 4 min | single IP path (PRACTICE) |
+| DACT: hold and send after a communications failure (PRACTICE, NEEDS PE REVIEW; shown on the DACT path only) | on / off. On: the held queue is sent in priority order when a channel is back. Off: only signals still inside their attempts are sent. The code is silent on holding | on |
+| Standby basis of the releasing panel (OWNER / insurer) | 24 h + 5 min (the building-FACU rule used for a releasing panel, PRACTICE) / 24 h + 10 min (owner) / 90 h + 10 min (FM DS 5-40, 2007 edition). FM is its own election, never automatic with the insurer setting | 24 h + 5 min |
+| Generator-backed panel (NFPA 72-2025 only) | battery only / generator-backed (batteries for 4 h, the generator covers 24 h). Ignored with a note under 2019 and 2022 | battery only |
+| Refrigerated space maintained below 5 °F | no / yes. Yes moves the air refill limit, the sizing minimum and the review text from 30 to 60 min. One flag for the whole site | no |
 | AC-fail transmission delay (OWNER / AHJ) | 60, 90, 120, 150 or 180 min before an AC failure is sent to the supervising station | 60 min |
-| HVAC shutdown / damper hook: trigger (OWNER, NEEDS PE REVIEW) | none / Fire 1 / Fire 2 / waterflow. Never Alert or Action. With Fire 1, the manual station and waterflow trip it too. Shown in the cause-and-effect matrix only | none |
+| HVAC shutdown / damper hook: trigger (OWNER, NEEDS PE REVIEW) | none / Fire 1 / Fire 2 / waterflow. Never Alert or Action. With Fire 1, Fire 2, the manual station and waterflow trip it too. With Fire 2 it trips on every row where Fire 2 = 1, release or not; a release alone does not trip it. Shown in the cause-and-effect matrix only | none |
 | EPO / power isolation hook (OWNER, NEEDS PE REVIEW) | off / on (an NEC 645, FM DS 5-32 election). On the waterflow row only, never on the release command. Shown in the cause-and-effect matrix only | off |
 
-Two settings sit on the plant, not on the site: a compressor's **cut-out pressure** (none / 45 / 50 /
-55 / 60 psi, ASSUMED; a sizing input only) in the compressor's inspector, and, in the Sandbox on the
-DACT path, the **Fail DACT channel** buttons on the releasing panel.
+Some settings sit on the plant, not on the site. A compressor's **cut-out pressure** (none / 45 / 50 /
+55 / 60 psi, ASSUMED) is in the compressor's inspector: it is a sizing input only on a compressor
+direct to the system, and where an open AVC bypass takes the zone. A dry or preaction valve has its
+**AVC bypass** toggle and, in the Sandbox, the **Air maintenance device** pick (AVC fitted, the default,
+or none: compressor direct). The releasing panel has its **battery** pick (7 to 100 Ah, ASSUMED picks,
+26 Ah by default; the pick is free) and, in the Sandbox, **Fail charger** and **Disconnect battery**,
+and on the DACT path the **Fail DACT channel** buttons.
 
 The edition changes the citations in plan review and on the test reports and shows an "Edition
 delta vs 2025" line. Pass and fail do not differ by edition in this version. NFPA 13-2022 keeps the
@@ -222,17 +244,18 @@ lead; the 2022 delivery keys were verified in Cycle 5 and carry no mark any more
 | QOD on double interlock | §8.3.2.3.2 | §8.3.2.3.2 (verified) | §8.3.2.3.2 |
 | 24 h air test | §29.2.2.1 (verified) | §29.2.2.1 (verified) | §28.2.2.1 (verified) |
 | Air supply restores normal pressure in 30 min | §8.2.7.3 | §8.2.6.3.2 | §8.2.6.3.2 |
-| The same, N₂-only source | not pulled: §8.2.7.3 applied as the conservative reading (ASSUMED) | §8.2.6.8.4 (verified) | §8.2.6.8.4 (verified) |
+| The same, N₂-only source | §8.2.7.3: 2025 has no separate N₂-only clause, §8.2.7.6 has none (verified) | §8.2.6.8.4 (verified) | §8.2.6.8.4 (verified) |
 | Annex: one compressor serving several systems is sized on the single largest | A.8.2.7.3 (also a shared N₂ source) | A.8.2.6.3.2 | A.8.2.6.3.2 |
-| 60 min for refrigerated spaces below 5 °F (text only, not modelled) | §8.2.7.4 | §8.2.6.3.3; N₂-only §8.2.6.8.5 | §8.2.6.3.3; N₂-only §8.2.6.8.5 |
+| 60 min for refrigerated spaces below 5 °F (a site flag; verified) | §8.2.7.4, every source | §8.2.6.3.3; N₂-only §8.2.6.8.5 | §8.2.6.3.3; N₂-only §8.2.6.8.5 |
 
 A Canada row (NFPA 13-2019) exists as hidden data only and is never offered in the menu.
 
 **24 h air test** (dry and double interlock, the same values in every edition): 40 psi air held 24 h,
 and a loss over 1.5 psi must be corrected. The NFPA text names 40 psi; the game tests at the **greater
 of 40 psi or the zone's normal pressure** (company practice, NEEDS PE REVIEW), so a zone with a 50 psi
-normal is tested at 50 and a normal below 40 still tests at 40. Pass is a loss of 1.5 psi or less: an
-end reading of 38.5 psi or more at 40, 48.5 or more at 50. The test starts at test pressure: a zone
+normal is tested at 50 and a normal below 40 still tests at 40. Pass is a loss of 1.5 psi or less, an
+absolute value at every test pressure (verified): an end reading of 38.5 psi or more at 40, 48.5 or
+more at 50. The test starts at test pressure: a zone
 sitting lower is charged first (the game does this, a simplification) and a zone more than 0.5 psi
 above it is refused until it is bled at the trim. If the zone cannot reach test pressure in 30 min the
 test fails. The report gives the test pressure, the start and end readings, the pass line with the
@@ -240,20 +263,60 @@ section of the enforced edition, and the drop. It never mentions P: a test that 
 leaves P latched (that is PSL-REL doing its job), and the panel event log says so.
 
 After the test the supply is restored and the zone goes back to its **normal set point**. Where the
-pipe is left more than 1 psi above normal (a normal below 40 psi) the valve shows a practice step,
-"return to normal set point": bleed at the **trim air / test bleed** (the "Bleed to normal at the trim"
-button), not at the main drain, and never by opening the control valve. A zone found below normal
-reads "refill" and the open supply brings it up. The step clears when the pipe is in its normal band,
-above low air and not above high air, above the P release set point by the 5 psi margin (ASSUMED), with
-the air supply open (the game's stand-in for the AVC / air maintenance device back in auto) and every
-drain closed. It is never scored.
+pipe is left more than 1 psi above normal (a normal below 40 psi) the valve shows the step "return to
+normal set point": bleed at the **trim air / test bleed** (the "Bleed to normal at the trim" button),
+not at the main drain, and never by opening the control valve. A zone found below normal reads
+"refill" and the open supply brings it up.
+
+**Drains during the return to normal** (FP Lead ruling; company practice, ASSUMED: NFPA 13 prescribes
+no bleed point). Nothing is hard-blocked: the consequence is modelled, coaching comes first, and only
+real consequences are scored.
+
+- The **main drain** is on the supply side of the clapper. It never bleeds system air. Opened with the
+  control valve open it is a main drain flow test: supply water flows, supply pressure drops, and the
+  system gauge stays put. The step never clears from it.
+- The **system drain** is downstream of the clapper. It bleeds air fast and coarse, so it overshoots.
+- Opening either one, in the step, logs one line of coaching: "Use the trim air bleed to trim down to
+  normal. Drains dump air too fast or flow supply water." Closed again before anything comes of it,
+  that is all.
+- A real consequence is **one scored error per event**: pressure below low air (the low-air
+  supervisory comes in); pressure down to P, which latches it (the most severe: "one fire signal from
+  flow"); supply water out of the main drain; or everything else ready with a drain still open. One
+  opening is one event: its entry is raised to the worst thing that came of it and never doubled. The
+  Tests-button main drain test is deliberate and is never an error. The trim bleed is never an error.
+- The **clear gate** is all of: pressure in the normal band, above low air and not above high air,
+  above the P set point by the 5 psi margin (ASSUMED); **the P latch reset** (at the releasing panel on
+  electric / electric, at the trim on electric / pneumatic); the air supply open **and the AVC bypass
+  closed**; no tamper on the zone's control valve; every drain closed. An overshoot that latched P does
+  not clear by refilling into the band: P has to be reset. The valve's row lists what is still to do.
+- When it clears, the valve files a **Return to normal** result with one line per error, or "No
+  errors". It is practice: never a contract goal, never a contract star.
+
+"Trying to complete with a drain open" has no button: it is counted when every other condition holds
+while a drain is open, once per opening (ASSUMED reading; whether the step should get an explicit
+Finish button instead is an open question for the FP Lead).
+
+**AVC and its bypass.** The AVC (air maintenance device) and the air supply valve are two devices
+(verified: 2019 §8.2.6.6.1 / §8.2.6.6.3.1; 2025 §8.2.8.1 and §8.2.9.3, the supply-side shutoff is not
+the AMD). "AVC in auto" is the supply valve open and the bypass closed. With the bypass open the zone
+drifts to the highest compressor cut-out on it, or to 60 psi where none is set (ASSUMED), past the
+default 50 psi high air, so HIGH AIR comes in through the existing supervisory. The open bypass is an
+impairment tag on the riser and the annunciator, not a signal (a supervisory switch on a bypass valve
+is not code-required: PRACTICE), and it holds the return step. Afterwards the trim bleed brings the
+zone back down. A valve can also be set to "none (compressor direct)" in the Sandbox, the
+small-compressor case (2019 §8.2.6.6.2 / 2025 §8.2.8.2); the game still holds such a zone at normal
+(SIMPLIFICATION).
 
 **Air refill.** The air supply must restore normal pressure within 30 minutes, per system (sections
 in the table above). The **code check** is the largest single zone on the supply, filled **alone**
 with the full capacity from 0 psig to its restore pressure, in 30 minutes or less (the Annex sizes one
 compressor serving several systems on the single largest system). Sizing follows from the volume:
-`scfm_min = V_ft3 x (P / 14.7) / 30`, where P is the zone's normal set point, or the compressor
-cut-out if that is higher. It is an ideal-gas screen, not a quoted NFPA equation. A 525 gal zone
+`scfm_min = V_ft3 x (P / 14.7) / 30`. **With an AVC regulating, P is the zone's normal set point**
+(FP Lead, Cycle 6): the compressor cut-out does not enter the sizing. Only on a compressor direct to
+the system (no AVC) is P the normal or the cut-out if that is higher, and there a cut-out above the
+zone's high-air supervisory is a plan review **fail** (ASSUMED practice, NEEDS PE REVIEW). With an AVC
+and a cut-out above high air there is no finding. It is an ideal-gas screen, not a quoted NFPA
+equation. A 525 gal zone
 (70.2 ft³) at 40 psi needs about 6.4 scfm, about 8 with the x1.25 margin; 10 scfm fills it alone in
 about 19 minutes. Below the bare minimum plan review **fails** the design; between the minimum and
 the x1.25 margin it warns (the margin is ASSUMED practice, NEEDS PE REVIEW, not an NFPA factor). No
@@ -265,10 +328,14 @@ time here (`SIMPLIFICATION: parallel split; real ECS per-riser AVC/restrictors f
 fills on a shared compressor can read over 30 min while the code check passes (contract 5's reference
 build: 30.3 and 35.6 min on one 10 scfm unit, 19.1 min for the largest zone alone). The row then reads
 "35.6 min, over the 30 min limit - zones fill together on a shared compressor (SIMPLIFICATION: parallel
-split); the largest zone alone: 19.1 min", in amber, never FAIL. A zone that lost its air without
+split). NFPA 13 sizes the compressor for one system: the largest zone alone fills in about 19 min, so
+the compressor is sized correctly", in amber, never FAIL. Some owners or FM jobs set a tighter refill
+time: check the project basis of design. A zone that lost its air without
 tripping starts an informational timer at the low-air crossing. Nothing but contract 2's existing dock
-goal reads a fill time. The 60-minute limit for refrigerated spaces below 5 °F is recorded and not
-modelled, and the 2025 acceptance wording (§29.2.3.2.4.1) is from a search, not verbatim: VERIFY.
+goal reads a fill time. Refrigerated spaces maintained below 5 °F get 60 minutes instead of 30: a site
+flag, off by default and low priority for data centers, that moves the clock, the sizing minimum (it
+halves) and the review text together. It is one flag for the whole site (there is no freezer room
+type). The 2025 acceptance wording (§29.2.3.2.4.1) is from a search, not verbatim: VERIFY.
 
 **Aspirating detector models.** Each listing bounds every threshold per stage, per model. The ranges
 are read from the maker's own datasheets, labelled **[HB, datasheet; UL Product iQ not checked]**
@@ -301,8 +368,9 @@ one registry (`DI.SIG_FIXED` and the three elected classes, read by the alarm co
 cause-and-effect matrix and the signal schedule): Fire 1, Fire 2, manual station, Manual Release
 zone, release circuit, waterflow and a spot detector are alarm; low and high air, valve tamper, the
 fire pump, tank and low-temperature signals are supervisory or trouble as they always were; panel AC
-failure, low battery, loss of communication, a failed DACT channel and loss of supply air are
-trouble. Loss of supply air is equipment trouble, its own signal (PRACTICE, settled by the fire alarm
+failure, low battery, a charger failure, a disconnected battery, loss of communication, a failed DACT
+channel, a failed DACT transmission and loss of supply air are trouble (27 fixed keys and 3 elected
+ones). Loss of supply air is equipment trouble, its own signal (PRACTICE, settled by the fire alarm
 lead); the pressure drop it causes is still reported by the low-air supervisory.
 
 **Signal schedule: who is told.** Alarm signals (Fire 1, Fire 2, manual station, waterflow, and here
@@ -314,14 +382,18 @@ output, not an input. Dispatch reads the registry (`DI.SIG_FD`), not the class. 
 schedule** button in the Site dialog and at the top of every cause-and-effect matrix opens the
 read-only table, generated from the registry: signal, class, to the supervising station, fire
 department, and the fire alarm lead's tag. Signals the lead's table does not list are marked
-"PRACTICE / not in FA Lead table (ASSUMED)".
+"PRACTICE / not in FA Lead table (ASSUMED)"; the three Cycle 6 troubles (DACT transmission failed,
+charger failure, battery disconnected) carry the lead's own tags. A manual station's point label
+follows its type on the zone: "MANUAL PULL, ZONE x" where it is typed DETECTION and "MANUAL RELEASE,
+ZONE x" where it is the Manual Release zone. Both are alarms and dispatch the same way (PRACTICE); only
+the label and the logic differ (the pull joins D and still needs P; the zone releases without P).
 
 **Cause-and-effect matrix.** Each preaction valve, and the releasing panel for each zone wired to it,
 opens a read-only matrix for that zone. Columns: Input, Tag, SignalClass, PanelAnnunciation,
 SS_Transmit, LocalNAC, Solenoid, HVAC_Hook, EPO_Hook. Rows: Alert, Action, Fire 1, Fire 2, the manual
 station, the Manual Release zone, P, the release (on AC, on battery, with the panel dead), waterflow,
-tamper, low and high air, loss of supply air, AC failure, low battery, loss of communication and a
-failed DACT channel (19 rows; the last is greyed off the DACT path). SS_Transmit also says whether the
+tamper, low and high air, loss of supply air, AC failure, low battery, charger failure, loss of
+communication and a failed DACT channel (20 rows; the last is greyed off the DACT path). SS_Transmit also says whether the
 fire department is dispatched. The
 table is generated from the engine (`DI.ceEval`: classes from the registry, the release from
 `DI.relState` on the zone's own trim and bypass setting), and the tests hold all 17 rows of the truth
@@ -330,13 +402,20 @@ read from the class (alarm only), not a circuit. The two hook columns show an ou
 owner has elected one in the Site dialog; they are hooks only, and the game never shuts down a fan, a
 damper or power (OWNER, NEEDS PE REVIEW). **HVAC**: the setting is the trigger stage: none (default),
 Fire 1, Fire 2 or waterflow, and never Alert or Action. With Fire 1 elected, Fire 2, the manual station
-and waterflow trip it too, so the release rows show it (PRACTICE); with Fire 2 elected it is the Fire 2
-row only (ASSUMED). **EPO**, where elected (NEC 645, FM DS 5-32), is triggered by waterflow, not by the
+and waterflow trip it too, so the release rows show it (PRACTICE); with Fire 2 elected it trips on
+every row where Fire 2 = 1, release or not, and a release alone (Fire 1 and P, or the Manual Release
+zone) does not trip it. The rule reads the Fire 2 input, not a row, and a tripped cell names the input
+that tripped it. **EPO**, where elected (NEC 645, FM DS 5-32), is triggered by waterflow, not by the
 release command: the waterflow row only, never a release or valve-open row. Waterflow proves water is
 in the system and, on an electric / pneumatic trim, is the only way the panel knows the valve opened.
 A Cycle 4 save that stored a CRAH or damper election reads as the Fire 1 trigger. Duct-detector
 shutdown (IMC) is a separate device outside the matrix. Not in the matrix either: elevator recall, door
-release, compressor control, battery sizing and notification circuits.
+release, compressor control, notification circuits, the battery standby calculation (the panel and
+plan review carry it), a disconnected battery, and the live state of the DACT queue. The matrix is
+design intent; its last footnote is the fire alarm lead's, word for word: "With both DACT channels
+failed, signals are not transmitted until a channel restores. Panel shows comm-failure trouble. See
+Cycle 6 Q2."
+
 
 **Supervising-station timing (NFPA 72).** NFPA 72 has its own edition setting (Auto follows the
 site's NFPA 13 edition): adoption is by the AHJ and the two can differ (PRACTICE). A trouble shows at
@@ -352,20 +431,77 @@ annunciated by the supervising station after its supervision interval, by path:
 | DACT: one channel failed, trouble on the other channel (CODE) | 4 min | §26.6.4.1.4(B)(3) | §26.6.4.2.4.2(3) | §26.6.4.2.4.2(3) |
 
 **DACT channels.** On the DACT path the panel has two channels. With one down the panel shows a
-trouble at once and the supervising station has it 4 minutes later, on the other channel. With both
-down the panel cannot send anything, alarms included: every signal stays at the panel, nothing is
-transmitted, the fire department is not dispatched from it, and the station reports a missed test after
-the 6 h interval (ASSUMED). When a channel returns, what is still active goes out. A channel is failed from the panel's inspector, in the Sandbox only. It is
-never an input of D or P. Two-way radio paths are not modelled.
+trouble at once and the supervising station has it 4 minutes later, on the other channel; every other
+signal goes on the surviving channel at once and the log names the channel. A channel is failed from
+the panel's inspector, in the Sandbox only. It is never an input of D or P. Two-way radio paths are
+not modelled.
+
+**Both DACT channels down** (fire alarm lead, Cycle 6). Nothing from that panel reaches the station,
+alarms included; nothing is dispatched from it; no outside path is invented. Display, annunciation,
+the notification rule, the hooks and the release are untouched.
+
+- **Attempts** [CODE]: 5 to 10 attempts, each 90 s or less (2019 §26.6.4.1.3(B)-(D); 2022 and 2025
+  §26.6.4.2.3.2-.4; the 2022 / 2025 annex table gives 900 s for all attempts). The game makes 10 (the
+  count is ASSUMED) of 90 s. After 900 s the panel raises **DACT TRANSMISSION FAILED**, the failure
+  indication at the premises, and it stays until a channel is back. The station reports a missed test
+  after the 6 h interval (ASSUMED).
+- **Hold and send** is not in the code (not found in 2019, 2022 or 2025): it is manufacturer behaviour,
+  PRACTICE, NEEDS PE REVIEW, so it is a site setting, **on by default**. On: when a channel is back
+  every queued signal is sent in priority order, alarm, then supervisory (OPEN sorts with it), then
+  trouble (§10.7.2, §10.7.7), 10 s apart (ASSUMED), each with its **original event time**, then the
+  communications-failure trouble and its restoral. A held alarm dispatches the fire department when it
+  is sent, even if it cleared in the meantime: the station cannot know that. Off: only signals still
+  inside their attempts are sent; held ones and ones that cleared in the outage are never sent.
+- **Live state** is on the annunciator, under the signals: the **Supervising station queue** reads
+  "RETRYING 3 of 10", "HELD, COMM FAILURE", "SENT hh:mm (late)" or "NOT SENT (hold off)", and the
+  signal's own row carries the same label. The log gets the late-send lines.
+- **A silenced trouble** sounds again by itself every 24 h or less while it is still active (§10.15.9.1;
+  §10.15.10.7 for a Ch. 26 premises unit). The game uses exactly 24 h. A cleared trouble does not
+  resound.
+
+**Battery and standby** (fire alarm lead; NFPA 72 §10.6.7.2 where adopted, AHJ to confirm). Required
+Ah = (standby A x hours + alarm A x alarm minutes / 60) x a sizing factor. The factor follows the
+**NFPA 72 edition**, never the NFPA 13 edition: x1.20 in 2019 (§10.6.7.2.1.1), x1.25 in 2022 and 2025
+(§10.6.7.2.14).
+
+| Basis | Standby + alarm | Tag | In the game |
+|---|---|---|---|
+| Releasing panel, NFPA 72 | 24 h + 5 min | CODE §10.6.7.2.2 (the building-FACU rule) used for a releasing panel: PRACTICE | selectable, default |
+| Releasing panel, owner row | 24 h + 10 min | OWNER | selectable |
+| Releasing panel, FM-insured | 90 h + 10 min | OWNER / insurer, FM DS 5-40 §2.3.4, Sep 2007 edition, may not be current | selectable |
+| Building FACU | 24 h + 5 min | CODE §10.6.7.2.2 | reference only |
+| EVACS FACU | 24 h + 15 min | CODE | reference only |
+| Li-ion ESS panel | 24 h + 2 h | NFPA 855 §4.8.3, upper bound; 855-2026 HOLD | reference only |
+
+With the ASSUMED loads (0.5 A standby, 2.0 A alarm) the default basis needs 15.21 Ah in 2025 and
+14.60 Ah in 2019, so the default 26 Ah battery passes with 71 % margin. The FM row needs 56.67 Ah: the
+default battery fails it until a 65 Ah pick, which is why FM is an election of its own and never
+automatic with the insurer setting. Plan review **fails** a battery below the requirement and warns
+**THIN** under a 20 % margin (PRACTICE, NEEDS PE REVIEW). In the sim the battery gives the basis hours
+(less in proportion where the pick is short), the charger restores a full discharge within 48 h
+(§10.6.10.3.2) [CODE], and LOW BATTERY comes in at 20.4 V on a 24 V system (the listed setpoint,
+ASSUMED: the code states no voltage), which is 1/12 of the hours left on the game's straight-line
+voltage curve (19.8 V at the end of discharge, 27.0 V on float). **Charger failure** is a trouble at
+the panel and at the station [CODE] (§10.6.10.6.1 to .2) and the battery stops charging; **battery
+disconnected** is modelled as a trouble (PRACTICE, not code) and the panel dies the moment AC is lost.
+**Generator-backed** (2025 only, §10.6.7.3.1(2); optional): batteries for 4 h, the generator covers
+24 h. 2022 and 2025 require listed or component-recognized rechargeable batteries (§10.6.10.1.3). The
+"restore a failed charger before half the battery is used" rule is for supervising-station equipment
+only and is not modelled. The **Standby reference** dialog (Site dialog and the panel) lists the six
+rows.
 
 **Save and load.** Utility power is saved with the world. So is the first-seen time of every active
 signal, so a delay that was running at the save (AC failure, a failed DACT channel) carries across a
 load, nothing is announced twice and a silenced panel stays silenced. The settle a load runs is not
-game time, so it does not drain a panel battery. Saves from before Cycle 5 load
-as they did: power on, no stored clocks.
+game time, so it does not drain a panel battery. The DACT queue is saved too (attempts, states and
+original event times), as are the silence clock, the pending return-to-normal step with its error
+list, and the AVC props. Saves from before Cycle 5 load as they did: power on, no stored clocks. A
+Cycle 5 save loads with hold ON, the 24 h + 5 min standby basis, an AVC on every dry and preaction
+valve with its bypass closed and a 26 Ah panel; one made in a DACT outage gets its queue made again
+from the saved signals, RETRY or HELD by age.
 
 Low battery has no code threshold (§10.6.9.1; §10.6.10.6 is charger failure): the trouble is the
-listed manufacturer's low-voltage setpoint, represented as 1/12 of battery capacity left.
+listed manufacturer's low-voltage setpoint, 20.4 V on a 24 V system (ASSUMED).
 
 Each preaction valve carries its own setpoints, loaded from a **maker trim** preset in the valve's
 inspector: electric / electric (P sensed by a PSL-REL pressure switch) or electric / pneumatic (P sensed
@@ -382,19 +518,22 @@ Two labels are used in the UI and the manual:
   0.06 / 0.12 / 1.2, owner-set inside the model's listed range), the spot detector threshold (1.3)
   inside its 0.5 to 4.0 example window, the Alert / Action signal class
   (supervisory), the banner priority of an OPEN item (shown only when nothing else is present), the
-  24 h panel battery, the low-battery setpoint as 1/12 of battery capacity left (the listed voltage
-  setpoint, OWNER/listing) and low battery being transmitted at once, the annunciation time of a
-  missed DACT test (its 6 h test interval) and the 6 h on multiple paths in NFPA 72-2025, the x1.25
-  compressor sizing margin, the compressor cut-out (none by default; 45 to 60 psi choices), the HVAC
-  hook's row mapping on the Fire 2 trigger, the 30 min refill of an N₂-only source in NFPA 13-2025
-  (§8.2.7.3 as the conservative reading), the classes and station-only routing of the signals outside
-  the fire alarm lead's schedule, the
+  panel loads (0.5 A standby, 2.0 A alarm), the 26 Ah default battery and the Ah picks, the low-battery
+  setpoint of 20.4 V with 27.0 V float, 19.8 V end of discharge and the straight-line curve between
+  them (the listed setpoint is OWNER/listing) and low battery being transmitted at once, the
+  annunciation time of a missed DACT test (its 6 h test interval) and the 6 h on multiple paths in
+  NFPA 72-2025, the DACT retry count (10; the 5 to 10 bound and the 90 s are CODE) and the 10 s between
+  two sends on restore, the trouble resound at exactly 24 h, the x1.25 compressor sizing margin, the
+  compressor cut-out (none by default; 45 to 60 psi choices), the AVC bypass target of 60 psi where no
+  cut-out is set, the reading of "trying to complete with a drain open" in the return-to-normal step,
+  the classes and station-only routing of the signals outside the fire alarm lead's schedule, the
   electric / electric P latch being lost with panel power and read again on restore, 0.5 psi as "about
   0 psi" before a head is replaced (the gate itself is confirmed by the fire protection lead; the
   value is assumed), the automatic "confirm 0 psi and no water" step, the 24 h air test starting once
   the gauge reads 40.0 (0.005 psi) with 30 min allowed to charge, the game charging the zone itself,
   the operator log size (600 entries), the sound pattern per signal class, the contract 5 recovery
-  rating tiers (3 stars at 180 s of operator-step time or less, 2 at 300 s or less), the 5 psi margin
+  rating tiers (3 stars when the water is stopped within 120 s of the alarm, 2 within 240 s; to be
+  tuned in play test), the 5 psi margin
   above the P release set point on the return-to-normal step, and Canada = NFPA 13-2019 via NBC 2020 /
   BCBC 2024 (verify before ship).
 - **NEEDS PE REVIEW**: a choice an engineer of record has to make. Currently: the Manual Release zone
@@ -404,7 +543,11 @@ Two labels are used in the UI and the manual:
   elected with supervisory blocked), the FM 30 s water-delivery limit at any volume (FM DS 5-32), the
   aspirating default thresholds (owner-set inside the model range; the datasheets print none), the
   NFPA 76 ceilings applied to Alert and to Fire 1 with Action as pre-alarm (PRACTICE), the HVAC and
-  EPO hooks (the election, the trigger stage and its row mapping, the NEC 645 / FM DS 5-32 interface),
+  EPO hooks (the election, the trigger stage, the NEC 645 / FM DS 5-32 interface), DACT hold and send
+  itself (no code basis), the count of 10 attempts and whether a held alarm that has cleared still
+  dispatches the fire department when it is sent (it does here), the FM 90 h + 10 min standby row
+  (2007 edition), the 10 min owner row, the generator-backed 4 h case and the THIN screen under 20 %,
+  a compressor cut-out above high air as a fail where there is no AVC,
   the 24 h air test pressure at the greater of 40 psi or normal (company practice), the x1.25 sizing
   margin and the ideal-gas sizing screen, the
   low-battery setpoint (a listed manufacturer value), the AC-fail transmission delay and the
@@ -412,17 +555,22 @@ Two labels are used in the UI and the manual:
   is a placeholder). Settled and off this list: loss of supply air is trouble (PRACTICE).
 - **VERIFY**: a section number or value to check against the edition before it goes into game text.
   Currently: the 2019 calculation-route paragraphs, the 2025 acceptance wording for the refill time
-  (§29.2.3.2.4.1, from a search, not verbatim), the NFPA 25 section for the main drain test in the
-  recovery tip, and the aspirating ranges against the UL Product iQ listing (not checked; no access is
-  to be bought for it). Verified in Cycle 5 and off this list: the NFPA 13-2022 delivery sections
+  (§29.2.3.2.4.1, from a search, not verbatim), the body text of the NFPA 25-2020 valve status test
+  (only the table row is held), and the aspirating ranges against the UL Product iQ listing (not
+  checked; no access is to be bought for it). Verified in Cycle 6 and off this list: the NFPA 25 main
+  drain test (2023 and 2026 §13.2.2, pass rule §13.2.2.3; 2020 §13.2.3, §13.2.3.3) and the valve status
+  test after a reopen (2023 and 2026 §13.3.3.4); the 60 min refrigerated sections; the 2025 N₂-only
+  reading (no separate clause: §8.2.7.3 and §8.2.7.4 apply); the 1.5 psi air-test pass line as an
+  absolute value; the AVC as a device of its own; the NFPA 72 charger rules, standby factor and DACT
+  attempt rule. Not found in any NFPA 72 edition held, so listed or ASSUMED: a low-battery voltage,
+  battery-disconnect supervision, a charger ampere rating, hold and send. Verified in Cycle 5 and off this list: the NFPA 13-2022 delivery sections
   (§8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6, §8.2.3.8), the N₂-only refill sections of 2019 and 2022
-  and NFPA 72-2025 §26.6.3.3.2(2). Moved to ASSUMED until pulled: the 2025 N₂-only refill subsection,
-  the NFPA 72-2025 annunciation time on multiple paths and the annunciation time of a missed DACT test.
+  and NFPA 72-2025 §26.6.3.3.2(2). Moved to ASSUMED until pulled: the NFPA 72-2025 annunciation time on multiple paths and the annunciation time of a missed DACT test.
 
 Simplifications in the release logic: the P sensor goes live the first time a valve is set, so a new
 valve does not latch P during its first air-up; after a mechanical emergency release with every
-sprinkler closed the trapped air is not vented, so the pipe sits pressurized with no flow; the panel
-battery is a flat 24 h of standby plus alarm; a dead panel's P latch is lost and read again, not
+sprinkler closed the trapped air is not vented, so the pipe sits pressurized with no flow; a dead
+panel's P latch is lost and read again, not
 stored; a compressor's own low-air alarm on a separate supply is not modelled; notification appliances
 are not modelled. On the fire alarm side: the cause-and-effect matrix covers preaction zones only;
 LocalNAC is a rule from the signal class, not a circuit; hooks are display-only and never act; the
@@ -431,17 +579,22 @@ panel after one fixed supervision interval; AC-fail transmission uses a fixed de
 the impairment strip is a tag, not a signal; the signal schedule covers the registry's signals, and
 Alert, Action and P classes are owner elections that never dispatch the fire department by themselves;
 a DACT channel failure is a Sandbox-only fault, and a missed DACT test is annunciated after the ASSUMED
-6 h. In the air supply: parallel split refill (`SIMPLIFICATION: parallel split; real ECS per-riser
+6 h; DACT attempts are counted from the signal's first sight, not a modem model, and the sends on
+restore are 10 s apart; the matrix is design intent, and live state is shown only in the station queue
+and the log; the battery has a straight-line voltage curve, one load per panel and a free Ah pick, a
+larger battery is not credited with more hours, the generator runs exactly 24 h with no fuel model,
+and only the releasing panel is a panel in the game. In the air supply: parallel split refill (`SIMPLIFICATION: parallel split; real ECS per-riser
 AVC/restrictors feed concurrently`): the measured clock is informational and runs from the first gas
 into the closed-up zone, and the code check is the largest zone alone from 0 psig; the operator-step
-score leaves out the interval the zone is closed up and filling; the compressor cut-out raises the
-sizing pressure only, and the game's regulator still holds normal; the sizing check adds up a zone's
-sources, a nitrogen generator included; the "return to normal set point" step after an air test is
-practice only, and AVC / air maintenance "back in auto" is represented by the air supply valve being
-open. In testing and
+score leaves out the interval the zone is closed up and filling; the AVC and its bypass are two flags,
+and an open bypass drifts the zone toward the cut-out (or 60 psi), which is not a compressor switch
+model; a zone with no AVC is still held at normal; the sizing check adds up a zone's sources, a
+nitrogen generator included; the refrigerated-space flag is one flag for the whole site; in the
+"return to normal set point" step the trim bleed snaps to normal while the system drain runs the real
+pressure physics, and its scoring is a practice result, never a contract goal or star. In testing and
 recovery: the 24 h air test is charged to its test pressure by the game; the recovery rating is
-informational and separate from contract stars; a main drain test after reopening is a tip, not a
-modelled step; the "confirm 0 psi and no water" step
+informational and separate from contract stars; the main drain test after reopening is step 14 in the
+contract 5 drill and a tip everywhere else; the "confirm 0 psi and no water" step
 is automatic when the conditions hold; only the system (low-point) drain is scored and the
 supply-side main drain is optional; a zone with no upstream control valve skips the water-isolation
 test before a head is replaced; only the control valve nearest upstream is checked on reopening. In water
@@ -494,29 +647,49 @@ Two gates enforce the parts that are physical:
   panel. The same list is on the valve's recovery checklist, and a `reopen-warn` entry goes in the
   operator log. A dead panel is a warning, never a refusal: it cannot release anything. In practice
   the mistake is allowed to happen: if a head is still open and the valve is still tripped or P is
-  latched, water goes out through that head, and the log then says why, once per reopening ("Water
-  entered the zone through the open head because the valve was still tripped / P latched. In a data
-  hall this is water on the IT load."). The scored drill incident keeps its hard stop.
+  latched, water goes out through that head. A banner then says so (Fire Tutor, word for word:
+  "PRACTICE: You reopened the control valve with a head still open. Water flowed out of that head.
+  Close the valve and finish the recovery in order."; it goes away after 7 s or with a click), and the
+  log gives the full explanation once per reopening: the flow in gpm, which steps were skipped (replace
+  the head, reset the valve at the riser, panel reset #2 and P, whichever applied) and the correct
+  order. The scored drill incident keeps its hard stop.
 
-Only the broken-sprinkler incident in the contract 5 drill is scored: 13 of 13 in order earns the
-star. The **recovery rating** reads operator-step time only: 180 s or less is three stars, 300 s or
-less two, any complete in-order recovery one (ASSUMED, informational, and separate from the contract's
-stars). The air refill is compressor time and has its own informational line against the 30-minute
-limit, with the total beside it: "Air refill: 12.2 min (limit 30 min). OK." A refill over the limit is
-explained, never failed: the compressor is too small to refill the largest zone alone, or the zones
-share one compressor and filled together (parallel split) while the largest zone alone passes the code
-check. Neither line can fail the drill. The checklist ends with an unscored tip: after a control valve
-has been closed and reopened, a main drain test confirms it is really open (NFPA 25; VERIFY section per
-edition). Every other
+Only the broken-sprinkler incident in the contract 5 drill is scored, and there the list has a
+**step 14, the main drain test** (Fire Tutor): 14 of 14 in order earns the star. "Main drain test:
+with the control valve fully open, open the main drain fully, record static and residual pressure,
+then close it slowly. A big drop compared to the last test means a valve may be partly closed." The
+step counts when the test is run from the valve's Tests button after the control valve is back open,
+with both readings recorded; a drop of more than 10 percent does not fail the step, it adds a prompt to
+check that the valves are fully open. The banner and the log give the instruction when the valve is
+back open, and the valve shows a "Drill step 14" row under the thirteen. The pass rule on the test
+report is the code's (NFPA 25-2023 §13.2.2.3; 2020 §13.2.3.3: a 10 percent reduction in **full flow
+pressure** against the previous tests means find the cause). What the code requires after a control
+valve is closed and reopened is the **valve status test** (2023 and 2026 §13.3.3.4); running the main
+drain test at that point is company practice, and static-then-full-flow, close slowly, compare with the
+last test is ASSUMED teaching practice.
+
+The **recovery rating** reads **water stopped**: the time from the alarm to the control valve closed
+(step 3), plus every step in order. Three stars within 120 s, two within 240 s, one for any complete
+in-order recovery (ASSUMED, to be tuned in play test; informational, and separate from the contract's
+stars). The alarm is the first alarm signal after the incident opens, or the incident itself where
+none rings (a broken head on a double-interlock zone never trips). Operator-step time is reported
+beside it as an info stat. The air refill is compressor time and has its own informational line
+against the 30-minute limit, with the total beside it: "Air refill: 12.2 min (limit 30 min). OK." A
+refill over the limit is explained, never failed: the compressor is too small to refill the largest
+zone alone, or the zones share one compressor: "Air refill: 34.0 min with all three zones refilling at
+once. NFPA 13 sizes the compressor to refill one system in 30 min. The largest zone alone refills in
+about 19 min, so the compressor is sized correctly." No line can fail the drill. Every other
 recovery, after a trip test or in the Sandbox, is practice: the valve's inspector shows a **Recovery
-checklist (PRACTICE)** with each step done, pending or not applicable, and no goal reads it. The drill
+checklist (PRACTICE)** with each of the thirteen steps done, pending or not applicable, the main drain
+test as a tip, and no goal reads it. The drill
 has no hard timer: the false alarm arrives after the 30-minute air-restore window. If P is still
 latched then, the valve trips and the pipe fills; with the head replaced nothing discharges and the
 report adds a water-filled-zone line.
 
-The reference operator in `test/bot.js` does the drill recovery 13 of 13 in order in about 755 s. Its
-own steps take about 23 s; the other 732 s is one 10 SCFM compressor bringing a 364 gal zone back from
-0 psi to normal. That is realistic, and it is the lesson: recovery time is mostly compressor time.
+The reference operator in `test/bot.js` does the drill recovery 14 of 14 in order in about 790 s, with
+the water stopped 4 s after the incident (three stars). Its own steps take about 57 s, of which about
+34 s is the main drain test; the other 732 s is one 10 SCFM compressor bringing a 364 gal zone back
+from 0 psi to normal. That is realistic, and it is the lesson: recovery time is mostly compressor time.
 
 ## Code basis
 
@@ -531,9 +704,11 @@ protection lead from the NFPA LiNK notes: 2025 is held, the 2022 delivery sectio
 air-test values (40 psi, 1.5 psi, 24 h) are the lead's and are the same in every edition; testing above
 40 psi where the normal pressure is higher is company practice (NEEDS PE REVIEW). The NFPA 72 sections
 (supervising-station paths, DACT test interval, missed test and channel failure, AC-fail delay and
-class, trouble at the panel, battery monitoring) are from the fire alarm lead's pulls and live in
-`DI.REF72` in the same file, keyed by the NFPA 72 edition (2019, 2022, 2025), which is its own site
-setting. Aspirating detector ranges are from the maker's datasheets (document numbers above),
+class, trouble at the panel, battery monitoring, and since Cycle 6 the DACT attempts, signal priority,
+the trouble resound, standby capacity and its sizing factor, and the charger rules) are from the fire
+alarm lead's pulls and live in `DI.REF72` in the same file, keyed by the NFPA 72 edition (2019, 2022,
+2025), which is its own site setting. The NFPA 25 references for the main drain test and the valve
+status test are the fire protection lead's and live in `DI.REF25`. Aspirating detector ranges are from the maker's datasheets (document numbers above),
 not from the UL listing itself. FM references are to FM DS 5-32 as given by the lead. Checked against
 published summaries of the 2025 edition while building: the section 8.2 rewrite (gridded dry systems
 prohibited in 8.2.1, water delivery in 8.2.4) and the system area limits in 4.4.1. The long-standing
@@ -559,17 +734,17 @@ review/
   truth-table-check.js         prints the truth table against the engine, row by row
 src/
   core.js       constants, units, pipe table by schedule, pipe size cut, C factor, hazard and room tables
-  juris.js      enforced-edition table (US 2019 / 2022 / 2025, hidden Canada row), delivery, air-test and refill citations, NFPA 72 citations by NFPA 72 edition (its own site setting), water-delivery numbers, NFPA 76 ceilings
-  data.js       part catalogue, costs, pump curve, maker trim presets, aspirating detector models and their listed ranges, signal registry (classes, fire-department dispatch list, schedule tags), panel power, supervising-station and DACT tables, setting defaults
+  juris.js      enforced-edition table (US 2019 / 2022 / 2025, hidden Canada row), delivery, air-test and refill citations, NFPA 72 citations by NFPA 72 edition (its own site setting), NFPA 25 main drain and valve status references, water-delivery numbers, NFPA 76 ceilings
+  data.js       part catalogue, costs, pump curve, maker trim presets, aspirating detector models and their listed ranges, signal registry (classes, fire-department dispatch list, schedule tags), panel power, the standby table and calculation, supervising-station and DACT tables (attempts, hold and send), the AVC helpers, setting defaults
   world.js      the tile map: pipes, sprinklers, parts, tubing, wires, capped joints, site settings, save migration
   solver.js     global gradient network solver with node capacitance
   systems.js    which pipe belongs to which riser; volumes, remote sprinkler, loops; zone volume and delivery limits
   graph.js      tile map -> reduced hydraulic network
   links.js      how each part appears to the solver; pressure read-back
-  gas.js        supervisory gas, P sensor, release state (D, P, Manual Release zone, solenoid), trip logic, water-filled zone, mechanical release, system fill, air supply sizing (the code check), the informational fill readings, return to normal set point, riser and trim reset
+  gas.js        supervisory gas, P sensor, release state (D, P, Manual Release zone, solenoid), trip logic, water-filled zone, mechanical release, system fill, air supply sizing (the code check), the informational fill readings, the AVC bypass, the return to normal set point with its drain coaching, scored events and clear gate, riser and trim reset
   fire.js       fire growth, sprinkler activation, pipe breaks, head-replacement gate, water and smoke damage, freeze, corrosion
-  alarm.js      detection stages, listed-range and NFPA 76 checks, signals with their transmission delays, DACT channels, manual stations, dead panel, impairment tags, panel reset and silence, recovery score and rating, fire-department dispatch, technician
-  cause.js      the cause-and-effect matrix of a preaction zone and the signal schedule, generated from the class registry and the release state; hook elections and triggers
+  alarm.js      detection stages, listed-range and NFPA 76 checks, signals with their transmission delays, panel battery and charger, DACT channels and the DACT queue (attempts, hold and send, restore order), the trouble resound, manual stations, dead panel, impairment tags, panel reset and silence, recovery score (water stopped, step 14) and rating, fire-department dispatch, technician
+  cause.js      the cause-and-effect matrix of a preaction zone, the signal schedule and the standby reference table, generated from the class registry and the release state; hook elections and triggers
   sim.js        tick loop, pump controllers, control-valve reopen gate, operator log, tank, commissioning, fast-forward, save/load
   calc.js       density/area hydraulic calculation
   review.js     plan review rules
@@ -581,10 +756,10 @@ test/
   solver.test.js  graph.test.js  sim.test.js  proc.test.js   engine tests against hand calcs
   truth-table.js              pins and self-checks the truth-table fixture, then runs it against the engine (used by sim.test.js and review/)
   campaign.test.js  bot.js    plays every contract headlessly with a reference solution and an operator
-  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2, 3, 4 and 5 UI checks
+  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  ui.c6.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2, 3, 4, 5 and 6 UI checks
 ```
 
-About 4,100 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
+About 5,000 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
 
 ## Tests
 
@@ -603,7 +778,13 @@ node test/sim.test.js         # wet / dry / double interlock / pump behaviour en
                               # DACT channel trouble, NFPA 72 edition, air supply code check and the two
                               # fill readings, return to normal set point, recovery rating, practice
                               # reopen note, save / load of power and delay clocks, El/Pn dead panel,
-                              # the locks) and static greps
+                              # the locks), the Cycle 6 checks (A68 onward: drain realism and the
+                              # return-to-normal gate, the AVC and sizing on normal, DACT retries, hold
+                              # and send and the restore order, the 24 h resound, the standby
+                              # calculation, recharge, low battery and charger, the Fire 2 HVAC input
+                              # rule, manual pull and release labels, water stopped and step 14, the
+                              # Tutor wording, the refrigerated flag, persistence, the locks) and
+                              # static greps
 node test/proc.test.js        # commissioning procedures
 node test/campaign.test.js    # all seven contracts: goals met, drill passed, cost reported; then an
                               # informational what-if with the insurer set to FM (not counted)
@@ -620,9 +801,16 @@ node test/ui.c5.js out.png    # needs Playwright: hook triggers and the NFPA 72 
                               # schedule, the DACT channel fault, the sizing fail and the two fill rows,
                               # recovery wording and the practice reopen note, return to normal set
                               # point, save / load with utility power off
+node test/ui.c6.js out.png    # needs Playwright: drain coaching and the Return to normal result, the
+                              # AVC row, bypass and pick, the Site rows (hold and send, standby basis,
+                              # generator, refrigerated space), the supervising station queue, the
+                              # matrix footnote, the panel's battery rows and faults, the standby
+                              # reference dialog, the practice reopen banner, the main drain tip and
+                              # drill step 14. Saves out.png plus one screenshot per new panel
+                              # (out-valve.png, -site.png, -standby.png, -queue.png, -panel.png, -banner.png)
 ```
 
-`npm test` runs the five engine suites and `npm run test:ui` the five browser tests. Put
+`npm test` runs the five engine suites and `npm run test:ui` the six browser tests. Put
 `STANDALONE=1` in front of a browser test to run it against the built `double-interlock.html`. `npm install`
 is needed only for the browser tests (it fetches Playwright); the game itself has no dependencies and
 still runs from `file://`.
@@ -638,12 +826,16 @@ Planned for later cycles: a contract that pairs a dead panel with the mechanical
 (the dead-panel behaviour it needs is in), the calculation / table route for water delivery,
 underground and yard pipe material, the rest of the FM overlay (density / area, hose and duration;
 hazard classes by insurer with lithium-ion rooms as an ESS off-ramp), a contract that sets the insurer
-to FM, the rest of the fire alarm phase-in after the cause-and-effect matrix (the signal schedule and
-the supervising-station view, then battery and standby with charger failure, then notification
-circuits, when the LocalNAC column becomes a simulated output), matrices for dry and wet valves, a DACT
-channel-failure model and two-way radio paths, a drill that fails a compressor and fills a zone on the
-clock, a plan-review finding for missing supply-air supervision, a compressor's own low-air alarm on
-a separate supply, refrigerated spaces (the 60-minute refill) with a freezer room type and sequential
-refill on a shared compressor, more aspirating models (VEA once its Fire 2 behaviour is pulled from a
-datasheet; TITANUS and FAAST once consistent current sheets are held) and a UL Product iQ check of
+to FM, the rest of the fire alarm phase-in (notification circuits, when the LocalNAC column becomes a
+simulated output; a modelled building FACU, EVACS or ESS panel; a live-status column on the matrix),
+matrices for dry and wet valves, two-way radio paths, a station-side restoral message for a held alarm
+that cleared and a configurable DACT retry count, a charger ampere rating and a battery cost, a
+compressor pressure-switch model, a drill that fails a compressor and fills a zone on the clock, a
+plan-review finding for missing supply-air supervision, a compressor's own low-air alarm on a separate
+supply, a per-zone refrigerated flag with a freezer room type and sequential largest-first refill on a
+shared compressor, contract stars from the recovery rating (after play test), an explicit "Finish
+return to normal" button if the fire protection lead prefers one, the VEA Fire 1 pick (0.5 / 1.23 /
+2.5 %/ft; the fire alarm lead's answer is ready, deferred to Cycle 7), more aspirating models (VEA as
+a four-stage model once its Fire 2 behaviour is pulled from a datasheet; TITANUS and FAAST once
+consistent current sheets are held) and a UL Product iQ check of
 every listing, and real Canada edition rules once verified.

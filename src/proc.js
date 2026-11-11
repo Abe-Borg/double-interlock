@@ -9,7 +9,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
 // pass line is a loss of 1.5 psi or less at every test pressure (DI.airTestEnd): 38.5 psi at 40.
 // After the test the supply is restored and the zone is returned to its normal set point. Where the pipe is left
 // more than 1 psi above normal (a normal below the test pressure) the operator bleeds it at the trim: s.ret, a
-// practice step (DI.gasPre clears it and logs return-normal). A zone left below normal refills by itself.
+// practice step (DI.returnWatch, gas.js, clears it, logs return-normal and files a practice `return` result). A zone
+// left below normal refills by itself. The 1.5 psi pass line is an absolute value at every test pressure (VERIFIED):
+// it is never scaled with the test pressure.
 //   psi     the 40 psi baseline      endMin  lowest passing end reading at 40  drop  allowed loss (report line)
 //   tol     ASSUMED: the clock starts once the zone is within this of the test pressure (the gauge reads 40.0).
 //           It is small on purpose: "end reading at least 38.5" equals "loss of 1.5 or less" only from a 40.0
@@ -94,10 +96,15 @@ DI.testStep = function (S, dt) {
     } else if (pr.kind === 'drain') {
       if (pr.stage === 0 && el > 25) { pr.resid = S.pin(pr.id); pr.q = S.G.emit.filter((e) => (e.kind === 'drain' || e.kind === 'mdrain') && e.k === W.k(v.x, v.y)).reduce((a, e) => a + e.link.q, 0); v.p.drain = 0; S.touch(); pr.stage = 1; pr.ts = S.t; }
       else if (pr.stage === 1 && S.t - pr.ts > 8) {
+        // The pass rule is the code's: a 10 percent reduction in full flow pressure against the previous tests means
+        // find the cause (DI.REF25.passRule, VERIFIED). "Full flow pressure" is the code term for the residual reading.
+        // The operator log gets the test with both readings: step 14 of the scored drill recovery reads it.
         const base = v.p.drainBase; const drop = base ? (base - pr.resid) / base : 0;
-        res = { pass: !(drop > 0.1), title: 'Main drain test', val: pr.resid, lines: ['Static: ' + DI.fmt(pr.stat) + ' psi', 'Residual: ' + DI.fmt(pr.resid) + ' psi at about ' + DI.fmt(pr.q) + ' gpm',
-          base ? 'Previous residual: ' + DI.fmt(base) + ' psi (' + (drop > 0.1 ? 'DOWN ' + DI.fmt(drop * 100) + '% - find the closed valve or obstruction' : 'within 10%') + ')' : 'Recorded as the baseline for future tests'] };
+        res = { pass: !(drop > 0.1), title: 'Main drain test', val: pr.resid, drop, lines: ['Static: ' + DI.fmt(pr.stat) + ' psi', 'Full-flow (residual): ' + DI.fmt(pr.resid) + ' psi at about ' + DI.fmt(pr.q) + ' gpm',
+          base ? 'Previous full flow pressure: ' + DI.fmt(base) + ' psi (' + (drop > 0.1 ? 'DOWN ' + DI.fmt(drop * 100) + '%: a 10 percent reduction in full flow pressure, find the cause and correct it [' + DI.REF25.passRule + ']' : 'within 10 percent [' + DI.REF25.passRule + ']') + ')' : 'Recorded as the baseline for future tests [' + DI.REF25.passRule + ']'] };
+        if (drop > 0.1) res.lines.push(DI.MDT_FOLLOW);
         if (!base || drop <= 0.1) v.p.drainBase = pr.resid;
+        S.act('main-drain-test', pr.id, { stat: pr.stat, resid: pr.resid, q: pr.q, pass: res.pass, ts: pr.t0 });
       }
     } else if (pr.kind === 'pump') {
       const h = W.parts.get(pr.hdr), q = S.flowOf(pr.id), tgt = [0, 1, 1.5][pr.stage] * v.p.gpm, st = S.t - pr.ts;
@@ -143,7 +150,7 @@ DI.testStep = function (S, dt) {
       else if (v.p.ranFor >= pr.need) res = { pass: true, title: (v.type === 'dpump' ? 'Diesel' : 'Electric') + ' pump churn run', lines: ['Ran ' + pr.need / 60 + ' min at churn: suction ' + DI.fmt(S.pin(pr.id)) + ' psi, discharge ' + DI.fmt(S.pout(pr.id)) + ' psi', v.type === 'dpump' ? 'Fuel remaining: ' + DI.fmt(v.p.fuel * 100) + '%' : 'Motor ran normally'] };
       if (res) { v.p.mode = pr.mode0; v.p.on = false; v.p.lastTest = S.t; }
     }
-    if (res && pr.kind === 'leak' && s && s.state === 'dry' && s.P > v.p.airSet + 1) s.ret = true;      // left above normal: the return-to-normal step
+    if (res && pr.kind === 'leak' && s && s.state === 'dry' && s.P > v.p.airSet + 1) { s.ret = true; DI.rtClear(s); }      // left above normal: the return-to-normal step, with a clean slate
     if (res) {
       res.kind = pr.kind; res.id = pr.id; res.t = S.t; res.name = s ? DI.sysName(S, pr.id) : DI.PARTS[v.type].name + ' #' + v.id;
       S.results.push(res); S.procs.splice(i, 1); S.testUntil = S.procs.length ? S.t + 1e9 : S.t + 90; if (pr.kind === 'pump' || pr.kind === 'run') S.lastTestT = S.t;

@@ -13,14 +13,14 @@ var DI = globalThis.DI || (globalThis.DI = {});
 // Triggers (FA Lead, 2026-11-10; OWNER, NEEDS PE REVIEW):
 //   HVAC  the trigger stage is the setting: none (default), Fire 1, Fire 2 or waterflow. Never Alert or Action, even
 //         where they are elected ALARM. With Fire 1 elected, Fire 2, the manual station and waterflow trip it too
-//         (PRACTICE). Fire 2 = the Fire 2 row only (ASSUMED, ours). Waterflow = the waterflow row only.
+//         (PRACTICE). Fire 2 = every row with Fire 2 = 1, release or not (FA Lead). Waterflow = waterflow only.
 //         A save from Cycle 4 that stored 'crah' or 'damper' reads as Fire 1; any other value reads none.
 //   EPO   never automatic by default. Where the owner or insurer elects it (NEC 645, FM DS 5-32) it is triggered by
 //         waterflow, not by the release command: the waterflow row only, never a release or valve-open row.
 // Both are read from the row's input vector, not from its outcome. Duct-detector shutdown (IMC) is a separate device
 // outside this matrix.
 DI.HVAC_HOOKS = { none: 'none', fire1: 'Fire 1 (also manual and waterflow)', fire2: 'Fire 2', waterflow: 'Waterflow' };
-DI.HVAC_CELL = 'HOOK: output contact (HVAC shutdown / damper)';
+DI.HVAC_CELL = 'HOOK: output contact (HVAC shutdown / damper)';       // a tripped cell adds ': ' and the input that tripped it
 DI.hvacHook = (W) => { const k = W && W.cfg ? W.cfg.hvacHook : undefined; return k === 'crah' || k === 'damper' ? 'fire1' : typeof k === 'string' && Object.prototype.hasOwnProperty.call(DI.HVAC_HOOKS, k) ? k : 'none'; };
 DI.epoHook = (W) => !!(W && W.cfg && W.cfg.epoHook === true);
 
@@ -36,8 +36,8 @@ DI.panelHolds = (trim, alive, wired) => ({ sol: !!alive, pull: !!alive, mrzL: !!
 DI.CE_COLS = ['Input', 'Tag', 'SignalClass', 'PanelAnnunciation', 'SS_Transmit', 'LocalNAC', 'Solenoid', 'HVAC_Hook', 'EPO_Hook'];
 // key = the row, sig = its own signal in DI.inClass terms, in = the input vector the row stands for.
 // Vector fields: alert, action, fire1, fire2, manual, mrz, p, lowAir, highAir, waterflow, tamper, supplyAir,
-// power ('AC' | 'Battery' | 'Dead'), plus acFail, lowBatt, lostComm naming the three power rows and dactChan (one of
-// the two DACT channels down; a signal on the DACT path only).
+// power ('AC' | 'Battery' | 'Dead'), plus acFail, lowBatt, chgFail, lostComm naming the power rows and dactChan (one
+// of the two DACT channels down; a signal on the DACT path only).
 DI.CE_ROWS = [
   { key: 'alert', sig: 'alert', label: 'Aspirating Alert (pre-alarm)', tag: '[OWNER] handling', in: { alert: true } },
   { key: 'action', sig: 'action', label: 'Aspirating Action (pre-alarm)', tag: '[OWNER] handling', in: { action: true } },
@@ -56,12 +56,15 @@ DI.CE_ROWS = [
   { key: 'supplyAir', sig: 'supplyAir', label: 'Loss of supply air (compressor / N2 source)', tag: '[PRACTICE]', in: { supplyAir: true } },
   { key: 'acFail', sig: 'acFail', label: 'Panel AC failure (on battery)', tag: '[CODE]; delay [OWNER/AHJ]', in: { power: 'Battery', acFail: true } },
   { key: 'lowBatt', sig: 'lowBatt', label: 'Panel low battery', tag: '[OWNER/listing], ASSUMED', in: { lowBatt: true } },
+  { key: 'chgFail', sig: 'chgFail', label: 'Panel battery charger failure', tag: '[CODE]', in: { chgFail: true } },
   { key: 'lostComm', sig: 'lostComm', label: 'Loss of communication (panel dead)', tag: '[CODE]; path [OWNER]', in: { power: 'Dead', lostComm: true } },
   { key: 'dactChan', sig: 'dactChan', label: 'DACT channel failed (one of the two)', tag: '[CODE]; path [OWNER]', in: { dactChan: true } },
 ];
 DI.CE_LEGEND = ['[CODE] a code requirement', '[OWNER] an owner, insurer or AHJ election', '[PRACTICE] industry or maker practice', 'NEEDS PE REVIEW an engineer-of-record choice', 'ASSUMED a value the Leads did not fix'];
 DI.CE_LIVE = 'ACTIVE NOW';
-DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, door release, the control of the compressor, battery sizing and notification circuits (later cycles). Dry and wet valves have no release logic and no matrix.';
+DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, door release, the control of the compressor, notification circuits, the battery standby calculation (the panel and plan review carry it), a disconnected battery (a trouble in the signal schedule, PRACTICE) and the live state of the DACT queue (the annunciator shows it). Dry and wet valves have no release logic and no matrix.';
+// FA Lead, word for word: the matrix stays design intent, and this note says what an outage does to it.
+DI.CE_DACT_NOTE = 'With both DACT channels failed, signals are not transmitted until a channel restores. Panel shows comm-failure trouble. See Cycle 6 Q2.';
 
 // ---------- one input vector in, one result out
 // Returns { D, P, mrz, open, sol, signals, ss, class, annunciated, transmit, nac, fd, hvac, epo, panelDelay, ssDelay, lost }.
@@ -74,6 +77,7 @@ DI.CE_EXCLUDED = 'Not in this matrix: elevator recall, door release, the control
 //   fd       the fire department is dispatched: a transmitted alarm signal of the dispatch list (DI.SIG_FD). Alert,
 //            Action and P never dispatch by themselves, whatever class is elected; nor does the release circuit.
 //   hvac, epo  the hook cells, from the input vector and the site's elections (see the top of this file).
+//   hvacBy   the input that tripped the HVAC hook ('' when it is not tripped).
 DI.ceEval = function (W, v, vec, sigKey) {
   const x = Object.assign({ power: 'AC' }, vec || {}), trim = v.p.trim, wired = !!W.panelOf(v.id), dead = x.power === 'Dead', alive = wired && !dead;
   const H = DI.panelHolds(trim, alive, wired), type = DI.stationType(W, v), det = !!(x.fire1 || x.fire2);
@@ -94,6 +98,7 @@ DI.ceEval = function (W, v, vec, sigKey) {
   if (wired) {
     if (x.power === 'Battery') put('acFail', { set: { panelDelay: DI.TROUBLE_PANEL_S, ssDelay: DI.acDelay(W) } });
     if (x.lowBatt && !dead) put('lowBatt', { set: { panelDelay: DI.TROUBLE_PANEL_S } });
+    if (x.chgFail && !dead) put('chgFail', { set: { panelDelay: DI.TROUBLE_PANEL_S } });
     if (dead) put('lostComm', { set: { annunciated: false, transmit: true, lost: true, ssDelay: DI.commDelay(W) } });
     // one DACT channel down: at the panel at once, at the station on the other channel within DI.DACT_CHAN_S
     if (x.dactChan && !dead && DI.commPath(W) === 'dact') put('dactChan', { set: { panelDelay: DI.TROUBLE_PANEL_S, ssDelay: DI.DACT_CHAN_S } });
@@ -102,11 +107,16 @@ DI.ceEval = function (W, v, vec, sigKey) {
   const nac = signals.some((q) => q.class === 'ALARM' && q.annunciated), own = signals.find((q) => q.key === sigKey) || signals[0] || null;
   const fd = signals.some((q) => q.transmit && q.class === 'ALARM' && !!DI.SIG_FD[q.key]);
   // hooks, from the input vector: a station counts only as the type it has on this zone
+  // HVAC (FA Lead, Cycle 6). The Fire 2 hook trips on x.fire2 on ANY row, whatever its key and whether or not it
+  // released; a release alone (Fire 1 + P, or the Manual Release zone) never trips it. The Fire 1 hook trips on every
+  // row with Fire 1 or Fire 2 (Fire 2 implies Fire 1), the manual station, the Manual Release zone and waterflow. The
+  // waterflow hook trips on waterflow only. Never alert or action. The rule reads the input, never a row key.
   const hk = DI.hvacHook(W), man = !!x.manual && type === 'DETECTION', mz = !!x.mrz && type === 'MANUAL RELEASE';
   const trig = hk === 'fire1' ? det || man || mz || !!x.waterflow : hk === 'fire2' ? !!x.fire2 : hk === 'waterflow' ? !!x.waterflow : false;
+  const by = !trig ? '' : hk === 'fire2' ? 'Fire 2' : hk === 'waterflow' ? 'waterflow' : det ? (x.fire1 ? 'Fire 1' : 'Fire 2') : man ? 'manual station' : mz ? 'Manual Release zone' : 'waterflow';
   return { D: rs.D, P: rs.P, mrz: rs.mrz, open: rs.open, sol: rs.sol, signals, ss, nac, fd, own,
     class: own ? own.class : '', annunciated: !!own && own.annunciated, transmit: !!own && own.transmit, panelDelay: own ? own.panelDelay : 0, ssDelay: own ? own.ssDelay : 0, lost: !!own && own.lost,
-    hvac: trig && alive, epo: DI.epoHook(W) && !!x.waterflow && alive };
+    hvac: trig && alive, hvacBy: trig && alive ? by : '', epo: DI.epoHook(W) && !!x.waterflow && alive };
 };
 
 // ---------- which matrix row a live engine signal belongs to, for zone `id` (null: not this zone's, or not in the matrix)
@@ -124,7 +134,7 @@ DI.ceKeyOf = function (S, id, o) {
   if (part.type === 'smoke') return inZone(part) && DI.canRelease(W, part) ? 'fire1' : null;       // a spot detector that is the detection leg here
   if (part.type === 'mstn') return inZone(part) ? (DI.stationType(W, v) === 'MANUAL RELEASE' ? 'mrz' : 'manual') : null;
   if (part.type === 'gate' && k.startsWith('tm')) { const g = DI.ctrlValve(W, id); return g && g.id === part.id ? 'tamper' : null; }
-  if (part.type === 'panel' && pn && part.id === pn.id) return { ac: 'acFail', lb: 'lowBatt', pd: 'lostComm', dc: 'dactChan' }[k.slice(0, 2)] || null;
+  if (part.type === 'panel' && pn && part.id === pn.id) return { ac: 'acFail', lb: 'lowBatt', cf: 'chgFail', pd: 'lostComm', dc: 'dactChan' }[k.slice(0, 2)] || null;
   return null;
 };
 // is the row's situation present on the zone right now?
@@ -168,7 +178,7 @@ DI.ceMatrix = function (S, id) {
     // the row's own signal first, then any power signal the same vector raises (it has its own timing)
     const tx = [ssOf(own, e)].concat(e.signals.filter((q) => q !== own && (q.key === 'acFail' || q.key === 'lostComm')).map((q) => (q.key === 'acFail' ? 'AC failure: ' : 'loss of communication: ') + ssOf(q, e))).join('; ');
     const sol = !e.sol ? (r.in.power === 'Dead' && (r.in.fire1 || r.in.manual) ? 'no: a dead panel energizes nothing' : 'no') : e.open ? 'yes: ENERGIZED, valve opens' : 'yes: ENERGIZED; valve opens only with P';
-    o.cells = [r.label, r.tag, cls, ann, tx, e.nac ? 'yes' : 'no', sol, e.hvac ? DI.HVAC_CELL : none, e.epo ? 'HOOK: output contact (power isolation)' : OFF];
+    o.cells = [r.label, r.tag, cls, ann, tx, e.nac ? 'yes' : 'no', sol, e.hvac ? DI.HVAC_CELL + ': ' + e.hvacBy : none, e.epo ? 'HOOK: output contact (power isolation)' : OFF];
     return o;
   });
   const notes = [
@@ -176,15 +186,34 @@ DI.ceMatrix = function (S, id) {
     'P is OPEN until the engineer elects its class, and it is never supervisory. Low and high air are supervisory and never a release input.',
     'LocalNAC is a rule read from the signal class: an alarm at a live panel sounds the notification appliances; supervisory and trouble never do. Notification circuits are not modelled.',
     'SS_Transmit: alarm signals go to the supervising station and on to the fire department; supervisory and trouble signals go to the supervising station only (PRACTICE). Alert, Action and P never call the fire department by themselves, whatever class is elected.',
-    'HVAC_Hook and EPO_Hook are hooks only: an output contact for others to wire, never an automatic action in this game. [OWNER, NEEDS PE REVIEW]. HVAC: the trigger stage is a site setting (none, Fire 1, Fire 2 or waterflow) and it is never Alert or Action; with Fire 1 elected, Fire 2, the manual station and waterflow trip it too (PRACTICE); with Fire 2 elected it is the Fire 2 row only (ASSUMED). EPO, where elected, is on the waterflow row only, never on the release command or a valve-open row. Duct-detector shutdown (IMC) is a separate device, outside this matrix.',
+    'HVAC_Hook and EPO_Hook are hooks only: an output contact for others to wire, never an automatic action in this game. [OWNER, NEEDS PE REVIEW]. HVAC: the trigger stage is a site setting (none, Fire 1, Fire 2 or waterflow) and it is never Alert or Action; with Fire 1 elected, Fire 2, the manual station and waterflow trip it too (PRACTICE); with Fire 2 elected it is every row with Fire 2 = 1, release or not, and a release alone never trips it. EPO, where elected, is on the waterflow row only, never on the release command or a valve-open row. Duct-detector shutdown (IMC) is a separate device, outside this matrix.',
     'Timing: panel troubles show within ' + DI.TROUBLE_PANEL_S + ' s (' + R.panelTrouble + '; at once here). AC failure is transmitted after ' + acMin + ' (' + R.acDelay + '). A dead panel shows nothing; the supervising station annunciates the loss after ' + cmT + ' (' + path.short + '; ' + R[path.ref] + '). Low battery: ' + R.lowBatt + '; the trouble is ' + DI.LOWBATT_NOTE + '.',
     'NFPA 72 edition: ' + ed72 + ' (site setting, separate from NFPA 13: adoption is by the AHJ and can differ, PRACTICE. Auto follows the NFPA 13 edition).',
+    DI.CE_DACT_NOTE,
   ];
   const imp = DI.impairments(S).filter((q) => q.id === id).map((q) => q.text);
   return { id, name: DI.sysName(S, id), trim: v.p.trim, trimName: DI.trimOf(v).name, bypass: type === 'MANUAL RELEASE', wired: !!pn,
     head: ['Trim: ' + DI.trimOf(v).name, 'Manual Release zone bypass (9(c)): ' + (type === 'MANUAL RELEASE' ? 'ON' : W.cfg && W.cfg.manualReleaseBypassP ? 'ON for the site, not on this trim' : 'OFF'),
       'HVAC hook: ' + (hv === 'none' ? 'none' : 'on ' + DI.HVAC_HOOKS[hv]), 'EPO hook: ' + (epo ? 'ON (waterflow only)' : 'OFF'), 'Releasing panel: ' + (pn ? '#' + pn.id + (pn.p.alive === false ? ' (DEAD)' : '') : 'NOT WIRED')],
     hooks: { hvac: hv, epo }, cols: DI.CE_COLS.slice(), rows, notes, liveLabel: DI.CE_LIVE, legend: DI.CE_LEGEND.slice(), excluded: DI.CE_EXCLUDED, imp };
+};
+
+// ---------- standby reference (FA Lead, Cycle 6): the standby bases by panel type, read-only. Three rows are selectable
+// as the site's standby basis (a releasing panel is the only panel in the game); the other three are reference rows,
+// never selectable and never modelled. Text for the dialog lives here, like the schedule's.
+DI.STBY_COLS = ['Panel', 'Standby', 'Alarm', 'Tag', 'In this game'];
+DI.standbyTable = function (W) {
+  const key = DI.standbyKey(W);
+  return DI.STANDBY.map((r) => ({ key: r.key, label: r.label, standby: r.hours + ' h', alarm: r.alarmMin >= 60 ? r.alarmMin / 60 + ' h' : r.alarmMin + ' min', tag: r.tag, sel: r.sel,
+    use: r.key === key ? 'IN FORCE on this site' : r.sel ? 'selectable (Site settings)' : 'reference only: not selectable, not modelled' }));
+};
+DI.standbyNotes = function (W) {
+  const R = DI.ref72(W), ed = DI.ed72(W), f = DI.STBY_FACTOR[ed];
+  return ['Required battery = (standby load x standby hours + alarm load x alarm time) x a sizing factor. The factor follows the NFPA 72 edition, never the NFPA 13 edition: x1.20 in 2019, x1.25 in 2022 and 2025 [CODE]. In force here: NFPA 72-' + ed + ', x' + f.toFixed(2) + ' (' + R.battFactor + '; capacity ' + R.battStby + ', where adopted, AHJ to confirm).',
+    'Generator-backed panel: batteries for ' + DI.GEN_BATT_H + ' h and the generator covers 24 h. 2025 only (' + DI.REF72[2025].battGen + '); optional, default battery only; ignored under 2019 and 2022. NEEDS PE REVIEW. ' + (DI.panelGen(W) ? 'ON for this site.' : W.cfg && W.cfg.panelGen === true ? 'Set for this site, and ignored: NFPA 72-' + ed + ' is in force.' : 'OFF for this site.'),
+    'Charger [CODE]: keeps the battery fully charged and recharges it within ' + DI.RECHARGE_H + ' h after one full discharge (' + R.chgRecharge + '); the panel detects a charger failure and it is a trouble (' + R.chgFail + '). Listed or component-recognized rechargeable batteries: ' + R.battListed + '. The rule about restoring a failed charger before half the battery is used is for supervising-station equipment only and is not modelled.',
+    'NOT FOUND in any edition: a low-battery voltage, battery-disconnect supervision, a charger ampere rating. The low-battery trouble is the listing value, ' + DI.LOWBATT_V + ' V on a 24 V system (ASSUMED, PRACTICE); a disconnected battery is modelled as a trouble (PRACTICE, not code).',
+    'The FM row (90 h + 10 min) is an owner / insurer election of its own, never automatic with insurer = FM: the default ' + DI.PANEL_LOADS.ah + ' Ah battery does not meet it. The THIN screen (margin under ' + DI.STBY_THIN * 100 + ' %) is PRACTICE, NEEDS PE REVIEW. Panel loads (' + DI.PANEL_LOADS.iStby + ' A standby, ' + DI.PANEL_LOADS.iAlarm + ' A alarm) are ASSUMED listing values.'];
 };
 
 // ---------- signal schedule (FA Lead): every signal of the registry, its class, whether it goes to the supervising

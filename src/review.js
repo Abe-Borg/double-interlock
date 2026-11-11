@@ -39,10 +39,16 @@ DI.review = function (S) {
       const az = DI.airSizing(S, id);
       if (az && az.gov === id && (az.below || az.tight)) {
         const srcs = inf.src.map((q) => (W.parts.get(q).type === 'n2' ? 'N₂ generator' : 'compressor') + ' #' + q).join(' + '), zone = az.shared ? 'the largest zone they serve (this one, ' + DI.fmt(az.gal) + ' gal)' : 'this zone (' + DI.fmt(az.gal) + ' gal)';
-        const lim = DI.fmt(az.limit), cut = az.P > v.p.airSet ? ' Sized at the ' + az.P + ' psi compressor cut-out, which is above normal (ASSUMED).' : '', ref = DI.refillRef(W, inf, az.shared > 0);
+        // the cut-out enters the sizing only on a compressor direct to the system (no AVC): the note prints only there
+        const lim = DI.fmt(az.limit), cut = !DI.avcFitted(v) && az.P > v.p.airSet ? ' Sized at the ' + az.P + ' psi compressor cut-out, which is above normal (compressor direct to the system, no AVC; ASSUMED).' : '', ref = DI.refillRef(W, inf, az.shared > 0);
         if (az.below) add('fail', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') cannot restore normal pressure in ' + zone + ' within ' + lim + ' min even filling it alone (needs ' + DI.fmt(az.min, 1) + ' scfm; fills in ' + (isFinite(az.tAlone) ? DI.fmt(az.tAlone, 1) + ' min' : 'no time at all') + ').' + cut, ref, v.x, v.y);
         else add('warn', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') meets the ' + DI.fmt(az.min, 1) + ' scfm minimum for ' + zone + ' but is below the x' + DI.AIR_SIZING.margin + ' margin (' + DI.fmt(az.margin, 1) + ' scfm; ASSUMED, NEEDS PE REVIEW).' + cut + ' Recovery time is mostly compressor time: watch the refill clock on the valve.', ref, v.x, v.y);
       }
+      // A compressor direct to the system (no AVC) whose cut-out is above the zone's high-air supervisory can push the
+      // zone into high air: a configuration FAIL (ASSUMED practice, NEEDS PE REVIEW). With an AVC regulating there is
+      // no finding: the AVC holds the zone at normal whatever the cut-out is.
+      if (!DI.avcFitted(v)) { let co = 0; for (const q of inf.src) { const c = W.parts.get(q); if (c && c.p.cutOut > co) co = c.p.cutOut; }
+        if (co > v.p.hiAir) add('fail', nm + ': compressor cut-out (' + co + ' psi) is above the high-air supervisory (' + v.p.hiAir + ' psi) with no AVC between them: the compressor can push the zone into high air (ASSUMED practice, NEEDS PE REVIEW).', R('§8.2 / §8.3 (air supply); company practice'), v.x, v.y); }
       // water delivery: one row per limit that applies, judged on full zone volume (pipe + fittings + trim)
       const dl = DI.deliveryLimits(S, id), vols = 'zone volume ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')';
       if (dl.nfpa.limit !== null) add('warn', nm + ': ' + vols + ' is over ' + dl.nfpa.thr + ' gal. Prove delivery with the ' + dl.nfpa.limit + ' s timed trip test, or rezone into smaller systems.' +
@@ -95,6 +101,14 @@ DI.review = function (S) {
     if (!pn) add('warn', 'Manual release station #' + p.id + ' is not wired to a releasing panel. Operating it does nothing.', 'NFPA 72', p.x, p.y);
     else if (![...sd.info.values()].some((i) => i.type === 'prev' && r && i.rooms.has(r) && W.panelOf(i.id) === pn)) add('warn', 'Manual release station #' + p.id + ' is not in a room protected by a preaction valve on its panel. It raises the alarm and releases nothing.', 'NFPA 72', p.x, p.y);
   }
+  // --- panel standby battery: one finding per panel (FA Lead). Below the requirement of the site's standby basis is
+  // a FAIL; a margin under 20 % is a warning (THIN: a PRACTICE screen, NEEDS PE REVIEW). The default pick passes.
+  { const R72 = DI.ref72(W);
+    for (const p of W.byType('panel')) {
+      const c = DI.standbyCalc(W, p);
+      if (c.below) add('fail', 'Panel #' + p.id + ' battery ' + c.ah + ' Ah is below the ' + DI.fmt(c.req, 1) + ' Ah the standby basis needs (' + c.basis + ', ' + R72.battStby + '): ' + c.iStby + ' A standby for ' + c.h + ' h plus ' + c.iAlarm + ' A alarm for ' + c.alarmMin + ' min, times ' + c.factor.toFixed(2) + ' (' + R72.battFactor + '). Pick a larger battery. Loads are ASSUMED listing values.', R72.battStby, p.x, p.y);
+      else if (c.thin) add('warn', 'Panel #' + p.id + ' battery ' + c.ah + ' Ah. THIN: margin ' + DI.fmt(c.margin * 100) + ' %, under ' + DI.STBY_THIN * 100 + ' % over the ' + DI.fmt(c.req, 1) + ' Ah the standby basis needs (' + c.basis + ') (PRACTICE, NEEDS PE REVIEW).', R72.battStby, p.x, p.y);
+    } }
   // --- valves, supply, pumps
   for (const p of W.parts.values()) {
     if (p.type === 'gate' && !W.panelOf(p.id)) add('warn', 'Control valve #' + p.id + ' has no tamper switch wired to a panel.', R('Ch. 16: valve supervision'), p.x, p.y);

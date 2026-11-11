@@ -45,7 +45,8 @@ DI.G = {
   wired: (S, types) => [...S.W.parts.values()].filter((p) => types.includes(p.type)).every((p) => S.W.panelOf(p.id)),
 };
 // Recovery score of the first incident of the running drill, as report lines for DI.lossJudge (informational).
-// The recovery rating (DI.recoveryTier, 0 to 3 stars) reads the operator's own steps only. The air refill is
+// The recovery rating (DI.recoveryTier, 0 to 3 stars) reads "water stopped" (the alarm to the control valve closed)
+// and the order of the steps; the operator's own step time is an info stat on the same line. The air refill is
 // compressor time and gets its own line against the 30 min limit (Fire Tutor wording: it never says FAIL, and it
 // says why a refill ran over); the total is reported beside them. None of these lines can fail the drill, and the
 // rating is separate from the contract's stars.
@@ -57,19 +58,27 @@ DI.G = {
 //   the supply cannot fill the largest zone alone in 30 min (the code check fails): the compressor is too small;
 //   the code check passes and the zone shares its supply: the zones filled together (parallel split);
 //   the code check passes on a supply of its own: the time went elsewhere.
-DI.refillLine = function (sec, az) {
-  const m = DI.fmt(sec / 60, 1) + ' min', lim = DI.fmt(DI.REFILL_LIMIT / 60) + ' min', alone = az && !az.below ? DI.fmt(az.tAlone, 1) + ' min' : '';
-  if (sec <= DI.REFILL_LIMIT) return 'Air refill: ' + m + ' (limit ' + lim + '). OK.';
+// limit = the refill limit in seconds (DI.refillLimit: 30 min, or 60 on a refrigerated site); default 30 min.
+DI.wordNum = (n) => ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'][n] || String(n);
+DI.refillLine = function (sec, az, limit) {
+  const L = limit || DI.REFILL_LIMIT, m = DI.fmt(sec / 60, 1) + ' min', lim = DI.fmt(L / 60) + ' min', alone = az && !az.below ? DI.fmt(az.tAlone, 1) + ' min' : '';
+  if (sec <= L) return 'Air refill: ' + m + ' (limit ' + lim + '). OK.';
   if (!alone) return 'Air refill: ' + m + ', over the ' + lim + ' limit. The compressor is too small for this zone. Size it to refill the largest zone to normal pressure in ' + lim + '.';
-  if (az.shared) return 'Air refill: ' + m + ', over the ' + lim + ' limit because the zones share one compressor and fill together (SIMPLIFICATION: parallel split). The largest zone alone fills in ' + alone + ', which passes the code check.';
+  // Fire Tutor wording: say plainly that the compressor passes
+  if (az.shared) return 'Air refill: ' + m + ' with all ' + DI.wordNum(az.shared + 1) + ' zones refilling at once. NFPA 13 sizes the compressor to refill one system in ' + lim + '. The largest zone alone refills in about ' + Math.round(az.tAlone) + ' min, so the compressor is sized correctly.';
   return 'Air refill: ' + m + ', over the ' + lim + ' limit. The sizing check passes (this zone alone fills in ' + alone + '), so the time went elsewhere: look for a leak, or a nitrogen generator finishing the fill.';
 };
 DI.drillRecovery = function (S, what) {
   const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), r = a ? DI.recoveryScore(S, a.id, S.drill.t0) : null; if (!r) return [];
-  const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase()), tier = DI.recoveryTier(r), T = DI.RECOVERY_TIERS;
+  const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase()), tier = DI.recoveryTier(r), T = DI.RECOVERY_TIERS, L = DI.refillLimit(S.W);
+  const ws = r.waterStopped === null ? 'Water not stopped: the control valve is not closed' : 'Water stopped ' + Math.round(r.waterStopped) + ' s after the alarm';
   const out = [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
-    [tier > 0, 'Recovery rating: ' + tier + ' of 3 stars (' + (r.opTime === null ? 'recovery not finished' : 'operator steps took ' + DI.dur(r.opTime) + (r.inOrder ? '' : ', out of order')) + '; 3 stars at ' + T[0].s + ' s or less, 2 at ' + T[1].s + ' s or less; any complete in-order recovery is 1; ASSUMED, informational)', true]];
-  if (r.air && S.sysd.info.has(a.id)) out.push([r.refill <= DI.REFILL_LIMIT, DI.refillLine(r.refill, DI.airSizing(S, a.id)) + ' [' + DI.refillRef(S.W, S.sysd.info.get(a.id)) + ']', true]);
+    [tier > 0, 'Recovery rating: ' + tier + ' of 3 stars. ' + ws + ' (3 stars at ' + T[0].s + ' s or less, 2 at ' + T[1].s + ' s or less; any complete in-order recovery is 1; ASSUMED, informational). ' +
+      (r.opTime === null ? 'Recovery not finished.' : 'Operator steps took ' + Math.round(r.opTime) + ' s' + (r.inOrder ? '.' : ', out of order.')), true]];
+  // the main drain test of step 14: a 10 percent drop does not fail the step, it asks for a follow-up
+  const mdt = S.acts.find((q) => q.kind === 'main-drain-test' && q.id === a.id && q.t >= r.t0 && q.pass === false);
+  if (mdt && (r.steps.find((st) => st.kind === 'drain-test') || {}).done) out.push([false, 'Main drain test: ' + DI.MDT_FOLLOW, true]);
+  if (r.air && S.sysd.info.has(a.id)) out.push([r.refill <= L, DI.refillLine(r.refill, DI.airSizing(S, a.id), L) + ' [' + DI.refillRef(S.W, S.sysd.info.get(a.id)) + ']', true]);
   if (r.time !== null) out.push([false, 'Total recovery ' + DI.dur(r.time) + (r.refill > r.time / 2 ? ', mostly the compressor' : ''), true]);
   for (const z of S.acts) if (z.kind === 'zone-filled' && z.why === 'low-air' && z.t >= S.drill.t0) if (S.W.parts.get(z.id)) out.push([false, 'Water-filled zone: ' + DI.sysName(S, z.id) + ' filled because P was left latched (unattended low-air failure), no discharge', true]);
   return out;

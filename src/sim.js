@@ -28,6 +28,7 @@ DI.Sim = class {
     this.stats = { fireLoss: 0, waterLoss: 0, smokeLoss: 0, gallons: 0 };
     this.procs = []; this.results = [];     // running test procedures / finished test reports
     this.acts = [];                         // operator / recovery log: { t, kind, id }, read by DI.recoveryScore
+    this.dq = []; this.dqSeq = 0;           // DACT queue: signals that came due with both channels down (DI.dactStep)
     this.genT = -1;                         // standby generator: time utility was lost
     DI.fireInit(this);
     this.sync();
@@ -129,7 +130,7 @@ DI.Sim = class {
         if (q.open !== q.target) q.open = q.target > q.open ? Math.min(q.target, q.open + dt / 4) : Math.max(q.target, q.open - dt / 4);
         if (was > 0.02 && q.open <= 0.02) this.act('close-valve', p.id);
         // back in service: logged only for a reopening that went through the reopen gate (DI.setGate)
-        if (was < 0.99 && q.open >= 0.99 && q.viaGate) { q.viaGate = false; this.act('open-valve', p.id, { flow: Math.max(0, ...DI.gateValves(this, p.id).map(([, , s]) => Math.abs(s.flow || 0))) }); }
+        if (was < 0.99 && q.open >= 0.99 && q.viaGate) { q.viaGate = false; this.act('open-valve', p.id, { flow: Math.max(0, ...DI.gateValves(this, p.id).map(([, , s]) => Math.abs(s.flow || 0))) }); DI.drillDrainPrompt(this, p.id); }
       } else if (p.type === 'tank') {
         if (q.gal < q.cap && q.fill > 0) q.gal = Math.min(q.cap, q.gal + q.fill * dt / 60);
       }
@@ -142,9 +143,10 @@ DI.Sim = class {
       const p = W.parts.get(id), l = G.partLink.get(id);
       if (p && p.type === 'tank' && l) p.p.gal = Math.max(0, p.p.gal - l.q * dt / 60);
     }
-    let out = 0;
-    for (const e of G.emit) out += e.link.q;
-    this.outFlow = out; this.stats.gallons += out * dt / 60;
+    // mdGal: the part of it that left through a main drain (a main drain test). It goes to the drain, not onto the floor.
+    let out = 0, md = 0;
+    for (const e of G.emit) { out += e.link.q; if (e.kind === 'mdrain') md += e.link.q; }
+    this.outFlow = out; this.stats.gallons += out * dt / 60; if (md > 0) this.stats.mdGal = (this.stats.mdGal || 0) + md * dt / 60;
   }
   // convenience readers for UI / tests
   touch() { this.dirty = true; }
@@ -221,14 +223,17 @@ DI.reopenWarn = (gateId, items) => 'Control valve #' + gateId + ' reopened with 
 // entry in the operator log. Returns '' or the reason it was refused.
 DI.setGate = function (S, id, want) {
   const g = S.W.parts.get(id); if (!g || g.type !== 'gate') return 'No control valve.';
-  if (!(want > 0.5)) { g.p.target = 0; g.p.viaGate = false; for (const [, , s] of DI.gateValves(S, id)) delete s.floodW; return ''; }
+  if (!(want > 0.5)) { g.p.target = 0; g.p.viaGate = false; for (const [, , s] of DI.gateValves(S, id)) { delete s.floodW; delete s.floodK; } return ''; }
   const r = DI.reopenCheck(S, id);
   if (r.refuse) return r.msg;
   if (r.items.length) {
     S.say(DI.reopenWarn(id, r.items), 'bad'); S.act('reopen-warn', id, { items: r.items.slice() });
     // practice: the valve opens anyway. A zone behind it with an open head, a tripped riser or a latched P is watched
     // (s.floodW), and DI.gasPost explains in the log if water then leaves through the head.
-    for (const [, v, s] of DI.gateValves(S, id)) if ((s.openK && s.openK.length) || s.state !== 'dry' || (v.type === 'prev' && (v.p.mech || v.p.pLatch))) s.floodW = S.t;
+    // s.floodK records what was skipped at the reopen: 1 a head still open, 2 the riser valve still tripped, 4 P still latched
+    for (const [, v, s] of DI.gateValves(S, id)) if ((s.openK && s.openK.length) || s.state !== 'dry' || (v.type === 'prev' && (v.p.mech || v.p.pLatch))) {
+      s.floodW = S.t; s.floodK = (s.openK && s.openK.length ? 1 : 0) | (s.state !== 'dry' || (v.type === 'prev' && v.p.mech) ? 2 : 0) | (v.type === 'prev' && v.p.pLatch ? 4 : 0);
+    }
   }
   g.p.target = 1; g.p.viaGate = true; return '';
 };
@@ -283,11 +288,16 @@ DI.Sim.prototype.warp = function (sec, maxMs, until) {
 // Save / load of the dynamic state that matters (pressures re-settle on load).
 // sig: the first-seen time of every active signal (t0), whether the supervising station has it (tx) and whether it
 // came in on test. Without it every delay clock (AC failure, a failed DACT channel) would restart at a load.
-DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW'];
+// dq, dqSeq: the DACT queue, so a save made in an outage keeps its attempts, states and original event times. A save
+// from before Cycle 6 has none: the entries are made again from `sig` on the first step, RETRY or HELD by age.
+// genT: when utility power was lost. The standby generator (generator-backed pumps, and the generator-backed panel,
+// which it carries for DI.GEN_RUN_S) is timed from it, so it has to survive a load: the settle would otherwise leave
+// it near 0 and a save made late in the game would find the generator's 24 h already spent.
+DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW', 'floodK', 'rtErr', 'rtEv', 'rtDr'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
   return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null,
-    sig: [...this.sig].map(([k, o]) => [k, { t0: o.t0, tx: o.tx, test: o.test }]) };
+    sig: [...this.sig].map(([k, o]) => [k, { t0: o.t0, tx: o.tx, test: o.test, had: o.had }]), dq: this.dq.map((e) => Object.assign({}, e)), dqSeq: this.dqSeq, genT: this.genT };
 };
 DI.Sim.prototype.restore = function (j) {
   for (const [id, o] of j.ss) { const s = this.ss.get(id); if (s) for (const k of Object.keys(o)) if (o[k] !== undefined) s[k] = o[k]; }
@@ -309,9 +319,13 @@ DI.Sim.prototype.restore = function (j) {
   // and seconds of standby left, the panel would die inside the settle and drop every latch it holds.
   const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced]) : [];
   this.settling = true; this.commission(j.t || 0.001); this.settling = false; this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
+  this.dq = Array.isArray(j.dq) ? j.dq.map((e) => Object.assign({}, e)) : []; this.dqSeq = j.dqSeq || 0;       // after the settle, which makes no entries (DI.dactStep)
+  // The outage clock, after the settle (which restarts it near 0). A save from before it was stored, made with the
+  // power off, reads as an outage that began just long enough ago for the generator to be running.
+  this.genT = this.W.power ? -1 : j.genT >= 0 ? j.genT : Math.max(0, this.t - DI.GEN_START_S - 1);
   if (j.sig) {
     this.sigSeen = new Map(j.sig);
-    for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; } }
+    for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; o.had = !!q.had; } }
     for (const [p, sil] of panels) p.p.silenced = !!sil;
   }
 };
