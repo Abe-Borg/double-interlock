@@ -18,8 +18,8 @@ npm test
 npx playwright install chromium
 npm run test:desktop
 npm run test:ui
-cargo test --manifest-path src-tauri/Cargo.toml --locked
-npm run desktop:build -- --target x86_64-pc-windows-msvc --bundles nsis
+cargo test --manifest-path src-tauri/Cargo.toml --locked --release --target x86_64-pc-windows-msvc
+npm run desktop:build -- --target x86_64-pc-windows-msvc --bundles nsis -- --locked
 ./scripts/package-release.ps1
 ```
 
