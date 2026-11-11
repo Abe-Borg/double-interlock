@@ -45,6 +45,8 @@ DI.G = {
   wired: (S, types) => [...S.W.parts.values()].filter((p) => types.includes(p.type)).every((p) => S.W.panelOf(p.id)),
 };
 // Recovery score of the first incident of the running drill, as report lines for DI.lossJudge (informational).
+// The time bonus reads the operator's own steps only. The air refill is compressor time and gets its own line
+// against the 30 min limit; the total is reported beside them. None of these lines can fail the drill.
 // Only the drill's incident is scored; every other recovery (a trip test, a sandbox incident) is practice and
 // shows as a checklist on the valve. A zone that filled with every head closed because P was left latched is
 // reported as its own line: an unattended low-air failure, not a discharge.
@@ -52,7 +54,9 @@ DI.drillRecovery = function (S, what) {
   const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), r = a ? DI.recoveryScore(S, a.id, S.drill.t0) : null; if (!r) return [];
   const miss = r.steps.filter((st) => !st.done).map((st) => st.label.toLowerCase());
   const out = [[r.complete && r.inOrder, 'Recovery after ' + what + ': ' + r.done + ' of ' + r.total + ' steps, ' + (r.inOrder ? 'in order' : 'out of order') + (miss.length ? '. Missing: ' + miss.join('; ') : ''), true],
-    [r.time !== null && r.time <= DI.RECOVERY_TARGET, 'Time bonus: ' + (r.time !== null ? 'recovered in ' + DI.dur(r.time) : 'recovery not finished') + ', target ' + DI.dur(DI.RECOVERY_TARGET) + ' (ASSUMED, informational)', true]];
+    [r.opTime !== null && r.opTime <= DI.RECOVERY_TARGET, 'Time bonus: ' + (r.opTime !== null ? 'operator steps took ' + DI.dur(r.opTime) : 'recovery not finished') + ', target ' + DI.dur(DI.RECOVERY_TARGET) + ' (ASSUMED, informational)', true]];
+  if (r.air && S.sysd.info.has(a.id)) { const okR = r.refill <= DI.REFILL_LIMIT; out.push([okR, 'Air refill: ' + DI.dur(r.refill) + ', limit ' + DI.fmt(DI.REFILL_LIMIT / 60) + ' min [' + DI.refillRef(S.W, S.sysd.info.get(a.id)) + ']: ' + (okR ? 'OK' : 'FAIL'), true]); }
+  if (r.time !== null) out.push([false, 'Total recovery ' + DI.dur(r.time) + (r.refill > r.time / 2 ? ', mostly the compressor' : ''), true]);
   for (const z of S.acts) if (z.kind === 'zone-filled' && z.why === 'low-air' && z.t >= S.drill.t0) if (S.W.parts.get(z.id)) out.push([false, 'Water-filled zone: ' + DI.sysName(S, z.id) + ' filled because P was left latched (unattended low-air failure), no discharge', true]);
   return out;
 };

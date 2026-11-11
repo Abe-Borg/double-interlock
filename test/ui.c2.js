@@ -87,8 +87,12 @@ const { chromium } = require('playwright'); const path = require('path');
   r = await rig(); await ev((id) => { DI.game.W.power = false; DI.game.W.parts.get(id).p.battH = 0; }, r.pn); await step(2);
   await sel(r.st); await press('Operate station'); await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(300); await sel(r.v); s = await st(r.v);
   ok('dead panel + manual pull + pipe below P trip: the valve stays shut, nothing is latched, and the panel-fed rows are dark', s.state === 'dry' && s.wat === 0 && s.P < 20 && !s.pLatch && !s.pull && !s.solOut && (await row('Solenoid (D AND P)')) === 'not displayed: panel dead' && (await row('D: detection')) === 'not displayed: panel dead' && (await row('P: pipe pressure')) === 'not displayed: panel dead');
+  // the status bar reads from the panel itself; the supervising station learns of it one supervision interval later (time-skip)
+  await tick(); const early = await ev(() => ({ bar: document.getElementById('annState').textContent, lost: [...DI.game.S.sig.values()].some((o) => o.lost), list: document.getElementById('sigs').innerText }));
+  ok('dead panel: the status bar reads PANEL DEAD - DISPLAY DARK at once, while the supervising station line is still absent', early.bar === 'PANEL DEAD - DISPLAY DARK' && !early.lost && early.list.includes('Display dark: the panel is dead.'), early.bar + ' | ' + early.list);
+  await ev(() => DI.game.S.warp(DI.commDelay(DI.game.W) + 60));
   const dead = await ev(() => [...DI.game.S.sig.values()].filter((o) => o.type === 'TRBL' && o.lost).map((o) => o.text + (o.mon ? ' [monitored]' : '')).join());
-  ok('dead panel: the supervising station reports the loss of communication as a monitored trouble', /^LOSS OF COMMUNICATION - panel #\d+ \(no signal, supervising station reports trouble\) \[monitored\]$/.test(dead), dead);
+  ok('dead panel: after the supervision interval the supervising station reports the loss of communication as a monitored trouble', /^LOSS OF COMMUNICATION - panel #\d+ \(no signal, supervising station reports trouble\) \[monitored\]$/.test(dead), dead);
   await ev(() => { DI.game.W.power = true; }); await step(2); s = await st(r.v);
   ok('power back: the panel reads its inputs again. The station is still operated and the pipe is still low, so D and P both return and the valve releases', s.pull === true && s.pLatch === true && s.state !== 'dry');
 

@@ -3,7 +3,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
 // 24 h air test, dry and double interlock (FP Lead): 40 psi air held 24 h; a loss over 1.5 psi must be
 // corrected. Pass = end reading at least 38.5 psi. Same values in every edition; the section is
-// DI.juris.ref.airTest (2025 held; 2019 and 2022 ASSUMED, VERIFY).
+// DI.juris.ref.airTest (verified: 2019 §28.2.2.1, 2022 and 2025 §29.2.2.1).
+// After the test the supply is restored. Where the zone's normal pressure is the 40 psi test pressure (or above)
+// nothing more is needed. Where it is lower the pipe is left high, and the operator returns it to normal:
+// s.ret, a practice step (DI.gasPre clears it and logs return-normal).
 //   psi     test pressure            endMin  lowest passing end reading        drop  allowed loss (report line)
 //   tol     ASSUMED: the clock starts once the zone is within this of the test pressure (the gauge reads 40.0).
 //           It is small on purpose: "end reading at least 38.5" equals "loss of 1.5 or less" only from a 40.0
@@ -132,6 +135,7 @@ DI.testStep = function (S, dt) {
       else if (v.p.ranFor >= pr.need) res = { pass: true, title: (v.type === 'dpump' ? 'Diesel' : 'Electric') + ' pump churn run', lines: ['Ran ' + pr.need / 60 + ' min at churn: suction ' + DI.fmt(S.pin(pr.id)) + ' psi, discharge ' + DI.fmt(S.pout(pr.id)) + ' psi', v.type === 'dpump' ? 'Fuel remaining: ' + DI.fmt(v.p.fuel * 100) + '%' : 'Motor ran normally'] };
       if (res) { v.p.mode = pr.mode0; v.p.on = false; v.p.lastTest = S.t; }
     }
+    if (res && pr.kind === 'leak' && s && s.state === 'dry' && v.p.airSet < DI.AIR_TEST.psi - DI.AIR_TEST.drop && s.P > v.p.airSet + 1) s.ret = true;
     if (res) {
       res.kind = pr.kind; res.id = pr.id; res.t = S.t; res.name = s ? DI.sysName(S, pr.id) : DI.PARTS[v.type].name + ' #' + v.id;
       S.results.push(res); S.procs.splice(i, 1); S.testUntil = S.procs.length ? S.t + 1e9 : S.t + 90; if (pr.kind === 'pump' || pr.kind === 'run') S.lastTestT = S.t;

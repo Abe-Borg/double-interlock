@@ -1,5 +1,5 @@
 // node test/campaign.test.js [id]  - plays each contract headlessly with a reference solution: goals, then the drill.
-for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'sim', 'calc', 'review', 'proc', 'scen', 'scen1', 'scen2', 'scen3']) require('../src/' + f + '.js');
+for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'cause', 'sim', 'calc', 'review', 'proc', 'scen', 'scen1', 'scen2', 'scen3']) require('../src/' + f + '.js');
 require('./bot.js'); const DI = globalThis.DI; let fail = 0;
 const only = process.argv[2];
 // build the reference solution and run its commissioning tests; `cfg` adds site settings for a what-if run
@@ -32,7 +32,7 @@ for (const sc of DI.SCEN) {
   if (sc.id === 'c5' && sc.goals.length !== 6) { fail++; console.log('   UNEXPECTED: contract 5 should have six goals'); }
   for (const r of S.results) console.log('   ' + (r === baseline ? 'EXPECTED baseline FAIL (leaking zone, before the repair) ' : r.pass ? 'PASS ' : 'FAIL ') + r.title + ': ' + r.lines.join(' | '));
   // recoveries after the commissioning tests are practice: printed, never counted. Only the c5 drill incident is scored.
-  for (const id of S.sysd.info.keys()) { const r = DI.recoveryScore(S, id); if (r) console.log('   recovery #' + id + (sc.id === 'c6' ? ' (not scored in c6): ' : ' (practice): ') + r.done + '/' + r.total + (r.inOrder ? ' in order' : ' OUT OF ORDER') + (r.time !== null ? ' in ' + DI.dur(r.time) : '')); }
+  for (const id of S.sysd.info.keys()) { const r = DI.recoveryScore(S, id); if (r) console.log('   recovery #' + id + (sc.id === 'c6' ? ' (not scored in c6): ' : ' (practice): ') + r.done + '/' + r.total + (r.inOrder ? ' in order' : ' OUT OF ORDER') + (r.time !== null ? ' in ' + DI.dur(r.time) + ', of which air refill ' + DI.dur(r.refill) : '')); }
   if (sc.drill) {
     DI.startDrill(S, sc.drill); let guard = 0;
     while (!S.drill.done && guard++ < 400000) { S.step(S.fires.length || S.outFlow > 1 ? 0.25 : 1); DI.drillStep(S); if (sol.ops) sol.ops(S); }
@@ -40,7 +40,8 @@ for (const sc of DI.SCEN) {
     if (sc.id === 'c5') {      // the one scored recovery: the drill's broken-sprinkler incident, 13 of 13 in order by the reference operator
       const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), q = a && DI.recoveryScore(S, a.id, S.drill.t0);
       if (!q || !q.complete || !q.inOrder || q.total !== 13) { fail++; console.log('   UNEXPECTED: the c5 drill recovery should be 13 of 13 in order'); }
-      else console.log('   drill recovery #' + a.id + ' (scored): ' + q.done + '/' + q.total + ' in order in ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s; informational target ' + DI.RECOVERY_TARGET + ' s' + (q.time > DI.RECOVERY_TARGET ? ', MISSED by the reference operator' : ', met') + ')');
+      else console.log('   drill recovery #' + a.id + ' (scored): ' + q.done + '/' + q.total + ' in order; operator steps ' + Math.round(q.opTime) + ' s (informational target ' + DI.RECOVERY_TARGET + ' s' + (q.opTime > DI.RECOVERY_TARGET ? ', MISSED by the reference operator' : ', met') +
+        '), air refill ' + DI.dur(q.refill) + ' of the ' + DI.REFILL_LIMIT / 60 + ' min limit (' + (q.refill <= DI.REFILL_LIMIT ? 'OK' : 'FAIL, informational') + '), total ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s)');
     }
     console.log('   DRILL', r && r.pass ? 'PASS' : 'FAIL', r ? r.lines.join(' | ') : 'timeout', '| fire', DI.money(S.stats.fireLoss), 'water', DI.money(S.stats.waterLoss), 'smoke', DI.money(S.stats.smokeLoss), '| spent', DI.money(sc.money - W.money));
   }

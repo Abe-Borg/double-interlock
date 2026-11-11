@@ -31,6 +31,16 @@ DI.review = function (S) {
     if (dry) {
       if (inf.gridded) add('fail', nm + ': piping is gridded (looped). Dry and double-interlock preaction systems must not be gridded - air cannot be driven out one way. Give every branch line a dead end (Cap tool, 6).', R(J.nfpa13 === 2025 ? '§8.2.1, §8.3' : '§8.2, §8.3'), v.x, v.y);
       if (!inf.src.length) add('fail', nm + ': no air compressor or nitrogen generator is tubed to the valve.', R('§8.2 / §8.3'), v.x, v.y);
+      // Air supply sizing (FP Lead): enough scfm to bring the largest zone on these sources to normal pressure in
+      // 30 min, plus an ASSUMED x1.25 margin. A warning only: the measured refill clock on the valve is the
+      // authority. One finding per set of sources, placed on the zone that governs it.
+      const az = DI.airSizing(S, id);
+      if (az && az.gov === id && (az.below || az.tight)) {
+        const srcs = inf.src.map((q) => (W.parts.get(q).type === 'n2' ? 'N₂ generator' : 'compressor') + ' #' + q).join(' + '), zone = az.shared ? 'the largest zone they serve (this one, ' + DI.fmt(az.gal) + ' gal)' : 'this zone (' + DI.fmt(az.gal) + ' gal)';
+        add('warn', nm + ': air supply ' + DI.fmt(az.have, 1) + ' scfm (' + srcs + ') ' + (az.below ? 'is below the ' + DI.fmt(az.min, 1) + ' scfm minimum to bring ' + zone + ' to normal pressure in ' + DI.AIR_SIZING.minutes + ' min.'
+          : 'meets the ' + DI.fmt(az.min, 1) + ' scfm minimum for ' + zone + ' but is below the x' + DI.AIR_SIZING.margin + ' margin (' + DI.fmt(az.margin, 1) + ' scfm, ASSUMED).') + ' Recovery time is mostly compressor time: watch the refill clock on the valve.',
+          DI.refillRef(W, inf) + (az.shared ? ' (one source serving several systems is sized on the largest)' : ''), v.x, v.y);
+      }
       // water delivery: one row per limit that applies, judged on full zone volume (pipe + fittings + trim)
       const dl = DI.deliveryLimits(S, id), vols = 'zone volume ' + DI.fmt(dl.zone) + ' gal (pipe ' + DI.fmt(dl.pipe) + ')';
       if (dl.nfpa.limit !== null) add('warn', nm + ': ' + vols + ' is over ' + dl.nfpa.thr + ' gal. Prove delivery with the ' + dl.nfpa.limit + ' s timed trip test, or rezone into smaller systems.' +
@@ -69,9 +79,10 @@ DI.review = function (S) {
   // every stage must sit inside the listed range of that stage for the site's detector model (datasheet ranges)
   for (const f of DI.asdFindings(W)) add('fail', f.text, f.ref, 0, 0);
   if (!(spot >= LS.min && spot <= LS.max)) add('fail', 'Spot detector alarm threshold ' + spot + ' %/ft is outside the listed window of the detector (' + LS.min + ' to ' + LS.max + ' %/ft, example data).', listed, 0, 0);
-  // NFPA 76, where adopted: the alarm-to-stage mapping is held OPEN and the conflict with the listing is flagged,
-  // never silently applied. Warnings stay visible; a fail needs an Alert over the limit or an elected stage over it.
+  // NFPA 76, where adopted: two ceilings, Alert and Fire 1 (the first alarm stage). A fail needs one of them
+  // exceeded. Where the detector listing is tighter than the alarm ceiling a note says so; it is not a finding.
   for (const f of DI.n76Flags(W)) add(f.sev, f.text, DI.N76_REF + ' (' + f.code + ')', 0, 0);
+  const n76 = DI.n76Note(W); if (n76) add('ok', n76, DI.N76_REF, 0, 0);
   // signal classes: a latched P may be OPEN (not elected), alarm or trouble, never supervisory
   const sc = (W.cfg && W.cfg.sigClass) || {};
   for (const k of Object.keys(DI.SIG_CLASS)) if (sc[k] !== undefined && !DI.SIG_CLASS[k].includes(sc[k]))

@@ -1,7 +1,7 @@
 // node review/truth-table-check.js [file.csv]
 // Prints the FA Lead's release truth table against the engine, row by row. Exit code 1 if any row differs.
 const path = require('path');
-for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'sim', 'calc', 'review', 'proc']) require(path.join('..', 'src', f + '.js'));
+for (const f of ['core', 'juris', 'data', 'world', 'solver', 'systems', 'graph', 'links', 'gas', 'fire', 'alarm', 'cause', 'sim', 'calc', 'review', 'proc']) require(path.join('..', 'src', f + '.js'));
 const TT = require('../test/truth-table.js'), DI = globalThis.DI;
 // The repo fixture must hash to the pin (TT.FIXTURE_SHA16). A file named on the command line is somebody
 // else's copy: its sha16 is printed and it must still pass the self-consistency checks.

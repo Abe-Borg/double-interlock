@@ -1,6 +1,6 @@
 // node test/ui.c3.js [out.png] - Cycle 3 browser checks (Playwright): the Manual Release zone path, a dead panel,
 // the head gate with the recovery checklist and the reopen gate, the 24 h air test, loss of supply air with a
-// water-filled zone, and the aspirating detector model with the NFPA 76 flags. Same style as ui.c2.js: inspector
+// water-filled zone, and the aspirating detector model with the NFPA 76 ceilings. Same style as ui.c2.js: inspector
 // and dialog controls are operated with real mouse events; sim time is advanced by hand with the game paused.
 const { chromium } = require('playwright'); const path = require('path');
 (async () => {
@@ -58,7 +58,9 @@ const { chromium } = require('playwright'); const path = require('path');
   ok('dead panel: then LOW BATTERY, while the panel is still alive', a.some((x) => x.includes('PANEL AC FAIL')) && a.some((x) => /sig TRBL \| TRBL LOW BATTERY - panel #/.test(x)) && (await ev((id) => DI.game.W.parts.get(id).p.alive, r.pn)) === true);
   await ev(() => DI.game.S.warp(2 * 3600)); await tick(); a = await sigs();
   const glyph = await ev((id) => { const G = DI.game, x = DI.partState(G, G.W.parts.get(id), 0); return [x.alive, x.al, x.sv, x.tr, x.op].join(); }, r.pn);
-  ok('dead panel: the annunciator lists only the supervising station line, and the banner reads PANEL DEAD - DISPLAY DARK', a.length === 1 && /stn \| TRBL SUPERVISING STATION LOSS OF COMMUNICATION - panel #\d+ \(no signal, supervising station reports trouble\)/.test(a[0]) && (await ev(() => document.getElementById('annState').textContent)) === 'PANEL DEAD - DISPLAY DARK', a.join(' / '));
+  ok('dead panel: at death the display is dark and the banner reads PANEL DEAD - DISPLAY DARK, before the supervising station knows', a.length === 1 && a[0].includes('Display dark: the panel is dead.') && (await ev(() => document.getElementById('annState').textContent)) === 'PANEL DEAD - DISPLAY DARK' && !(await ev(() => [...DI.game.S.sig.values()].some((o) => o.lost))), a.join(' / '));
+  await ev(() => DI.game.S.warp(DI.commDelay(DI.game.W) + 60)); await tick(); a = await sigs();       // the supervising station's own interval: use the time-skip
+  ok('dead panel: one supervision interval later the annunciator lists only the supervising station line, and the banner still reads PANEL DEAD - DISPLAY DARK', a.length === 1 && /stn \| TRBL SUPERVISING STATION LOSS OF COMMUNICATION - panel #\d+ \(no signal, supervising station reports trouble\)/.test(a[0]) && (await ev(() => document.getElementById('annState').textContent)) === 'PANEL DEAD - DISPLAY DARK', a.join(' / '));
   ok('dead panel: the panel glyph is dark, every LED off', glyph === 'false,0,0,0,0', glyph);
   await sel(r.pn);
   const dis = await ev(() => [...document.querySelectorAll('#side button')].filter((e) => /^(Silence|Panel reset)$/.test(e.textContent)).map((e) => e.disabled + '|' + e.title));
@@ -74,7 +76,13 @@ const { chromium } = require('playwright'); const path = require('path');
   r = await rig(); await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(3); await sel(r.v);
   ok('recovery: a broken head opens the Recovery checklist (PRACTICE) on the valve', (await side()).includes('RECOVERY CHECKLIST (PRACTICE)') && (await row('Latest incident')) !== null);
   await press('Replace 1 sprinkler'); const m1 = await banner();
-  await on(r.g, 'Close valve'); await step(5); await sel(r.v); await press('Replace 1 sprinkler'); const m2 = await banner();
+  await on(r.g, 'Close valve'); await step(5);
+  // practice (no drill running): reopening on a zone that is not ready is allowed, with a warning that lists what is still open
+  await on(r.g, 'Open valve'); const gw = await banner(), gs = await ev((id) => ({ target: DI.game.W.parts.get(id).p.target, act: DI.game.S.acts.filter((q) => q.kind === 'reopen-warn' && q.id === id).map((q) => q.items.join('; ')).join(' / '), log: DI.game.S.log.some((l) => l.cls === 'bad' && l.text.includes('reopened with items still open')) }), r.g);
+  ok('reopen gate, practice: outside a drill an unready zone reopens with a warning naming the open items, and a reopen-warn entry is logged', gs.target === 1 && /^Control valve #\d+ reopened with items still open: head not replaced in Preaction system #\d+ - Data Hall A/.test(gw) && gs.act.startsWith('head not replaced in Preaction system #') && gs.log, gw);
+  await on(r.g, 'Close valve'); await step(5);
+  await sel(r.v); const still = await row('If the control valve is reopened now'); ok('recovery: the practice checklist shows the same items', /^still open: head not replaced in Preaction system #\d+ - Data Hall A/.test(still || ''), still);
+  await press('Replace 1 sprinkler'); const m2 = await banner();
   ok('head gate: refused with the control valve open, then with the air supply not isolated', m1 === 'Close the control valve first.' && m2 === 'Isolate the air / N2 supply first.' && (await row('Air / N₂ supply')) === 'OPEN', m1 + ' / ' + m2);
   await press('Isolate air'); await press('Replace 1 sprinkler'); const m3 = await banner(); s = await st(r.v);
   ok('head gate: then refused while the pipe still holds pressure', /^The pipe still holds [\d.]+ psi\. Open the system drain and wait for the gauge to read 0\.$/.test(m3) && s.P > 0.5 && (await row('Air / N₂ supply')) !== 'OPEN', m3);
@@ -88,7 +96,10 @@ const { chromium } = require('playwright'); const path = require('path');
   ok('recovery: steps that do not apply are shown as such (no silence or find-head here, so it is not a clean 13)', na.length === 13 && na[5] === 'not applicable' && na[7] === 'not applicable' && na[10] === 'not applicable' && na[12] === 'done' && na[0] === 'pending', na.join(','));
 
   // ---- 3b. The full tripped recovery by mouse, El/Pn: every reopen-gate refusal, then 13 of 13 in order
-  r = await rig('el-pn'); await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(60); await smokeFor(r.room, 0.2, 3); await step(20); s = await st(r.v);
+  // A drill is marked as running before the head breaks, so this is the scored incident and the gate refuses. (The sandbox has
+  // no drill of its own: the object below is the minimum the gate reads, with one spent step so the drill runner leaves it alone.)
+  r = await rig('el-pn'); await ev(() => { const S = DI.game.S; S.drill = { name: 'test', t0: S.t, done: false, steps: [[0, () => {}]], i: 1, len: 1e9, judge: () => ({ pass: true, lines: [] }) }; });
+  await ev((k) => DI.breakSprinkler(DI.game.S, k), r.head); await step(60); await smokeFor(r.room, 0.2, 3); await step(20); s = await st(r.v);
   ok('recovery: broken head, then Fire 1: the valve has tripped and is discharging', s.state !== 'dry' && s.sol === true && s.pLatch === true);
   await on(r.pn, 'Silence');
   // find the head: centre the map on it and click it, as a player would
@@ -104,10 +115,10 @@ const { chromium } = require('playwright'); const path = require('path');
   const gm3 = await gate();
   await sel(r.v); await press('System drain'); await press('Restore air'); await step(1800, 1); const gm4 = await gate();
   await sel(r.v); await press('Reset actuator at the trim'); await step(1); await on(r.pn, 'Panel reset'); await step(2); const gm5 = await gate(); await step(6);
-  ok('reopen gate: refused while D is latched, while the valve is tripped, while the air is below low air, and while P is latched', gm1 === 'Reset the panel first: D / the solenoid is still latched.' && gm2 === 'Reset the riser valve first: it is still tripped.' && /^Restore air first: [\d.]+ psi is below low air \(30 psi\)\.$/.test(gm3) && gm4 === 'Reset the actuator at the trim: P is still latched.', [gm1, gm2, gm3, gm4].join(' / '));
+  ok('reopen gate, scored drill incident: refused while D is latched, while the valve is tripped, while the air is below low air, and while P is latched', gm1 === 'Reset the panel first: D / the solenoid is still latched.' && gm2 === 'Reset the riser valve first: it is still tripped.' && /^Restore air first: [\d.]+ psi is below low air \(30 psi\)\.$/.test(gm3) && gm4 === 'Reset the actuator at the trim: P is still latched.', [gm1, gm2, gm3, gm4].join(' / '));
   await sel(r.g); const zone = await row('Zone behind it'); await sel(r.v); s = await st(r.v);
   const rows = await ev(() => [...document.querySelectorAll('#side .row')].filter((e) => /^\d+\. /.test(e.firstChild.textContent)).map((e) => e.lastChild.textContent));
-  ok('reopen gate: it opens once the panel is reset, the clapper reset, P clear and the air above low air', gm5 === 'OPENED' && zone === 'in service' && s.state === 'dry' && s.set && !s.pLatch && s.P >= 30 && (await ev((id) => DI.game.W.parts.get(id).p.open, r.g)) > 0.99);
+  ok('reopen gate, scored drill incident: it opens once the panel is reset, the clapper reset, P clear and the air above low air, and no warning was logged', !(await ev(() => DI.game.S.acts.some((q) => q.kind === 'reopen-warn'))) && gm5 === 'OPENED' && zone === 'in service' && s.state === 'dry' && s.set && !s.pLatch && s.P >= 30 && (await ev((id) => DI.game.W.parts.get(id).p.open, r.g)) > 0.99);
   ok('recovery: the checklist reads 13 of 13, in order', (await row('Latest incident')) === '13 of 13, in order' && rows.length === 13 && rows.every((x) => x === 'done'), (await row('Latest incident')) + ' | ' + rows.join(','));
 
   // ---- 4. 24 h air test: starts at 40 psi, end reading 38.5 or more, section follows the edition
@@ -121,7 +132,7 @@ const { chromium } = require('playwright'); const path = require('path');
   ok('air test: a leaking zone ends FAIL with an end reading below 38.5 psi and the section on the report', !lk.pass && lk.end < 38.5 && lk.txt.startsWith('FAIL') && lk.txt.includes('[NFPA 13-2025 §29.2.2.1]'), lk.txt.replace(/\n/g, ' | '));
   await site(); await p.click('#mbox button[data-s="ed"][data-v="US-2019"]'); await tick(); await closeModal();
   await ev((id) => { const S = DI.game.S, pn = S.W.panelOf(id); S.warp(1800); DI.panelReset(S, pn.id); S.step(1); }, r.v); lk = await leakRun();
-  ok('air test: with the edition set to 2019 in the Site dialog the report cites §28.2.2.1 (ASSUMED, VERIFY)', !lk.pass && lk.txt.includes('[NFPA 13-2019 §28.2.2.1 (ASSUMED, VERIFY)]') && !lk.txt.includes('§29.2.2.1'), lk.txt.replace(/\n/g, ' | '));
+  ok('air test: with the edition set to 2019 in the Site dialog the report cites §28.2.2.1, verified, with no ASSUMED mark', !lk.pass && lk.txt.includes('[NFPA 13-2019 §28.2.2.1]') && !lk.txt.includes('ASSUMED') && !lk.txt.includes('§29.2.2.1'), lk.txt.replace(/\n/g, ' | '));
 
   // ---- 5. Loss of supply air, and a zone that fills with every head closed
   r = await rig(); await on(r.c, 'Fail source (sandbox)'); await ev((id) => { DI.game.S.ss.get(id).holes = 400; }, r.v); await step(900, 1); await tick(); a = await sigs();
@@ -132,7 +143,7 @@ const { chromium } = require('playwright'); const path = require('path');
   ok('water-filled zone: latched P plus Fire 1 with every head closed trips the valve and the log says water-filled, not a discharge', latched && s.state !== 'dry' && /bad .*is water-filled: no head is open, so nothing discharges\. This is an unattended low-air failure, not a discharge\./.test(log) && flow.zf === 'low-air');
   ok('water-filled zone: the gauge reads System (water) and nothing is discharged', (await row('System (water)')) !== null && (await row('System (gas)')) === null && flow.out === 0 && flow.gal === 0 && s.wat > 10, Math.round(s.wat) + ' gal in the pipe, outflow ' + flow.out);
 
-  // ---- 6. Aspirating detector model, per-stage ranges, no clamp; NFPA 76 OPEN and CONFLICT
+  // ---- 6. Aspirating detector model, per-stage ranges, no clamp; NFPA 76 as ceilings (a note, no chips, a check that writes nothing)
   await start('s0'); await site();
   const rd = () => ev(() => ({ on: [...document.querySelectorAll('#mbox button[data-s="asd"]')].filter((e) => e.classList.contains('on')).map((e) => e.textContent).join(), ranges: [...document.querySelectorAll('#mbox small[data-r]')].map((e) => e.textContent), doc: document.getElementById('asdDoc').innerText,
     vals: [...document.querySelectorAll('#mbox input[data-t]')].map((e) => e.value), bad: [...document.querySelectorAll('#mbox input[data-t]')].map((e) => (e.dataset.bad ? 1 : 0)).join(''), mm: [...document.querySelectorAll('#mbox input[data-t]')].map((e) => e.min + '-' + e.max).join(' '), thr: DI.detThr(DI.game.W).join(), note: (document.getElementById('siteNote') || {}).innerText || '' }));
@@ -146,19 +157,19 @@ const { chromium } = require('playwright'); const path = require('path');
   ok('ASD: switching to VEU widens the ranges, changes no threshold, and the same 0.7 still fails', d.on === 'VESDA-E VEU' && d.ranges.join(' | ') === '0.0003 to 0.614 | 0.0003 to 0.614 | 0.0003 to 0.614 | 0.0003 to 6.575' && d.doc.includes('36107_05') && d.thr === '0.03,0.06,0.7,1.2' && d.bad === '0010' && f.length === 1 && f[0].includes('VESDA-E VEU'));
   ok('ASD: a model that is not in the table is rejected', (await ev(() => DI.ui.siteSet('asd', 'XYZ'))) === false && (await ev(() => DI.asdModel(DI.game.W))) === 'VEU');
   await p.click('#mbox button[data-s="asd"][data-v="VEP"]'); await tick(); await p.click('#mbox button[data-s="pre"][data-v="reset"]'); await tick();
-  ok('NFPA 76: not adopted, there is no chip and the stage row reads Not elected', (await ev(() => !document.getElementById('n76Open') && !document.getElementById('n76Conf') && document.querySelector('#mbox button[data-s="n76s"].on').textContent === 'Not elected')));
-  await p.click('#mbox button[data-s="n76"][data-v="1"]'); await tick();
-  const chips = await ev(() => ({ open: (document.getElementById('n76Open') || {}).textContent, conf: (document.getElementById('n76Conf') || {}).textContent, tip: (document.getElementById('n76Conf') || {}).title, txt: [...document.querySelectorAll('#mbox p.n76')].map((e) => e.dataset.c + ': ' + e.innerText) }));
-  ok('NFPA 76: adoption shows the amber OPEN chip and the red CONFLICT chip, naming 1.0 and 0.614', chips.open === 'OPEN' && chips.conf === 'CONFLICT' && chips.tip.includes('1.0 %/ft') && chips.tip.includes('0.614 %/ft') && chips.txt.length === 2 && chips.txt[0].startsWith('N76_STAGE_OPEN: NFPA 76 limit: alarm threshold 1.0 %/ft.') && chips.txt[1].startsWith('N76_BOUND_CONFLICT: CONFLICT:'));
-  await closeModal(); await p.click('#bReview'); await tick(); const rvTxt = await ev(() => [...document.querySelectorAll('#mbox .find.warn')].map((e) => e.innerText).join('\n')); await closeModal();
-  ok('NFPA 76: both appear as plan-review warnings', rvTxt.includes('is not elected: OPEN, NEEDS PE REVIEW') && rvTxt.includes('CONFLICT: the NFPA 76 limit of 1.0 %/ft is above the VESDA-E VEP listed Fire 1 maximum (0.614 %/ft)'));
+  const n76 = () => ev(() => ({ open: !!document.getElementById('n76Open'), conf: !!document.getElementById('n76Conf'), stage: document.querySelectorAll('#mbox button[data-s="n76s"]').length, note: (document.getElementById('n76Note') || {}).innerText || '', flags: [...document.querySelectorAll('#mbox p.n76')].map((e) => e.dataset.c).join(),
+    chk: document.querySelector('#mbox button[data-s="pre"][data-v="nfpa76"]').textContent + '|' + document.querySelector('#mbox button[data-s="pre"][data-v="nfpa76"]').disabled }));
+  let n = await n76();
+  ok('NFPA 76: not adopted, there is no note, no chip and no alarm-stage row; the check button is disabled', !n.open && !n.conf && n.stage === 0 && n.note === '' && n.flags === '' && n.chk === 'Check against NFPA 76|true');
+  await p.click('#mbox button[data-s="n76"][data-v="1"]'); await tick(); n = await n76();
+  ok('NFPA 76: adoption shows the note that the VEP listing binds first, with no OPEN chip, no CONFLICT chip, no flag and no alarm-stage row', !n.open && !n.conf && n.stage === 0 && n.flags === '' && n.note === 'NFPA 76 ceilings: Alert 0.2, Fire 1 1.0 %/ft. The VESDA-E VEP listing (Fire 1 maximum 0.614) is tighter, so the listing binds first. [PRACTICE, NEEDS PE REVIEW].' && n.chk === 'Check against NFPA 76|false', n.note);
+  await closeModal(); await p.click('#bReview'); await tick(); const rv76 = await ev(() => ({ ok: [...document.querySelectorAll('#mbox .find.ok')].map((e) => e.innerText).join('\n'), bad: [...document.querySelectorAll('#mbox .find.warn, #mbox .find.fail')].map((e) => e.innerText).join('\n') })); await closeModal();
+  ok('NFPA 76: plan review carries the note as one ok line and raises no NFPA 76 warning or failure', rv76.ok.includes('NFPA 76 ceilings: Alert 0.2, Fire 1 1.0 %/ft.') && !/NFPA 76/.test(rv76.bad));
   await site(); await p.click('#mbox button[data-s="pre"][data-v="nfpa76"]'); await tick(); d = await rd();
-  ok('NFPA 76: with the stage not elected the preset leaves the four values unchanged and says why', d.thr === '0.03,0.06,0.12,1.2' && d.vals.join() === '0.03,0.06,0.12,1.2' && d.note.includes('no alarm stage is elected') && d.note.endsWith('No threshold was changed.') && (await banner()) === d.note, d.note.slice(0, 120));
-  await p.click('#mbox button[data-s="n76s"][data-v="fire2"]'); await tick(); await p.click('#mbox button[data-s="pre"][data-v="nfpa76"]'); await tick(); d = await rd();
-  ok('NFPA 76: with Fire 2 elected the preset sets Fire 2 to 1.0 and nothing else; the CONFLICT chip stays', d.thr === '0.03,0.06,0.12,1' && d.vals[3] === '1' && d.note === '' && (await ev(() => !document.getElementById('n76Open') && !!document.getElementById('n76Conf') && DI.game.W.cfg.n76AlarmStage)) === 'fire2');
+  ok('NFPA 76: "Check against NFPA 76" shows the result and changes no field', d.note === 'NFPA 76 check: Alert 0.03 (meets 0.2: yes), Fire 1 0.12 (meets 1.0: yes).' && d.thr === '0.03,0.06,0.12,1.2' && d.vals.join() === '0.03,0.06,0.12,1.2' && d.bad === '0000' && (await ev(() => !('detThr' in DI.game.W.cfg) && !('n76AlarmStage' in DI.game.W.cfg))), d.note);
   await closeModal(); await ev(() => localStorage.clear()); await start('c5'); await site();
-  const ro = await ev(() => ['asd', 'n76s', 'n76', 'pre'].map((k) => [...document.querySelectorAll('#mbox button[data-s="' + k + '"]')].every((e) => e.disabled)).join() + '|' + [...document.querySelectorAll('#mbox input[data-t]')].every((e) => e.disabled) + '|' + DI.ui.siteSet('asd', 'VEU') + DI.ui.siteSet('n76s', 'fire2'));
-  ok('contract: the model and stage rows are read-only', ro === 'true,true,true,true|true|falsefalse', ro);
+  const ro = await ev(() => ['asd', 'n76', 'pre', 'path', 'acd', 'hvac', 'epo'].map((k) => { const l = [...document.querySelectorAll('#mbox button[data-s="' + k + '"]')]; return l.length > 0 && l.every((e) => e.disabled); }).join() + '|' + [...document.querySelectorAll('#mbox input[data-t]')].every((e) => e.disabled) + '|' + DI.ui.siteSet('asd', 'VEU') + DI.ui.siteSet('path', 'multi') + DI.ui.siteSet('hvac', 'crah'));
+  ok('contract: the model, NFPA 76, supervising-station and hook rows are read-only', ro === 'true,true,true,true,true,true,true|true|falsefalsefalse', ro);
   await p.screenshot({ path: process.argv[2] || 'ui-c3.png' });
   console.log(errs.length ? errs.join('\n') : 'no page errors'); console.log(fail || errs.length ? (fail + ' FAILED, ' + errs.length + ' page errors') : 'all Cycle 3 UI checks passed');
   await b.close(); process.exit(fail || errs.length ? 1 : 0);
