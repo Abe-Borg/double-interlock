@@ -14,15 +14,22 @@ DI.migratePart = function (p) {
     if (q.mech === undefined) q.mech = false;
     if (q.solOut === undefined) q.solOut = false;
     if (q.mrzL === undefined) q.mrzL = false;
+    if (q.avc === undefined) q.avc = 1;                               // an AVC is fitted, its bypass closed
+    if (q.avcBy === undefined) q.avcBy = 0;
   } else if (p.type === 'comp' || p.type === 'n2') {
     if (q.fault === undefined) q.fault = false;
     if (p.type === 'comp' && !(q.cutOut >= 0)) q.cutOut = 0;          // compressor cut-out: none
   } else if (p.type === 'panel') {
     if (!Array.isArray(q.chan) || q.chan.length !== 2) q.chan = [1, 1];   // both DACT channels up
+    // Cycle 6: the battery pick and the ASSUMED loads of the standby calculation, charger and battery healthy
+    const L = DI.PANEL_LOADS; if (!(q.ah > 0)) q.ah = L.ah; if (!(q.iStby > 0)) q.iStby = L.iStby; if (!(q.iAlarm > 0)) q.iAlarm = L.iAlarm;
+    if (q.chgFail === undefined) q.chgFail = false; if (q.battDisc === undefined) q.battDisc = false;
   } else if (p.type === 'dryv') {
     const win = 10;                       // the supervisory window older saves used on either side of normal
     if (q.hiAir === undefined) q.hiAir = q.airSet + win;
     if (q.loAir === undefined) q.loAir = q.airSet - win;
+    if (q.avc === undefined) q.avc = 1;
+    if (q.avcBy === undefined) q.avcBy = 0;
   }
   return p;
 };
@@ -47,7 +54,8 @@ DI.World = class {
     this.outTemp = 70;                    // outdoor temperature, F
     this.power = true;                    // utility power
     // site / project settings: edition, ed72, nfpa76Adopted, pipeCut, detThr, spotThr, asdModel, sigClass, fitPct, trimGal,
-    // insurer, manualReleaseBypassP, commPath, acDelayMin and the two hook elections of cause.js. Read them through
+    // insurer, manualReleaseBypassP, commPath, acDelayMin, dactHold, standby, panelGen, refrigerated and the two hook
+    // elections of cause.js. Read them through
     // the DI helpers, which supply the defaults. (An old save may still carry the retired NFPA 76 stage key: nothing reads it.)
     this.cfg = {};
   }

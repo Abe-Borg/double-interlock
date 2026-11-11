@@ -10,12 +10,12 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   double-interlock system meet 60 s (it does not extend the 500 gal), delivery = the section-level pointer,
 //   airTest = the 24 h air test (40 psi, loss over 1.5 psi to be corrected),
 //   refill = the air supply restores normal pressure within 30 min, refillN2 = the same for an N2-only source
-//   (2025: the N2-only subsection is not pulled; the key is absent there and DI.refillRef applies the 2025 refill
-//   section as the conservative reading, marked ASSUMED),
+//   (2025, VERIFIED: §8.2.7.6 is held and has no N2-only 30-minute clause, so §8.2.7.3 applies to every source),
 //   refillAnnex = the Annex note that one compressor serving several systems is sized on the single largest system
 //   (2025: it also covers a shared N2 source),
-//   refillCold / refillN2Cold = 60 min for refrigerated spaces below 5 F. Recorded as text only: not modelled, there
-//   is no freezer room type (2025 N2-only: not pulled, key absent).
+//   refillCold / refillN2Cold = 60 min for refrigerated spaces maintained below 5 F (VERIFIED: 2019 / 2022 §8.2.6.3.3
+//   and §8.2.6.8.5; 2025 §8.2.7.4 for every source). Applied with the site flag W.cfg.refrigerated (DI.refillLimit):
+//   one flag for the whole site, there is no freezer room type (SIMPLIFICATION).
 // 2025: held. 2022 keeps the 2019 numbering (the renumber to §8.2.4 is 2025). Verified for 2022 (FP Lead, raw
 // 13-FP006-2022-8.2.3.txt and earlier pulls): §8.2.3.2, §8.2.3.3, §8.2.3.4, §8.2.3.5 to .6, Table 8.2.3.6.1, §8.2.3.7,
 // §8.2.3.8, §8.3.2.3.1.1 to .4, §8.3.2.3.2, the air test §29.2.2.1 and the refill sections. 2019: as given by the
@@ -36,20 +36,44 @@ var DI = globalThis.DI || (globalThis.DI = {});
 //   acTrouble   a primary power failure is a trouble signal
 //   panelTrouble  trouble signals at the panel within 200 s
 //   lowBatt     what the code says about a low battery (no threshold)
+//   dactTry     DACT transmission attempts: 5 to 10, each 90 s or less; after the maximum, a failure indication at
+//               the premises [CODE]
+//   dactAnnex   the annex table that gives 900 s for all attempts (2022 / 2025; 2019 has no such table, the text says so)
+//   priority    signal priority: fire alarm over everything, supervisory over trouble
+//   silenceTrouble  a silenced trouble sounds again every 24 h or less
+//   battStby, battFactor  standby capacity and the sizing factor on it (2019 x1.20; 2022 and 2025 x1.25)
+//   chgRecharge, chgFail  recharge within 48 h after one full discharge; the panel detects a charger failure, a trouble
+//   battListed  listed or component-recognized rechargeable batteries (2022 / 2025; 2019 has no such rule)
+//   battGen     the generator-backed case: batteries for 4 h (2025 only)
+// Hold and send after a communications failure has no key: it is NOT FOUND in all three editions (PRACTICE).
 (function () {
   const r72 = (yr, o) => { const p = 'NFPA 72-' + yr + ' '; return { ipFail: p + o.ip, multiFail: p + o.multi, dactTest: p + o.test,
     dactMissed: p + o.missed + ' (a missed test is a trouble [CODE]; the 6 h annunciation time is ASSUMED, taken from the test interval ' + o.test + ')', dactChan: p + o.chan,
-    acDelay: p + '§10.6.9.3', acTrouble: p + '§10.6.9.1.1', panelTrouble: p + '§10.15.1', lowBatt: 'no low-battery threshold held (' + p + '§10.6.9.1, §10.6.10.6)' }; };
+    acDelay: p + '§10.6.9.3', acTrouble: p + '§10.6.9.1.1', panelTrouble: p + '§10.15.1', lowBatt: 'no low-battery threshold held (' + p + '§10.6.9.1, §10.6.10.6)',
+    dactTry: p + o.tries, dactAnnex: o.annex ? p + o.annex : 'no annex table for the total in ' + yr + ' (2022 / 2025: Annex Table A.26.6.1, 900 s for all attempts)',
+    priority: p + '§10.7.2, §10.7.7', silenceTrouble: p + '§10.15.9.1; §10.15.10.7 for a Ch. 26 premises unit',
+    battStby: p + '§10.6.7.2', battFactor: p + o.factor, chgRecharge: p + '§10.6.10.3.2', chgFail: p + '§10.6.10.6.1 to .2',
+    battListed: o.listed ? p + o.listed : 'no such rule in ' + yr + ' (2022 / 2025: §10.6.10.1.3)', battGen: o.gen ? p + o.gen : 'not in ' + yr + ' (2025: §10.6.7.3.1(2))' }; };
   DI.REF72 = {
-    2019: r72(2019, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.1.5(6)', missed: '§26.6.4.2.2(H)', chan: '§26.6.4.1.4(B)(3)' }),
-    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)' }),
+    2019: r72(2019, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.1.5(6)', missed: '§26.6.4.2.2(H)', chan: '§26.6.4.1.4(B)(3)', tries: '§26.6.4.1.3(B)-(D)', factor: '§10.6.7.2.1.1' }),
+    2022: r72(2022, { ip: '§26.6.3.3(2)', multi: '§26.6.3.4(2)', test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3' }),
     2025: r72(2025, { ip: '§26.6.3.3.2(2) (annunciated per §10.15)', multi: '§26.6.3.4(1) (a 6 h supervision interval, not a failure-annunciation time: ASSUMED 6 h; 2025 annunciation time not found)',
-      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)' }),
+      test: '§26.6.4.2.5(6)', missed: '§26.6.4.3.2.8', chan: '§26.6.4.2.4.2(3)', tries: '§26.6.4.2.3.2-.4', annex: 'Annex Table A.26.6.1', factor: '§10.6.7.2.14', listed: '§10.6.10.1.3', gen: '§10.6.7.3.1(2)' }),
+  };
+  // NFPA 25 references (FP Lead, 2026-11-10), text only. VERIFIED: the annual main drain test and its 10 percent
+  // rule; the valve status test after a control valve is closed and reopened (2023 / 2026 body; 2020 table row only).
+  // Running the main drain test at that point is company practice, and the static-then-full-flow procedure is
+  // ASSUMED teaching practice. The code term is "full flow pressure", not "residual".
+  DI.REF25 = {
+    mainDrain: 'NFPA 25-2023 §13.2.2 (2020 §13.2.3), annual main drain test; 10 percent reduction in full flow pressure vs the original acceptance or previous tests: find the cause, correct if necessary (§13.2.2.3; 2020 §13.2.3.3) [VERIFIED]',
+    passRule: 'NFPA 25-2023 §13.2.2.3 (2020 §13.2.3.3)',
+    valveStatus: 'valve status test after a control valve is closed and reopened (NFPA 25-2023 / 2026 §13.3.3.4; 2020 Table 13.1.1.2 row) [VERIFIED duty and timing]',
+    practice: 'running the main drain test at that point is company practice; the static-then-full-flow procedure is ASSUMED teaching practice',
   };
   DI.ED72 = ['auto', '2019', '2022', '2025'];
   const r19 = { area: 'NFPA 13-2019 §4.5', delivery: 'NFPA 13-2019 §8.2.3', timedTest: 'NFPA 13-2019 §8.2.3.2', noQod: 'NFPA 13-2019 §8.2.3.3', qod: 'NFPA 13-2019 §8.2.3.4',
     calc: 'NFPA 13-2019 §8.2.3.5 to .6 (VERIFY)', table: 'NFPA 13-2019 Table 8.2.3.6.1', di: 'NFPA 13-2019 §8.3.2.3.1.1', diQod: 'NFPA 13-2019 §8.3.2.3.2', airTest: 'NFPA 13-2019 §28.2.2.1',
-    refill: 'NFPA 13-2019 §8.2.6.3.2', refillN2: 'NFPA 13-2019 §8.2.6.8.4', refillAnnex: 'NFPA 13-2019 A.8.2.6.3.2', refillCold: 'NFPA 13-2019 §8.2.6.3.3', refillN2Cold: 'NFPA 13-2019 §8.2.6.8.5' };
+    refill: 'NFPA 13-2019 §8.2.6.3.2', refillN2: 'NFPA 13-2019 §8.2.6.8.4', refillAnnex: 'NFPA 13-2019 A.8.2.6.3.2', refillCold: 'NFPA 13-2019 §8.2.6.3.3', refillN2Cold: 'NFPA 13-2019 §8.2.6.8.5' };     // refillCold, refillN2Cold: VERIFIED
   const d19 = ['Dry water delivery is §8.2.3.2 to §8.2.3.4 / Table 8.2.3.6.1 (2025: §8.2.4 / Table 8.2.4.3.2).', 'System area limit is §4.5 (2025: §4.4).',
     'The 24 h air test is cited as §28.2.2.1 (2025: §29.2.2.1).', 'The 30 min air refill is §8.2.6.3.2 (2025: §8.2.7.3).'];
   DI.JURIS = {
@@ -57,6 +81,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
       ref: { area: 'NFPA 13-2025 §4.4.1', delivery: 'NFPA 13-2025 §8.2.4', timedTest: 'NFPA 13-2025 §8.2.4.2', noQod: 'NFPA 13-2025 §8.2.4.2.1', qod: 'NFPA 13-2025 §8.2.4.2.2',
         calc: 'NFPA 13-2025 §8.2.4.3.1', table: 'NFPA 13-2025 Table 8.2.4.3.2', manifold: 'NFPA 13-2025 §8.2.4.4', otherTimes: 'NFPA 13-2025 §8.2.4.5',
         di: 'NFPA 13-2025 §8.3.2.3.1.1', diQod: 'NFPA 13-2025 §8.3.2.3.2', airTest: 'NFPA 13-2025 §29.2.2.1', refill: 'NFPA 13-2025 §8.2.7.3',
+        // VERIFIED (FP Lead): 2025 §8.2.7.6 is held and has no N2-only 30-minute clause, so §8.2.7.3 / §8.2.7.4 apply to every source
+        refillN2: 'NFPA 13-2025 §8.2.7.3 (no separate N2-only clause in 2025; §8.2.7.6 has none)', refillN2Cold: 'NFPA 13-2025 §8.2.7.4',
         refillAnnex: 'NFPA 13-2025 A.8.2.7.3', refillCold: 'NFPA 13-2025 §8.2.7.4' }, delta: [] },
     'US-2022': { country: 'US', nfpa13: 2022, nfpa72: 2022, area: 52000, nfpa76Adopted: false,
       ref: { area: 'NFPA 13-2022 §4.4', delivery: 'NFPA 13-2022 §8.2.3', timedTest: 'NFPA 13-2022 §8.2.3.2', noQod: 'NFPA 13-2022 §8.2.3.3', qod: 'NFPA 13-2022 §8.2.3.4',

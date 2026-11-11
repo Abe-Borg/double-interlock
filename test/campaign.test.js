@@ -37,11 +37,13 @@ for (const sc of DI.SCEN) {
     DI.startDrill(S, sc.drill); let guard = 0;
     while (!S.drill.done && guard++ < 400000) { S.step(S.fires.length || S.outFlow > 1 ? 0.25 : 1); DI.drillStep(S); if (sol.ops) sol.ops(S); }
     const r = S.drill.result; if (!r || !r.pass) fail++;
-    if (sc.id === 'c5') {      // the one scored recovery: the drill's broken-sprinkler incident, 13 of 13 in order by the reference operator
-      const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), q = a && DI.recoveryScore(S, a.id, S.drill.t0);
-      if (!q || !q.complete || !q.inOrder || q.total !== 13) { fail++; console.log('   UNEXPECTED: the c5 drill recovery should be 13 of 13 in order'); }
-      else console.log('   drill recovery #' + a.id + ' (scored): ' + q.done + '/' + q.total + ' in order; operator steps ' + Math.round(q.opTime) + ' s (informational target ' + DI.RECOVERY_TARGET + ' s' + (q.opTime > DI.RECOVERY_TARGET ? ', MISSED by the reference operator' : ', met') +
-        '), recovery rating ' + DI.recoveryTier(q) + ' of 3 stars, air refill ' + DI.dur(q.refill) + ' of the ' + DI.REFILL_LIMIT / 60 + ' min limit (' + (q.refill <= DI.REFILL_LIMIT ? 'OK' : 'over, informational') + '), total ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s)');
+    if (sc.id === 'c5') {      // the one scored recovery: the drill's broken-sprinkler incident, 14 of 14 in order by the reference operator (step 14 is the main drain test, drill only)
+      const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), q = a && DI.recoveryScore(S, a.id, S.drill.t0), L = DI.refillLimit(S.W);
+      if (!q || !q.complete || !q.inOrder || q.total !== 14) { fail++; console.log('   UNEXPECTED: the c5 drill recovery should be 14 of 14 in order'); }
+      else console.log('   drill recovery #' + a.id + ' (scored): ' + q.done + '/' + q.total + ' in order; water stopped ' + Math.round(q.waterStopped) + ' s after the alarm, recovery rating ' + DI.recoveryTier(q) + ' of 3 stars (' + DI.RECOVERY_TIERS.map((t) => t.stars + ' at ' + t.s + ' s').join(', ') + ', informational); operator steps ' + Math.round(q.opTime) +
+        ' s, air refill ' + DI.dur(q.refill) + ' of the ' + L / 60 + ' min limit (' + (q.refill <= L ? 'OK' : 'over, informational') + '), total ' + DI.dur(q.time) + ' (' + Math.round(q.time) + ' s)');
+      // the practice recoveries after the trip tests keep the thirteen steps
+      for (const id of S.sysd.info.keys()) { const pr = DI.recoveryScore(S, id); if (pr && pr.total !== 13) { fail++; console.log('   UNEXPECTED: a practice recovery should read 13 steps'); } }
       // Cycle 5: the report carries the recovery rating and the Tutor's refill wording, and never the word FAIL
       if (!r || !r.lines.some((l) => l.includes('Recovery rating:')) || r.lines.some((l) => /FAIL|Time bonus/.test(l))) { fail++; console.log('   UNEXPECTED: the c5 drill report should carry "Recovery rating:" and no FAIL'); }
     }

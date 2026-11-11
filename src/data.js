@@ -34,18 +34,19 @@ DI.PARTS = {
     props: { drain: 0, itc: 0 } },
   dryv: { name: 'Dry Pipe Valve', cat: 'system', cost: 14500, ports: 2, key: '2',
     desc: 'Pipe holds air; a differential clapper holds water back. Sprinkler opens, air drops, valve trips. For spaces that freeze.',
-    props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1 } },
+    props: { drain: 0, itc: 0, sdrain: 0, qod: false, tripped: false, airSet: 40, hiAir: 50, loAir: 30, airValve: 1, avc: 1, avcBy: 0 } },     // avc: an air maintenance device (AVC) is fitted, 0 = compressor direct; avcBy: its bypass is open
   prev: { name: 'Preaction Valve', cat: 'system', cost: 24000, ports: 2, key: '3',
     desc: 'Deluge valve + closed sprinklers + detection. Double interlock: detection (Fire 1 or the manual station) AND P (pipe pressure below the P trip setpoint) must both happen before water enters.',
-    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, pull: false, sol: false, solOut: false, mrzL: false } },   // mrzL: Manual Release zone release latched
+    props: { drain: 0, itc: 0, sdrain: 0, tripped: false, trim: 'el-el', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20, pLatch: false, mech: false, airValve: 1, avc: 1, avcBy: 0, pull: false, sol: false, solOut: false, mrzL: false } },   // mrzL: Manual Release zone release latched; avc / avcBy: the AVC and its bypass (DI.avcOn)
   comp: { name: 'Air Compressor', cat: 'air', cost: 3400, ports: 0, key: 'A',
     desc: 'Riser-mounted compressor + air maintenance device. Must restore normal air pressure within 30 minutes.',
-    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false, cutOut: 0 } },      // cutOut: psi, 0 = none; a sizing input only (DI.sizingP)
+    props: { scfm: 5, on: false, runSec: 0, starts: 0, fault: false, cutOut: 0 } },      // cutOut: psi, 0 = none; a sizing input only on a compressor direct to the system (DI.sizingP), and the drift target of an open AVC bypass
   n2: { name: 'Nitrogen Generator', cat: 'air', cost: 29000, ports: 0, key: 'N',
     desc: 'Membrane generator: 98%+ nitrogen as supervisory gas. Starves the oxygen corrosion that eats dry and preaction pipe.',
     props: { scfm: 2.5, on: false, runSec: 0, starts: 0, fault: false } },
   panel: { name: 'Releasing Panel (FACP)', cat: 'alarm', cost: 18000, ports: 0, key: 'P',
-    desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. 24 h standby battery.', props: { silenced: false, chan: [1, 1] } },     // chan: the two DACT channels, 1 = up (used on the DACT path only)
+    desc: 'Listed releasing fire alarm panel. Wire detection, manual stations, switches and solenoids to it. Standby battery sized for the site’s standby basis.',
+    props: { silenced: false, chan: [1, 1], ah: 26, iStby: 0.5, iAlarm: 2, chgFail: false, battDisc: false } },     // chan: the two DACT channels, 1 = up (DACT path only). ah: battery pick; iStby / iAlarm: loads in A (ASSUMED, listing values); chgFail / battDisc: sandbox faults
   vesda: { name: 'Aspirating Smoke Detector', cat: 'alarm', cost: 14000, ports: 0, key: 'S',
     desc: 'Air-sampling very-early-warning detection in four stages. Alert is supervisory, Action is a pre-alarm, Fire 1 is the detection leg of a release, Fire 2 is escalation only.',
     props: { lvl: 0, obs: 0 } },
@@ -94,6 +95,8 @@ DI.asdRange = (W) => { const r = DI.ASD_MODELS[DI.asdModel(W)].range; return DI.
 //   fitPct   fittings allowance on pipe volume, %       trimGal  valve trim volume, gal per system valve
 //   insurer  'none' | 'FM' (FM adds the 30 s delivery limit at any volume; NEEDS PE REVIEW)
 DI.CFG_DEFAULT = { spotThr: 1.3, fitPct: 5, trimGal: 2, insurer: 'none' };
+// Other settings read with a default when absent (an old save loads unchanged): dactHold (DI.dactHold, true), standby
+// (DI.standbyKey, 'nfpa5'), panelGen (DI.panelGen, false), refrigerated (DI.refrigerated, gas.js, false).
 DI.cfgNum = (W, key, lo) => { const v = W && W.cfg ? W.cfg[key] : undefined; return typeof v === 'number' && isFinite(v) && v >= (lo || 0) ? v : DI.CFG_DEFAULT[key]; };
 DI.spotThr = (W) => { const v = DI.cfgNum(W, 'spotThr'); return v > 0 ? v : DI.CFG_DEFAULT.spotThr; };
 DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
@@ -103,7 +106,8 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // ALARM or TRBL if elected, and never SUPV (supervisory is blocked for it). All ASSUMED, NEEDS PE REVIEW.
 // Fixed classes, no setting (DI.SIG_FIXED): Fire 1, Fire 2, manual station, Manual Release zone, release circuit,
 // waterflow and a spot detector ALARM; low and high air, valve tamper and a contract impairment SUPV; panel AC, low
-// battery, loss of communication, a failed DACT channel and loss of supply air TRBL. Loss of supply air is TRBL
+// battery, loss of communication, a failed DACT channel, a failed DACT transmission, a charger failure, a
+// disconnected battery and loss of supply air TRBL. Loss of supply air is TRBL
 // [PRACTICE] (FA Lead, 2026-11-10 3:01 PM PT): a compressor or N2 power or controller fault is equipment trouble,
 // its own signal; the pressure drop it causes is still reported by the separate low-air supervisory.
 // The fire pump, tank and low-temperature signals keep the classes they always had (PRACTICE, not in the FA Lead's
@@ -112,7 +116,7 @@ DI.insurer = (W) => (W && W.cfg && W.cfg.insurer === 'FM' ? 'FM' : 'none');
 // the one reader of a class. add(...) in DI.alarmStep takes the registry key, never a class, and the
 // cause-and-effect matrix and the signal schedule (cause.js) read the same keys.
 DI.SIG_FIXED = { fire1: 'ALARM', fire2: 'ALARM', manual: 'ALARM', mrz: 'ALARM', release: 'ALARM', waterflow: 'ALARM', lowAir: 'SUPV', highAir: 'SUPV', tamper: 'SUPV',
-  supplyAir: 'TRBL', acFail: 'TRBL', lowBatt: 'TRBL', lostComm: 'TRBL', impair: 'SUPV',
+  supplyAir: 'TRBL', acFail: 'TRBL', lowBatt: 'TRBL', lostComm: 'TRBL', impair: 'SUPV', dactFail: 'TRBL', chgFail: 'TRBL', battDisc: 'TRBL',
   spot: 'ALARM', pumpRun: 'SUPV', pumpMode: 'SUPV', pumpPower: 'SUPV', pumpFail: 'TRBL', pumpFuel: 'SUPV', pumpBatt: 'TRBL', tankLow: 'SUPV', lowTemp: 'SUPV', dactChan: 'TRBL' };
 // Fire-department dispatch (FA Lead signal schedule). Alarm signals go to the fire department [CODE, section not
 // pulled]: the keys below. Everything else goes to the supervising station only [PRACTICE]: every supervisory and
@@ -148,6 +152,9 @@ DI.inClass = (W, key) => (Object.prototype.hasOwnProperty.call(DI.SIG_CLASS, key
     impair: { label: 'Impairment: Manual Release zone bypass (contract)', tag: ours },
     lostComm: { label: 'Loss of communication (panel dead, or a missed DACT test)', tag: ours },
     dactChan: { label: 'DACT channel failed', tag: ours },
+    dactFail: { label: 'DACT transmission failed (after the maximum attempts)', tag: '[CODE: failure indication at the premises after the maximum attempts]' },
+    chgFail: { label: 'Panel battery charger failure', tag: 'Class [CODE 10.6.10.6.1 to .2]; ' + stn },
+    battDisc: { label: 'Panel battery disconnected', tag: '[PRACTICE, not code]; ' + stn },
     pumpRun: { label: 'Fire pump running', tag: ours },
     pumpMode: { label: 'Fire pump controller not in auto', tag: ours },
     pumpPower: { label: 'Electric fire pump loss of power', tag: ours },
@@ -163,16 +170,67 @@ DI.SIG_ORDER = { ALARM: 0, OPEN: 1, SUPV: 2, TRBL: 3 };
 DI.OPEN_LABEL = 'RELEASE INPUT - CLASS NOT ELECTED';
 
 // ---------- releasing panel power and the supervising station (NFPA 72 Ch. 10 and Ch. 26; citations in DI.REF72, read with DI.ref72(W))
-// Standby battery: a flat 24 h of standby plus alarm (Simplification).
-// Low battery: the code states no low-battery threshold. It requires the voltage to be monitored and a trouble on
-// failure; the 24 h standby sets capacity, not the trouble setpoint. The trouble here is the listed manufacturer's
-// low-battery voltage setpoint, represented as 1/12 of battery capacity left: [OWNER/listing], ASSUMED, NEEDS PE REVIEW.
-DI.PANEL_STANDBY_H = 24;
-DI.PANEL_LOWBATT_FRAC = 1 / 12;
-DI.lowBattH = () => DI.PANEL_STANDBY_H * DI.PANEL_LOWBATT_FRAC;      // hours of standby left at the setpoint
-DI.LOWBATT_NOTE = 'the listed manufacturer low-battery voltage setpoint, represented as 1/12 of battery capacity left (OWNER/listing, ASSUMED, NEEDS PE REVIEW)';
+// Standby battery (FA Lead, Cycle 6). The standby basis is a site setting (W.cfg.standby, read with DI.standbyKey):
+// hours of standby plus minutes of alarm. Only a releasing panel exists in the game, so three rows are selectable;
+// the other three are reference rows, shown in the standby dialog and the manual, never selectable and never modelled.
+//   nfpa5    24 h + 5 min: the building-FACU rule (CODE, NFPA 72 10.6.7.2.2) used for a releasing panel [PRACTICE]. Default.
+//   owner10  24 h + 10 min [OWNER]
+//   fm90     90 h + 10 min [OWNER/insurer, FM DS 5-40 2.3.4, Sep 2007 edition, may not be current]: an election of
+//            its own, never automatic on insurer = FM (the default 26 Ah battery fails it)
+DI.STANDBY = [
+  { key: 'nfpa5', label: 'Releasing panel, NFPA 72', hours: 24, alarmMin: 5, sel: true, tag: '[CODE NFPA 72 §10.6.7.2.2, the building-FACU rule, used for a releasing panel: PRACTICE]' },
+  { key: 'owner10', label: 'Releasing panel, owner row', hours: 24, alarmMin: 10, sel: true, tag: '[OWNER]' },
+  { key: 'fm90', label: 'Releasing panel, FM-insured', hours: 90, alarmMin: 10, sel: true, tag: '[OWNER/insurer, FM DS 5-40 §2.3.4, Sep 2007 edition, may not be current; releasing panel only]' },
+  { key: 'facu', label: 'Building FACU', hours: 24, alarmMin: 5, sel: false, tag: '[CODE NFPA 72 §10.6.7.2.2]; reference only, not modelled' },
+  { key: 'evacs', label: 'EVACS FACU', hours: 24, alarmMin: 15, sel: false, tag: '[CODE NFPA 72 §10.6.7.2]; reference only, not modelled' },
+  { key: 'ess', label: 'Li-ion ESS panel', hours: 24, alarmMin: 120, sel: false, tag: '[NFPA 855 §4.8.3, upper bound; NFPA 855-2026 HOLD]; reference only, not modelled' },
+];
+DI.STANDBY_DEFAULT = 'nfpa5';
+DI.standbyKey = (W) => { const k = W && W.cfg ? W.cfg.standby : undefined, r = DI.STANDBY.find((q) => q.key === k); return r && r.sel ? k : DI.STANDBY_DEFAULT; };
+DI.standbyRow = (W) => DI.STANDBY.find((q) => q.key === DI.standbyKey(W));
+// Sizing factor on the calculated capacity, by NFPA 72 edition (DI.ed72, never the NFPA 13 edition) [CODE]:
+// 2019 x1.20 (10.6.7.2.1.1); 2022 and 2025 x1.25 (10.6.7.2.14).
+DI.STBY_FACTOR = { 2019: 1.20, 2022: 1.25, 2025: 1.25 };
+DI.STBY_THIN = 0.20;                      // PRACTICE screen, NEEDS PE REVIEW: a margin under 20 % is THIN
+DI.BATT_AH = [7, 12, 18, 26, 33, 55, 65, 100];        // ASSUMED battery picks, Ah. The pick is free (SIMPLIFICATION)
+DI.PANEL_LOADS = { ah: 26, iStby: 0.5, iAlarm: 2 };   // ASSUMED defaults (listing values): battery Ah, standby A, alarm A
+// Generator-backed panel (site setting W.cfg.panelGen, optional, default battery only): batteries for 4 h and the
+// generator covers 24 h. 2025 only (NFPA 72-2025 10.6.7.3.1(2)); under 2019 / 2022 the setting is ignored with a note.
+DI.GEN_BATT_H = 4;
+DI.GEN_RUN_S = 86400;                     // SIMPLIFICATION: the generator runs exactly 24 h, no fuel model
+DI.GEN_START_S = 10;
+DI.panelGen = (W) => !!(W && W.cfg && W.cfg.panelGen === true) && DI.ed72(W) === 2025;
+// The standby calculation of one panel. Pure.
+//   h      hours of standby the battery must carry (4 with the generator option)
+//   req    Ah required = (standby A x h + alarm A x alarm min / 60) x factor
+//   margin ah / req - 1;  below = the pick is under req (review FAIL);  thin = not below, margin under 20 % (warning)
+DI.standbyCalc = function (W, panel) {
+  const row = DI.standbyRow(W), ed = DI.ed72(W), factor = DI.STBY_FACTOR[ed] || 1.25, gen = DI.panelGen(W), q = (panel && panel.p) || {}, L = DI.PANEL_LOADS;
+  const ah = q.ah > 0 ? q.ah : L.ah, iStby = q.iStby > 0 ? q.iStby : L.iStby, iAlarm = q.iAlarm > 0 ? q.iAlarm : L.iAlarm, h = gen ? DI.GEN_BATT_H : row.hours;
+  const req = (iStby * h + iAlarm * row.alarmMin / 60) * factor, margin = ah / req - 1, below = ah < req;
+  return { key: row.key, row, ed, factor, gen, h, ah, iStby, iAlarm, alarmMin: row.alarmMin, req, margin, below, thin: !below && margin < DI.STBY_THIN,
+    basis: h + ' h + ' + row.alarmMin + ' min, x' + factor.toFixed(2) + (gen ? ', generator-backed' : '') };
+};
+// Hours of standby the fitted battery gives in the game: the basis hours, less in proportion where the pick is
+// under the requirement. A larger battery is not credited with more hours (SIMPLIFICATION).
+DI.panelH = function (W, panel) { const c = DI.standbyCalc(W, panel); return c.h * Math.min(1, c.ah / c.req); };
+// Recharge [CODE NFPA 72 10.6.10.3.2]: within 48 h after one full discharge. The charge rate is capacity / 48.
+DI.RECHARGE_H = 48;
+// Low battery: the code states no low-battery threshold (NOT FOUND in 2019, 2022 or 2025). It requires the voltage to be
+// monitored and a trouble on failure. The trouble here is the listing's low-voltage setpoint: 20.4 V on a 24 V system,
+// ASSUMED [PRACTICE]. Voltage is a straight line from the end of discharge (19.8 V) to float (27.0 V), both ASSUMED
+// (SIMPLIFICATION), so 20.4 V is 1/12 of the capacity left, whatever the capacity.
+DI.PANEL_STANDBY_H = 24;                  // the default basis (nfpa5) in hours
+DI.LOWBATT_V = 20.4; DI.BATT_V_END = 19.8; DI.BATT_V_FLOAT = 27.0;
+DI.PANEL_LOWBATT_FRAC = 1 / 12;           // = (20.4 - 19.8) / (27.0 - 19.8)
+DI.battV = (battH, H) => DI.BATT_V_END + (DI.BATT_V_FLOAT - DI.BATT_V_END) * DI.clamp(H > 0 ? battH / H : 0, 0, 1);
+DI.lowBattH = (H) => (H > 0 ? H : DI.PANEL_STANDBY_H) * DI.PANEL_LOWBATT_FRAC;      // hours of standby left at the setpoint
+DI.LOWBATT_NOTE = 'the listed low-battery voltage setpoint, ' + DI.LOWBATT_V + ' V on a 24 V system (OWNER/listing, ASSUMED, NEEDS PE REVIEW)';
 // Trouble signals appear at the panel within 200 s. The game shows them at once, which is inside the ceiling.
 DI.TROUBLE_PANEL_S = 200;
+// A silenced trouble sounds again by itself every 24 h or less [CODE, DI.ref72(W).silenceTrouble]. The game uses
+// exactly 24 h (ASSUMED).
+DI.TROUBLE_RESOUND_S = 86400;
 // AC failure is transmitted to the supervising station after a delay: 60 to 180 min, OWNER / AHJ (site setting
 // W.cfg.acDelayMin, default 60). If power returns inside the delay nothing is transmitted.
 DI.AC_DELAY_MIN = [60, 90, 120, 150, 180];
@@ -187,6 +245,14 @@ DI.acDelay = (W) => { const m = W && W.cfg ? W.cfg.acDelayMin : undefined; retur
 // within 4 minutes" (2019 §26.6.4.1.4(B)(3); 2022 and 2025 §26.6.4.2.4.2(3)). DI.DACT_CHAN_S is that time. The two
 // channels are panel props (chan: [1, 1], 1 = up) and matter on the DACT path only; failing one is a sandbox fault.
 DI.DACT_CHAN_S = 240;
+// DACT transmission attempts [CODE]: 5 to 10 attempts, each 90 s or less; after the maximum, a failure indication at
+// the premises (DI.ref72(W).dactTry). The game makes 10 attempts (the count is ASSUMED inside the CODE bound) of 90 s,
+// 900 s in all (the annex figure for all attempts in 2022 / 2025). DI.DACT_SEND_S: seconds between two sends when a
+// channel is back, one handshake each (ASSUMED).
+DI.DACT_TRIES = 10; DI.DACT_ATTEMPT_S = 90; DI.DACT_TOTAL_S = DI.DACT_TRIES * DI.DACT_ATTEMPT_S; DI.DACT_SEND_S = 10;
+// Hold and send after a communications failure (site setting W.cfg.dactHold, default ON, stored only when false).
+// The code is silent on holding (NOT FOUND in 2019, 2022 or 2025): PRACTICE, manufacturer behaviour, NEEDS PE REVIEW.
+DI.dactHold = (W) => !(W && W.cfg && W.cfg.dactHold === false);
 DI.COMM_PATH = {
   ip: { label: 'Single path (IP, performance-based)', short: 'IP path', delay: 3600, ref: 'ipFail' },
   multi: { label: 'Multiple paths', short: 'multiple paths', delay: 21600, ref: 'multiFail' },
@@ -205,6 +271,11 @@ DI.TRIMS = {
   'el-pn': { name: 'Electric / pneumatic', sensor: 'PA-REL', airSet: 40, hiAir: 50, loAir: 30, pTrip: 20 },    // P sensed by a pneumatic actuator
 };
 DI.P_MARGIN = 5;                    // ASSUMED: minimum psi between the low-air setpoint and P trip
+// AVC (air maintenance device) and its bypass. With the bypass open the AVC does not regulate and the zone drifts to
+// the source's own limit: the highest compressor cut-out on the zone, or this figure where none is set (ASSUMED).
+DI.AVC_BYPASS_PSI = 60;
+DI.avcFitted = (v) => v.p.avc !== 0;                       // an old save has no prop: fitted
+DI.avcBypassed = (v) => DI.avcFitted(v) && !!v.p.avcBy;   // fitted, and not regulating
 DI.trimOf = (v) => DI.TRIMS[v.p.trim] || DI.TRIMS['el-el'];
 DI.loadTrim = function (v, key) {   // load a maker preset onto a preaction valve
   const t = DI.TRIMS[key]; if (!t) return;
