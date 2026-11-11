@@ -42,7 +42,14 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") { throw 'Tag does not match app version' }
           $cargo = Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "(.+)"$'
           if ($cargo.Matches[0].Groups[1].Value -ne $version) { throw 'Cargo version does not match app version' }
-      - run: npm test
+      - name: Test simulation and campaign
+        shell: pwsh
+        run: |
+          npm test 2>&1 | Tee-Object -FilePath engine-tests.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content engine-tests.log | Where-Object { $_ -match '^FAIL|FAILED|Error|error|Assertion' } | Add-Content $env:GITHUB_STEP_SUMMARY
+            exit $LASTEXITCODE
+          }
       - run: npx playwright install chromium
       - run: npm run test:desktop
       - name: Prepare screenshot directory

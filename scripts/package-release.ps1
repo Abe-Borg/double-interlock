@@ -5,6 +5,7 @@ if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
 }
 $installers = @(Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe)
 if ($installers.Count -ne 1) { throw 'Expected exactly one Windows x64 installer' }
+if (Test-Path dist/release) { Remove-Item -Recurse -Force dist/release }
 New-Item -ItemType Directory -Force dist/release | Out-Null
 $name = "Double-Interlock-$version-windows-x64-setup.exe"
 Copy-Item $installers[0].FullName "dist/release/$name"
