@@ -1831,7 +1831,8 @@ DI.alarmStep = function (S, dt) {
   const H = DI.PANEL_STANDBY_H;
   for (const p of panels) {
     if (p.p.battH === undefined) p.p.battH = H;
-    if (W.power) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
+    // (the settle of a load is not game time: it neither charges nor drains the battery, see Sim.restore)
+    if (S.settling) { /* hold */ } else if (W.power) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
     p.p.alive = W.power || p.p.battH > 0;
     // deadT: when the panel died. The supervising station learns of it one supervision interval later (DI.commDelay).
     if (p.p.alive) { if (p.p.deadT !== undefined) delete p.p.deadT; } else if (!(p.p.deadT >= 0)) p.p.deadT = S.t;
@@ -1845,16 +1846,20 @@ DI.alarmStep = function (S, dt) {
   //        class is read here, in one place, with DI.inClass.
   // fd   = an alarm signal of the kind that is sent on to the fire department (DI.SIG_FD). Alert, Action and a
   //        latched P are never fd, whatever class the owner elects for them.
+  // cut  = the panel is alive and annunciates the signal, but its path to the supervising station is down: both
+  //        DACT channels have failed, so the panel cannot send anything, alarms included. Nothing is transmitted and
+  //        the fire department is not dispatched from it. What the station itself reports (lost) is never cut.
   // After a load, S.sigSeen holds the first-seen time of every signal that was active when the game was saved, so
   // a delay clock carries across save and load and nothing is announced twice. It is used once and dropped.
+  const dact = DI.commPath(W) === 'dact', pathDown = (pn) => dact && Array.isArray(pn.p.chan) && !pn.p.chan[0] && !pn.p.chan[1];
   const add = (key, regKey, text, part, lost, delay) => {
     const pn = part ? (part.type === 'panel' ? part : W.panelOf(part.id)) : null, type = DI.inClass(W, regKey);
-    const prev = old.get(key) || (S.sigSeen && S.sigSeen.get(key)), dark = !lost && !!pn && !pn.p.alive, t0 = prev ? prev.t0 : S.t, dl = delay || 0, mon = !!lost || !!(pn && pn.p.alive);
-    const o = { key, reg: regKey, fd: !!DI.SIG_FD[regKey], type, text, part: part ? part.id : 0, mon, lost: !!lost, dark, t0, delay: dl, tx: mon && S.t - t0 >= dl, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
+    const prev = old.get(key) || (S.sigSeen && S.sigSeen.get(key)), dark = !lost && !!pn && !pn.p.alive, t0 = prev ? prev.t0 : S.t, dl = delay || 0, mon = !!lost || !!(pn && pn.p.alive), cut = !lost && mon && pathDown(pn);
+    const o = { key, reg: regKey, fd: !!DI.SIG_FD[regKey], type, text, part: part ? part.id : 0, mon, lost: !!lost, dark, cut, t0, delay: dl, tx: mon && !cut && S.t - t0 >= dl, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
     sig.set(key, o);
     if (dl > 0 && o.tx && prev && !prev.tx) S.say('Supervising station notified: ' + text, 'warn');
     if (!prev && pn && !dark) pn.p.silenced = false;          // a new signal resounds a silenced panel
-    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
+    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : cut ? '  [both DACT channels down: not transmitted]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
   };
   // detection
   for (const p of W.parts.values()) {
@@ -1962,9 +1967,10 @@ DI.alarmStep = function (S, dt) {
   S.sig = sig; if (S.sigSeen) S.sigSeen = null;
   // Fire department: only an alarm signal of the dispatch list (o.fd, DI.SIG_FD). A supervisory or trouble signal goes
   // to the supervising station only, and so does Alert, Action or a latched P that the owner has elected ALARM: they
-  // sound the panel and never call the fire department by themselves.
+  // sound the panel and never call the fire department by themselves. A panel whose path is down (o.cut) sends
+  // nothing, so its alarms dispatch nobody: the late passer-by call below is all that is left.
   const fd = S.fd; let monAlarm = false;
-  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.sup && !o.test) monAlarm = true;
+  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.cut && !o.sup && !o.test) monAlarm = true;
   const live = S.live || (S.drill && !S.drill.done);        // while the site is under construction nothing is transmitted
   if (live && fd.called < 0 && (S.fires.length || !S.fd.log || S.t - S.fd.log.t > 1800) && (monAlarm || (S.fires.length && S.fires.some((k) => S.fq[k] > 300) && S.t - S.fireT0 > 900))) {
     fd.called = S.t; fd.log = { t: S.t, auto: monAlarm }; S.say(monAlarm ? 'Alarm transmitted. Fire department dispatched.' : 'A passer-by called 911. Fire department dispatched (late).', 'warn');
@@ -2649,12 +2655,14 @@ DI.Sim.prototype.restore = function (j) {
   // that was active at the save keeps its t0 / tx / test, and one that only comes back once the clock is right (the
   // station's loss-of-communication line) finds them in S.sigSeen at the first step. An older save has no `sig`
   // and loads as it always did.
-  const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced, p.p.battH]) : [];
-  this.commission(j.t || 0.001); this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
+  // The settle is not game time, so it must not run a panel's battery down (S.settling): with utility power off
+  // and seconds of standby left, the panel would die inside the settle and drop every latch it holds.
+  const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced]) : [];
+  this.settling = true; this.commission(j.t || 0.001); this.settling = false; this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
   if (j.sig) {
     this.sigSeen = new Map(j.sig);
     for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; } }
-    for (const [p, sil, bh] of panels) { p.p.silenced = !!sil; if (bh !== undefined) p.p.battH = bh; }
+    for (const [p, sil] of panels) p.p.silenced = !!sil;
   }
 };
 
@@ -3523,7 +3531,7 @@ ${DI.MAN.asd}
 <li><b>Low battery:</b> the code requires the battery voltage to be monitored and a trouble on failure, and states no low-battery threshold (&sect;10.6.9.1; &sect;10.6.10.6 is charger failure). The 24 h of standby sets capacity, not the trouble setpoint. The trouble here is ${DI.LOWBATT_NOTE}. It is transmitted at once (ASSUMED).</li>
 <li><b>A dead panel</b> sends nothing, so the station learns of it only when its supervision of the path runs out. That depends on the path, a site setting:</li></ul>
 ${DI.MAN.paths}
-<p>The DACT figure is its 6-hour test-signal interval (${DI.MAN.dact.test}): a missed test is a trouble [CODE], but the time for annunciating it is not in the text held, so the interval is used as the delay (ASSUMED). A DACT has two channels, and <b>the failure of either channel sends a trouble on the other channel within ${DI.DACT_CHAN_S / 60} minutes</b> [CODE] (${DI.MAN.dact.chan}): on the DACT path, fail a channel from the panel in the Sandbox and the trouble shows at the panel at once and reaches the station ${DI.DACT_CHAN_S / 60} minutes later. With both channels down the panel cannot send; the station reports a missed test after the 6 hours. Two-way radio paths are not modelled.</p>
+<p>The DACT figure is its 6-hour test-signal interval (${DI.MAN.dact.test}): a missed test is a trouble [CODE], but the time for annunciating it is not in the text held, so the interval is used as the delay (ASSUMED). A DACT has two channels, and <b>the failure of either channel sends a trouble on the other channel within ${DI.DACT_CHAN_S / 60} minutes</b> [CODE] (${DI.MAN.dact.chan}): on the DACT path, fail a channel from the panel in the Sandbox and the trouble shows at the panel at once and reaches the station ${DI.DACT_CHAN_S / 60} minutes later. With both channels down the panel cannot send anything, alarms included: signals stay at the panel, the fire department is not dispatched from it, and the station reports a missed test after the 6 hours. Two-way radio paths are not modelled.</p>
 <p><b>The NFPA 72 edition is its own site setting</b>, separate from NFPA 13: adoption is by the AHJ and the two can differ (PRACTICE). Auto, the default, follows the NFPA 13 edition. The multiple-path figure for 2025 is ASSUMED: 2025 &sect;26.6.3.4(1) is a 6 h supervision interval, not a failure-annunciation time, and no annunciation time was found in the 2025 text.</p>` },
   { id: 'ce', t: 'Cause and effect', h: `<p>A cause-and-effect matrix says, for every input on a zone, what the fire alarm system does about it. Open it from a preaction valve (<b>Cause and effect matrix</b>) or from the releasing panel, which offers one per wired zone. It is read-only, and it is <b>generated</b>, not written: the signal classes come from the registry the alarm code itself reads, and the solenoid column from the release formula on that zone&rsquo;s trim and bypass setting. The tests hold every row against the fire alarm lead&rsquo;s truth table and against the running engine.</p>
 <table><tr><th>Column</th><th>Says</th><th>Basis</th></tr>
@@ -4066,7 +4074,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       // Sandbox only, DACT path only: fail one or both of the two DACT channels. One down is a trouble sent on the
       // other channel within 4 minutes; both down, nothing can be sent and the station reports a missed test.
       if (g().sc.sandbox && DI.commPath(W) === 'dact') { const ch = () => (Array.isArray(q.chan) ? q.chan : [1, 1]), setCh = (a, b) => { q.chan = [a, b]; };
-        B.row('DACT channels', () => { const c = ch(); return ['1 ' + (c[0] ? 'up' : 'DOWN') + ', 2 ' + (c[1] ? 'up' : 'DOWN'), c[0] && c[1] ? 'good' : 'warn']; }, 'One channel down: a trouble at the panel at once, sent on the other channel within ' + DI.delayText(DI.DACT_CHAN_S) + ' [' + DI.ref72(W).dactChan + ']. Both down: the panel cannot send; the supervising station reports a missed test after ' + DI.delayText(DI.commDelay(W)) + ' (ASSUMED).');
+        B.row('DACT channels', () => { const c = ch(); return ['1 ' + (c[0] ? 'up' : 'DOWN') + ', 2 ' + (c[1] ? 'up' : 'DOWN'), c[0] && c[1] ? 'good' : 'warn']; }, 'One channel down: a trouble at the panel at once, sent on the other channel within ' + DI.delayText(DI.DACT_CHAN_S) + ' [' + DI.ref72(W).dactChan + ']. Both down: the panel cannot send anything, alarms included, so nothing is transmitted and the fire department is not dispatched from it; the supervising station reports a missed test after ' + DI.delayText(DI.commDelay(W)) + ' (ASSUMED).');
         B.btns([['Fail DACT channel 1', () => setCh(0, ch()[1]), 'hot', !ch()[0], 'Sandbox only.'], ['Fail DACT channel 2', () => setCh(ch()[0], 0), 'hot', !ch()[1], 'Sandbox only.'], ['Restore DACT channels', () => setCh(1, 1), 'go', !!(ch()[0] && ch()[1])]]); }
       // one read-only cause-and-effect matrix per preaction zone wired to this panel
       const zones = W.wires.filter((w) => w[0] === p.id).map((w) => W.parts.get(w[1])).filter((d) => d && d.type === 'prev' && S.sysd.info.has(d.id));
@@ -4206,7 +4214,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     for (const o of all) if (o.lost) { lost++; h += '<div class="sig TRBL stn" data-p="' + o.part + '"><b>TRBL</b><span><em>SUPERVISING STATION</em> ' + esc(o.text) + '</span></div>'; }
     const list = all.filter((o) => !o.lost && !o.dark).sort((a, b) => (a.type === b.type ? b.t0 - a.t0 : ORD[a.type] - ORD[b.type]));
     for (const o of list) { if (!o.sup) { if (o.type === 'ALARM') al++; else if (o.type === 'OPEN') op++; else if (o.type === 'SUPV') sv++; else tr++; if (!DI.sigSilenced(W, o)) loud++; }
-      h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? (o.delay && !o.tx ? (isFinite(o.delay) ? ' <em>(not yet sent to the supervising station: ' + DI.delayText(o.delay) + ' delay)</em>' : ' <em>(cannot be sent to the supervising station)</em>') : '') : ' <em>(local only)</em>') + '</span></div>'; }
+      h += '<div class="sig ' + o.type + (o.mon ? '' : ' loc') + (o.sup ? ' sup' : '') + '" data-p="' + o.part + '"><b>' + o.type + '</b><span>' + esc(o.text) + (o.mon ? (o.cut ? ' <em>(cannot be sent to the supervising station)</em>' : o.delay && !o.tx ? ' <em>(not yet sent to the supervising station: ' + DI.delayText(o.delay) + ' delay)</em>' : '') : ' <em>(local only)</em>') + '</span></div>'; }
     // an empty list under a dead panel is a dark display, not "normal"
     const deadP = W.byType('panel').some((q) => q.p.alive === false), none = deadP ? 'Display dark: the panel is dead. Nothing is shown or sent.' : 'All systems normal.';
     if ($('sigs').dataset.h !== h + none) { $('sigs').innerHTML = h || '<div class="sig"><span style="color:var(--dim)">' + none + '</span></div>'; $('sigs').dataset.h = h + none; }

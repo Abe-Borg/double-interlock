@@ -65,7 +65,8 @@ DI.alarmStep = function (S, dt) {
   const H = DI.PANEL_STANDBY_H;
   for (const p of panels) {
     if (p.p.battH === undefined) p.p.battH = H;
-    if (W.power) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
+    // (the settle of a load is not game time: it neither charges nor drains the battery, see Sim.restore)
+    if (S.settling) { /* hold */ } else if (W.power) p.p.battH = Math.min(H, p.p.battH + dt / 3600 * 0.5); else p.p.battH = Math.max(0, p.p.battH - dt / 3600);
     p.p.alive = W.power || p.p.battH > 0;
     // deadT: when the panel died. The supervising station learns of it one supervision interval later (DI.commDelay).
     if (p.p.alive) { if (p.p.deadT !== undefined) delete p.p.deadT; } else if (!(p.p.deadT >= 0)) p.p.deadT = S.t;
@@ -79,16 +80,20 @@ DI.alarmStep = function (S, dt) {
   //        class is read here, in one place, with DI.inClass.
   // fd   = an alarm signal of the kind that is sent on to the fire department (DI.SIG_FD). Alert, Action and a
   //        latched P are never fd, whatever class the owner elects for them.
+  // cut  = the panel is alive and annunciates the signal, but its path to the supervising station is down: both
+  //        DACT channels have failed, so the panel cannot send anything, alarms included. Nothing is transmitted and
+  //        the fire department is not dispatched from it. What the station itself reports (lost) is never cut.
   // After a load, S.sigSeen holds the first-seen time of every signal that was active when the game was saved, so
   // a delay clock carries across save and load and nothing is announced twice. It is used once and dropped.
+  const dact = DI.commPath(W) === 'dact', pathDown = (pn) => dact && Array.isArray(pn.p.chan) && !pn.p.chan[0] && !pn.p.chan[1];
   const add = (key, regKey, text, part, lost, delay) => {
     const pn = part ? (part.type === 'panel' ? part : W.panelOf(part.id)) : null, type = DI.inClass(W, regKey);
-    const prev = old.get(key) || (S.sigSeen && S.sigSeen.get(key)), dark = !lost && !!pn && !pn.p.alive, t0 = prev ? prev.t0 : S.t, dl = delay || 0, mon = !!lost || !!(pn && pn.p.alive);
-    const o = { key, reg: regKey, fd: !!DI.SIG_FD[regKey], type, text, part: part ? part.id : 0, mon, lost: !!lost, dark, t0, delay: dl, tx: mon && S.t - t0 >= dl, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
+    const prev = old.get(key) || (S.sigSeen && S.sigSeen.get(key)), dark = !lost && !!pn && !pn.p.alive, t0 = prev ? prev.t0 : S.t, dl = delay || 0, mon = !!lost || !!(pn && pn.p.alive), cut = !lost && mon && pathDown(pn);
+    const o = { key, reg: regKey, fd: !!DI.SIG_FD[regKey], type, text, part: part ? part.id : 0, mon, lost: !!lost, dark, cut, t0, delay: dl, tx: mon && !cut && S.t - t0 >= dl, test: prev ? prev.test : S.procs.length > 0 || S.t < (S.testUntil || 0) };
     sig.set(key, o);
     if (dl > 0 && o.tx && prev && !prev.tx) S.say('Supervising station notified: ' + text, 'warn');
     if (!prev && pn && !dark) pn.p.silenced = false;          // a new signal resounds a silenced panel
-    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
+    if (!prev) { DI.bus.emit('signal', o); S.say(type + ': ' + text + (o.test ? '  [system on test: monitoring company notified]' : cut ? '  [both DACT channels down: not transmitted]' : o.mon ? '' : dark ? '  [panel dead: not displayed, not transmitted]' : '  [local only - not wired to a panel]'), type === 'ALARM' ? 'bad' : 'warn'); }
   };
   // detection
   for (const p of W.parts.values()) {
@@ -196,9 +201,10 @@ DI.alarmStep = function (S, dt) {
   S.sig = sig; if (S.sigSeen) S.sigSeen = null;
   // Fire department: only an alarm signal of the dispatch list (o.fd, DI.SIG_FD). A supervisory or trouble signal goes
   // to the supervising station only, and so does Alert, Action or a latched P that the owner has elected ALARM: they
-  // sound the panel and never call the fire department by themselves.
+  // sound the panel and never call the fire department by themselves. A panel whose path is down (o.cut) sends
+  // nothing, so its alarms dispatch nobody: the late passer-by call below is all that is left.
   const fd = S.fd; let monAlarm = false;
-  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.sup && !o.test) monAlarm = true;
+  for (const o of sig.values()) if (o.fd && o.type === 'ALARM' && o.mon && !o.cut && !o.sup && !o.test) monAlarm = true;
   const live = S.live || (S.drill && !S.drill.done);        // while the site is under construction nothing is transmitted
   if (live && fd.called < 0 && (S.fires.length || !S.fd.log || S.t - S.fd.log.t > 1800) && (monAlarm || (S.fires.length && S.fires.some((k) => S.fq[k] > 300) && S.t - S.fireT0 > 900))) {
     fd.called = S.t; fd.log = { t: S.t, auto: monAlarm }; S.say(monAlarm ? 'Alarm transmitted. Fire department dispatched.' : 'A passer-by called 911. Fire department dispatched (late).', 'warn');

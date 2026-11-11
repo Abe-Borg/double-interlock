@@ -305,11 +305,13 @@ DI.Sim.prototype.restore = function (j) {
   // that was active at the save keeps its t0 / tx / test, and one that only comes back once the clock is right (the
   // station's loss-of-communication line) finds them in S.sigSeen at the first step. An older save has no `sig`
   // and loads as it always did.
-  const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced, p.p.battH]) : [];
-  this.commission(j.t || 0.001); this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
+  // The settle is not game time, so it must not run a panel's battery down (S.settling): with utility power off
+  // and seconds of standby left, the panel would die inside the settle and drop every latch it holds.
+  const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced]) : [];
+  this.settling = true; this.commission(j.t || 0.001); this.settling = false; this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
   if (j.sig) {
     this.sigSeen = new Map(j.sig);
     for (const [k, o] of this.sig) { const q = this.sigSeen.get(k); if (q) { o.t0 = q.t0; o.tx = !!q.tx; o.test = !!q.test; } }
-    for (const [p, sil, bh] of panels) { p.p.silenced = !!sil; if (bh !== undefined) p.p.battH = bh; }
+    for (const [p, sil] of panels) p.p.silenced = !!sil;
   }
 };

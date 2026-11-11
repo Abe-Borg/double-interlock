@@ -75,14 +75,16 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   running drill (`DI.drillIncidentOpen`); anywhere else it opens, logs the warning and a `reopen-warn` act
   with `DI.openItems`.
 - `S.sig` entries carry `mon` (wired to a live panel), `delay` and `tx` (the supervising station has it:
-  `mon` and the delay has run; a delay of `Infinity` can never be sent), `reg` (the registry key) and `fd`
-  (an alarm of the fire-department dispatch list). "Seen by the station" is `o.mon && o.tx`.
+  `mon` and the delay has run; a delay of `Infinity` can never be sent), `reg` (the registry key), `fd`
+  (an alarm of the fire-department dispatch list) and `cut` (the panel is alive but both its DACT channels are
+  down: annunciated, never transmitted, and no dispatch from it). "Seen by the station" is `o.mon && o.tx`.
   `DI.impairments(S)` is a separate, display-only list (riser tags): it is never added to `S.sig`.
 - `Sim.dump` saves `sig` (`t0`, `tx`, `test` per active signal) and `Sim.restore` puts them back after its
   settle, so delay clocks carry across a load and nothing is announced twice. `restore` calls `commission`,
   which steps the sim on a clock that starts at 0 and rebuilds `S.sig`: anything time-based must be restored
-  after it. Signals that only reappear once the clock is right find their old entry in `S.sigSeen`, which
-  `alarmStep` drops after its first run. A save with no `sig` loads as it always did.
+  after it. That settle is not game time: `S.settling` holds every panel battery so a nearly flat one cannot die
+  inside it and drop its latches. Signals that only reappear once the clock is right find their old entry in
+  `S.sigSeen`, which `alarmStep` drops after its first run. A save with no `sig` loads as it always did.
 - `DI.Sim.prototype.warp(sec, maxMs, until)` and `DI.skip(sec, until)` take an optional stop predicate (the
   "Skip the refill" button). It is the same time-skip as the clock menu.
 

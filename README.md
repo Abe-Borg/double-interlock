@@ -353,13 +353,15 @@ annunciated by the supervising station after its supervision interval, by path:
 
 **DACT channels.** On the DACT path the panel has two channels. With one down the panel shows a
 trouble at once and the supervising station has it 4 minutes later, on the other channel. With both
-down the panel cannot send: the trouble stays at the panel and the station reports a missed test after
-the 6 h interval (ASSUMED). A channel is failed from the panel's inspector, in the Sandbox only. It is
+down the panel cannot send anything, alarms included: every signal stays at the panel, nothing is
+transmitted, the fire department is not dispatched from it, and the station reports a missed test after
+the 6 h interval (ASSUMED). When a channel returns, what is still active goes out. A channel is failed from the panel's inspector, in the Sandbox only. It is
 never an input of D or P. Two-way radio paths are not modelled.
 
 **Save and load.** Utility power is saved with the world. So is the first-seen time of every active
 signal, so a delay that was running at the save (AC failure, a failed DACT channel) carries across a
-load, nothing is announced twice and a silenced panel stays silenced. Saves from before Cycle 5 load
+load, nothing is announced twice and a silenced panel stays silenced. The settle a load runs is not
+game time, so it does not drain a panel battery. Saves from before Cycle 5 load
 as they did: power on, no stored clocks.
 
 Low battery has no code threshold (§10.6.9.1; §10.6.10.6 is charger failure): the trouble is the
