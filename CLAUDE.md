@@ -99,7 +99,8 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   `tq` when the attempts started. `DI.stationQueue(S)` is its read-only view for the annunciator. Only `add()`
   and the dispatch block read `o.q`: release, the notification rule, the matrix and the hooks never read the
   queue (A80 counts the reads).
-- `Sim.dump` saves `sig` (`t0`, `tx`, `test`, `had` per active signal) plus `dq` and `dqSeq`, and `Sim.restore`
+- `Sim.dump` saves `sig` (`t0`, `tx`, `test`, `had` per active signal) plus `dq`, `dqSeq` and `genT` (the outage clock the
+  standby generator is timed from), and `Sim.restore`
   puts them back after its settle (`DI.dactStep` makes no entries and no `alarm` act is logged while
   `S.settling`), so delay clocks carry across a load and nothing is announced twice. `restore` calls `commission`,
   which steps the sim on a clock that starts at 0 and rebuilds `S.sig`: anything time-based must be restored

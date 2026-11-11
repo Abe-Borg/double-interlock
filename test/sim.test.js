@@ -1894,6 +1894,11 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     const q6 = reload(mid, (jw, js) => { strip(jw, js); for (const p of jw.parts) if (p.type === 'panel') p.p.chgFail = true; }), empty = q6.S.dq.length === 0; q6.S.step(1);
     const by = (k) => q6.S.dq.find((e) => e.key === k), want = (k) => mid.S.dq.find((e) => e.key === k);
     ok('A91 a Cycle 5 save made in an outage: on the first step the entries are made again with their original event times, RETRY or HELD by age', empty && q6.S.dq.length === mid.S.dq.length && ['mn' + mid.stn.id, 'tm' + mid.g.id, 'cf' + mid.pn.id].every((k) => by(k) && by(k).t0 === want(k).t0) && by('mn' + mid.stn.id).state === 'HELD' && by('tm' + mid.g.id).state === 'HELD' && by('cf' + mid.pn.id).state === 'RETRY' && q6.S.sig.has('dx' + mid.pn.id) === false && (q6.S.step(1), q6.S.sig.has('dx' + mid.pn.id)), q6.S.dq.map((e) => e.key + ':' + e.state).join());
+    // the outage clock of the standby generator: a save made one hour into an outage on day three
+    const gn = rig(); gn.W.cfg.panelGen = true; gn.S.warp(2.5 * 86400); gn.W.power = false; gn.S.step(1); gn.S.warp(3600); const g0 = gn.S.genT, wasOn = gn.pn.p.onGen === true, bh = gn.pn.p.battH;
+    const qg = reload(gn); qg.S.step(1); const kept = qg.S.genT === g0 && qg.pn.p.onGen === true && qg.pn.p.alive && Math.abs(qg.pn.p.battH - bh) < 1e-9; qg.S.warp(22 * 3600); const still = qg.pn.p.onGen === true; qg.S.warp(3600 + 120);
+    const og = reload(gn, (jw, js) => { delete js.genT; }); og.S.step(1);
+    ok('A91 the outage clock is saved: one hour into an outage on day three the panel is still on the generator after a load, the generator still drops 24 h after the loss, and a save without the clock loads with the generator running', wasOn && g0 > 2 * 86400 && kept && still && qg.pn.p.onGen === false && og.pn.p.onGen === true && og.S.genT > 2 * 86400 && (() => { const pw = rig(); pw.S.warp(100); return reload(pw).S.genT === -1; })(), 'genT ' + Math.round(g0) + ' -> ' + Math.round(qg.S.genT));
     DI.setJuris(new DI.World(4, 4));
   }
   // A92 regression: the company locks, with everything of Cycle 6 switched on
