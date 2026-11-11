@@ -75,10 +75,15 @@ DI.refillLine = function (sec, az, limit, seq) {
   return 'Air refill: ' + m + ', over the ' + lim + ' limit. The sizing check passes (this zone alone fills in ' + alone + '), so the time went elsewhere: look for a leak, or a nitrogen generator finishing the fill.';
 };
 // Water of a drill, never added together (Fire Tutor): what left through open heads (and breaks), and what a main
-// drain test sent down the drain. S = the sim, or a stats object (the drill result keeps a copy).
-DI.headGal = (S) => { const st = (S && S.stats) || S || {}; return Math.max(0, (st.gallons || 0) - (st.mdGal || 0)); };
+// drain test sent down the drain. Water out of the other drains and test connections (a system drain, an
+// inspector's test, the pump test header: Sim.account tallies it as otGal) is neither: it gets a line of its own,
+// only when there is some (that line's wording is ASSUMED; the Tutor gave the first two).
+// S = the sim, or a stats object (the drill result keeps a copy).
+DI.headGal = (S) => { const st = (S && S.stats) || S || {}; return Math.max(0, (st.gallons || 0) - (st.mdGal || 0) - (st.otGal || 0)); };
 DI.drainGal = (S) => { const st = (S && S.stats) || S || {}; return st.mdGal || 0; };
-DI.galLines = (S) => ['Discharged through the open head: ' + DI.fmt(DI.headGal(S)) + ' gal'].concat(DI.drainGal(S) > 0 ? ['Main drain test: ' + DI.fmt(DI.drainGal(S)) + ' gal (to drain, not to the floor)'] : []);
+DI.testGal = (S) => { const st = (S && S.stats) || S || {}; return st.otGal || 0; };
+DI.galLines = (S) => ['Discharged through the open head: ' + DI.fmt(DI.headGal(S)) + ' gal'].concat(DI.drainGal(S) > 0 ? ['Main drain test: ' + DI.fmt(DI.drainGal(S)) + ' gal (to drain, not to the floor)'] : [],
+  DI.testGal(S) > 0 ? ['Other drains and test connections: ' + DI.fmt(DI.testGal(S)) + ' gal (to drain, not to the floor)'] : []);
 // The shared-compressor note of the drill report (Fire Tutor), pass or fail, whenever the zone's supply serves more
 // than one zone. The section is the edition's own (DI.refillRef), never a fixed string. '' on a supply of its own.
 DI.sharedNote = function (S, id) {

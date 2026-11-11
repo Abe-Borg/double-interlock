@@ -787,7 +787,9 @@ where each zone's control valve is before an event." The alarm is the first alar
 none rings (a broken head on a double-interlock zone never trips). The times are reported on their own
 lines and never summed: "Operator steps took: 23 s" is the recovery itself, "Main drain test took:
 34 s" is step 14. The water is two lines too, never a total: "Discharged through the open head: 121
-gal" and "Main drain test: 156 gal (to drain, not to the floor)". Whenever zones share a compressor the
+gal" and "Main drain test: 156 gal (to drain, not to the floor)". Water out of a system drain, an
+inspector's test or the pump test header is neither: when there is some it gets a line of its own,
+"Other drains and test connections" (that line's wording is ASSUMED). Whenever zones share a compressor the
 report adds, pass or fail: "Note: 3 zones share this compressor. NFPA 13 sizes it to refill the largest
 zone to normal pressure in 30 min. This one does it in 19.1 min." with the section of the edition in
 force (2019 and 2022 §8.2.6.3.2; 2025 §8.2.7.3). The air refill is compressor time and has its own informational line

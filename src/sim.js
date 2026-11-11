@@ -147,10 +147,16 @@ DI.Sim = class {
       const p = W.parts.get(id), l = G.partLink.get(id);
       if (p && p.type === 'tank' && l) p.p.gal = Math.max(0, p.p.gal - l.q * dt / 60);
     }
-    // mdGal: the part of it that left through a main drain (a main drain test). It goes to the drain, not onto the floor.
-    let out = 0, md = 0;
-    for (const e of G.emit) { out += e.link.q; if (e.kind === 'mdrain') md += e.link.q; }
-    this.outFlow = out; this.stats.gallons += out * dt / 60; if (md > 0) this.stats.mdGal = (this.stats.mdGal || 0) + md * dt / 60;
+    // stats.gallons is every outlet. Two parts of it went to a drain, not onto the floor, and are tallied on their own
+    // so a report never calls them a discharge (DI.headGal, scen.js):
+    //   mdGal  a main drain: the supply-side main drain of a dry or preaction valve, and a wet riser's main drain
+    //   otGal  the other drains and test connections: a system drain, an inspector's test, the pump test header
+    // What is left is what came out of open heads and pipe breaks.
+    let out = 0, md = 0, ot = 0;
+    for (const e of G.emit) { const q = e.link.q; out += q;
+      if (e.kind === 'mdrain' || (e.kind === 'drain' && (W.parts.get(W.partAt[e.k]) || {}).type === 'wetv')) md += q;
+      else if (e.kind === 'drain' || e.kind === 'itc' || e.kind === 'hdr') ot += q; }
+    this.outFlow = out; this.stats.gallons += out * dt / 60; if (md > 0) this.stats.mdGal = (this.stats.mdGal || 0) + md * dt / 60; if (ot > 0) this.stats.otGal = (this.stats.otGal || 0) + ot * dt / 60;
   }
   // convenience readers for UI / tests
   touch() { this.dirty = true; }
@@ -264,7 +270,7 @@ DI.Sim.prototype.commission = function (keep) {
   if (!W.byType('jockey').length && pumps.length) { pumps[0].p.mode = 'hand'; for (let i = 0; i < 24; i++) this.step(0.5); pumps[0].p.mode = 'off'; for (let i = 0; i < 10; i++) this.step(0.5); }
   pumps.forEach((p, i) => { p.p.mode = saved[i]; p.p.on = false; p.p.spd = 0; p.p.ranFor = 0; });
   for (let i = 0; i < 10; i++) this.step(0.5);
-  this.quiet = quiet; this.log.length = 0; this.stats.gallons = 0; this.lastAuto = 0;
+  this.quiet = quiet; this.log.length = 0; this.stats.gallons = 0; delete this.stats.mdGal; delete this.stats.otGal; this.lastAuto = 0;
   if (keep !== undefined && keep !== false) { this.t = keep; return; }
   this.t = 0;
   for (const s of this.ss.values()) { s.openT = -1; s.waterT = -1; s.tripT = -1; s.flowT = 0; }

@@ -268,7 +268,10 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   and is a report line only: contract stars (`main.js`) do not read it.
 - Drill report (`DI.drillRecovery`, Fire Tutor): `r.opTime = time - refill - mdtTime`, and the report prints
   "Operator steps took: N s" and "Main drain test took: N s" as two lines, never one sum. Water is two lines too
-  (`DI.galLines`: `DI.headGal`, `DI.drainGal`), never a total; `S.stats.gallons` itself is unchanged. The
+  (`DI.galLines`: `DI.headGal`, `DI.drainGal`), never a total; `S.stats.gallons` itself is unchanged. Head water
+  is what is left after the two drain tallies of `Sim.account`: `mdGal` (a main drain, a wet riser's included) and
+  `otGal` (system drain, inspector's test, test header: its own third line, only when there is some). A new
+  emitter kind has to be put in one of the three, or it reads as head discharge. The
   shared-compressor note (`DI.sharedNote`) prints whenever zones share the supply and builds its section from
   `DI.refillRef`. Return-to-normal errors (`DI.drillReturnLines`) and the main drain follow-up
   (`DI.drillDrainLines`) are informational lines `[false, text, true]`: no goal, star or review finding may read
