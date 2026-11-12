@@ -15,7 +15,7 @@ It is a game first: build, test, survive, three stars. What it teaches is real a
 
 ### Windows desktop app
 
-Download **Double-Interlock-1.0.0-windows-x64-setup.exe** from
+Download **Double-Interlock-1.1.0-windows-x64-setup.exe** from
 [GitHub Releases](https://github.com/Abe-Borg/double-interlock/releases/latest) and run it.
 Supports Windows 10/11 on 64-bit Intel/AMD PCs. Setup installs for your account without administrator
 rights and adds a Start menu shortcut. Setup shows the license first; you accept it to install. If Microsoft Edge WebView2 is missing, setup installs it
