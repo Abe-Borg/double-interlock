@@ -26,6 +26,13 @@
   },
   "bundle": {
     "active": true,
+    "license": "LicenseRef-Proprietary",
+    "licenseFile": "../LICENSE",
+    "copyright": "Copyright (c) 2026 Abraham Borg. All rights reserved.",
+    "resources": {
+      "../LICENSE": "LICENSE.txt",
+      "../THIRD_PARTY_NOTICES.txt": "THIRD_PARTY_NOTICES.txt"
+    },
     "targets": ["nsis"],
     "icon": ["icons/icon.ico", "icons/icon.png"],
     "shortDescription": "A fire protection sim for hyperscale data centers",

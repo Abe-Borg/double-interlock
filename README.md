@@ -18,7 +18,7 @@ It is a game first: build, test, survive, three stars. What it teaches is real a
 Download **Double-Interlock-1.0.0-windows-x64-setup.exe** from
 [GitHub Releases](https://github.com/Abe-Borg/double-interlock/releases/latest) and run it.
 Supports Windows 10/11 on 64-bit Intel/AMD PCs. Setup installs for your account without administrator
-rights and adds a Start menu shortcut. If Microsoft Edge WebView2 is missing, setup installs it
+rights and adds a Start menu shortcut. Setup shows the license first; you accept it to install. If Microsoft Edge WebView2 is missing, setup installs it
 (internet required for that step). After installation, the game runs offline.
 
 The desktop app uses **Tauri 2 + WebView2**: a small native shell around the same canvas simulation,
@@ -37,7 +37,8 @@ See [desktop development and releases](docs/windows-desktop.md) for building and
 Double-click **`double-interlock.html`** (Chrome or Edge). One self-contained file, no install, no
 server, no network. Progress saves in the browser.
 
-- `double-interlock.html` is the whole game in one file. Send it to anyone.
+- `double-interlock.html` is the whole game in one file. It is licensed for your own personal use only:
+  do not pass it on. See [License](#license).
 - `index.html` is the same game loading the readable sources from `src/`. It also runs from `file://`.
 - After editing anything in `src/`, rebuild the single file with `node build-standalone.js`.
 
@@ -1057,6 +1058,12 @@ double-interlock.html   the game, one file (built)
 index.html              the game, loading src/
 build-standalone.js     inlines src/ into double-interlock.html
 package.json            npm scripts; Playwright for browser tests and the Tauri CLI for desktop builds
+LICENSE                 the proprietary license (all rights reserved); the installer shows it and installs it as LICENSE.txt
+THIRD_PARTY_NOTICES.txt the third-party components of the desktop app and their license texts (generated)
+scripts/
+  third-party-notices.js       writes THIRD_PARTY_NOTICES.txt from cargo metadata; --check fails if it is stale
+  licenses/                    license texts of crates that are published without one, taken from their upstream repository
+  prepare-desktop.js  package-release.ps1  icon.svg   desktop staging, release packaging, the app icon
 fixtures/
   di-release-truth-table.csv   the fire alarm lead's release truth table, rows R01 to R17: copied verbatim, pinned by sha16, never edited here
 review/
@@ -1092,6 +1099,8 @@ test/
 ```
 
 About 6,800 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
+The browser game contains no third-party code; the third-party code in the desktop app is listed in
+`THIRD_PARTY_NOTICES.txt`.
 
 ## Tests
 
@@ -1224,3 +1233,41 @@ and never time; never a gate, the base contract unchanged), a per-room Fire 1 fo
 detectors, more aspirating models (Alert, Action and Fire 2 for VEA once a
 datasheet gives them; TITANUS and FAAST once consistent current sheets are held) and a UL Product iQ check of
 every listing, and real Canada edition rules once verified.
+
+## License
+
+Copyright (c) 2026 Abraham Borg. All rights reserved. Double Interlock is proprietary software under the
+terms in [`LICENSE`](LICENSE). In short:
+
+- You may install and run an unmodified copy from the official
+  [release page](https://github.com/Abe-Borg/double-interlock/releases) for your own personal, non-commercial
+  use. Nothing else is granted.
+- No copying, sharing or redistribution (the single HTML file included), no modification or derivative works,
+  no commercial use (training, courses and consulting included), no reverse engineering beyond what law
+  allows, and no use to train or evaluate AI models.
+- The source being visible on GitHub is not a license to use it. GitHub users get only what GitHub's Terms of
+  Service require (viewing and forking within GitHub), and a fork stays under the same license.
+- It is a game, not an engineering tool: it must not be used to design, inspect, test or approve a real fire
+  protection or fire alarm system. NFPA and NEC are trademarks of the National Fire Protection Association;
+  the game is not affiliated with or endorsed by NFPA or any manufacturer it names.
+
+### Third-party components
+
+The browser game (`double-interlock.html`, `index.html`, `src/`) contains no third-party code. The Windows
+desktop app ships the Tauri framework and the Rust crates it depends on (176 crates for
+`x86_64-pc-windows-msvc`), and the installer embeds Microsoft's WebView2 bootstrapper. All of them allow
+use in proprietary software. Each keeps its own license, and `THIRD_PARTY_NOTICES.txt` reproduces every one:
+
+| License | What it asks of a binary release |
+|---|---|
+| MIT, Apache-2.0, BSD-3-Clause, Unicode-3.0, Zlib, 0BSD, Unlicense, CC0 | keep the copyright and license notices with the app (done by `THIRD_PARTY_NOTICES.txt`) |
+| MPL-2.0 (`cssparser`, `selectors`, `dtoa-short`, `option-ext`) | file-level copyleft: their source stays available (crates.io, unmodified) and recipients are told where; it does not reach your own code |
+
+There is no GPL, LGPL or AGPL code anywhere in the build. Playwright and the Tauri CLI are development tools
+only and are not shipped.
+
+The installer shows `LICENSE` as a page to accept and installs `LICENSE.txt` and `THIRD_PARTY_NOTICES.txt`
+beside the app; each release also carries both files. After any change to `src-tauri/Cargo.toml` or
+`src-tauri/Cargo.lock`, run `node scripts/third-party-notices.js` and commit the result. The Windows workflow
+runs it with `--check` and fails on a stale file. If a new crate is published without a license file, the
+script stops and names it: add its text under `scripts/licenses/` and an entry in its `FALLBACK` table.
