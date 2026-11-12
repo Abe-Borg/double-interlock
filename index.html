@@ -9,18 +9,20 @@
 <body>
 <canvas id="cv"></canvas>
 <div id="top">
-  <div class="tl"><button id="bMenu" title="Contracts">&#9776;</button><div id="scName"></div><button id="bGoals" class="pill">Goals <span id="goalN"></span></button></div>
+  <div class="tl"><button id="bMenu" title="Contracts" aria-label="Open contracts">&#9776;</button><div id="scName"></div><button id="bGoals" class="pill">Goals <span id="goalN"></span></button></div>
   <div class="tc">
     <div id="clock">00:00:00</div>
     <button class="sp" data-sp="0" title="Pause (Space)">&#10073;&#10073;</button><button class="sp on" data-sp="1">1&times;</button><button class="sp" data-sp="4">4&times;</button><button class="sp" data-sp="20">20&times;</button><button class="sp" data-sp="120">120&times;</button>
     <button id="bSkip" title="Skip ahead">Skip &#9662;</button>
-    <div id="wx"></div>
   </div>
-  <div class="tr"><div id="money"></div><button id="bSite" title="Site settings: enforced edition, pipe size cut, water delivery, detection thresholds, signal classes, company rules. Read-only in a contract">Site</button><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bHint" title="Graduated hints: the system, a measurement, the fault">Hint</button><button id="bDiag" title="Answer the call's central question">Diagnose</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
+  <div class="tr"><div class="budget"><small>AVAILABLE BUDGET</small><div id="money"></div></div><button id="bReview">Plan review</button><button id="bTests">Tests</button><button id="bDrill" class="hot">Run drill</button></div>
 </div>
-<div id="ann"><div class="hd">FIRE ALARM ANNUNCIATOR <span id="annState">NORMAL</span></div><div id="imp"></div><div id="sigs"></div><div id="stq"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
+<div id="workspaceBar"><div class="site-label"><span class="live-dot"></span> LIVE SITE <span class="bar-divider"></span><span id="wx"></span></div><div class="workspace-actions"><button id="bSite" title="Site settings and company rules">Site</button><button id="bInc">Incident</button><button id="bHint" title="Graduated hints: the system, a measurement, the fault">Hint</button><button id="bDiag" title="Answer the call’s central question">Diagnose</button><button id="bManual" title="Field manual (M)">Field manual</button><button id="bSnd" title="Sound" aria-label="Toggle sound">&#9835;</button><span class="bar-divider"></span><button id="bFocus" title="Expand the play area (F)" aria-pressed="false">&#x26F6; Focus view <kbd>F</kbd></button></div></div>
+<div id="ann" class="collapsed"><button id="bAnnToggle" class="hd" aria-expanded="false" title="Show or hide signals and event log"><span><span class="monitor-label"><small>SYSTEM MONITOR</small><small id="annTags"></small></span><span id="annState">NORMAL</span></span><span class="ann-chevron" aria-hidden="true">⌄</span></button><div id="imp"></div><div id="sigs"></div><div id="stq"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
 <div id="side"></div>
 <div id="tools"></div>
+<div id="viewControls"><span id="zoomLevel">100%</span><button id="bZoomOut" aria-label="Zoom out" title="Zoom out">−</button><button id="bZoomIn" aria-label="Zoom in" title="Zoom in">+</button><button id="bFit" title="Fit the whole site (Home)">Fit site</button></div>
+<div id="canvasGuide"><span class="guide-water"></span> Water <span class="guide-air"></span> Air / N₂ <span class="guide-wire"></span> Signal <span class="guide-help">WASD pan · Scroll zoom</span></div>
 <div id="banner"></div>
 <div id="tip"></div>
 <div id="pop"></div>

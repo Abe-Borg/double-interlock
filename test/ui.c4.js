@@ -10,7 +10,8 @@ const { chromium } = require('playwright'); const path = require('path');
   await p.goto('file://' + path.resolve(__dirname, '..', process.env.STANDALONE ? 'double-interlock.html' : 'index.html')); await p.waitForTimeout(300);
   await p.evaluate(() => { localStorage.clear(); }); await p.reload(); await p.waitForTimeout(300);
   const ev = (fn, arg) => p.evaluate(fn, arg), tick = () => p.waitForTimeout(450);        // one inspector / annunciator refresh
-  const start = async (id) => { await ev((i) => { DI.startScenario(i, true); DI.ui.close(); DI.setSpeed(0); }, id); await tick(); };
+  // These checks read signal rows, so open the monitor that starts collapsed in normal play.
+  const start = async (id) => { await ev((i) => { DI.startScenario(i, true); DI.ui.close(); DI.setSpeed(0); }, id); await tick(); if (await p.locator('#bAnnToggle').getAttribute('aria-expanded') === 'false') await p.click('#bAnnToggle'); };
   const step = (sec, dt) => ev(([s, d]) => { const S = DI.game.S; for (let t = 0; t < s; t += d) S.step(d); }, [sec, dt || 0.25]);
   const sel = async (id) => { await ev((i) => { DI.game.sel = { kind: 'part', id: i }; DI.inspect.render(true); }, id); await tick(); };
   const btn = (text) => p.locator('#side button', { hasText: text });

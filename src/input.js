@@ -69,7 +69,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cost = DI.partCost(type, def.props) - W.pipeCost(tl.x, tl.y);
     if (!rich(cost)) { DI.ui.banner('Not enough budget: ' + def.name + ' costs ' + DI.money(cost) + '.'); return; }
     DI.pushUndo(); W.erasePipe(tl.x, tl.y); const p = W.addPart(type, tl.x, tl.y, rot); if (!p) return;
-    W.money -= cost; DI.edited(); DI.audio.play('place'); G.sel = { kind: 'part', id: p.id }; DI.inspect.render(true);
+    // Keep construction clear of inspector overlays; Select opens a placed device's controls.
+    W.money -= cost; DI.edited(); DI.audio.play('place'); G.sel = null; DI.inspect.render(true);
   }
   function ghostFor(tl) {
     const G = g(), W = G.W, t = G.tool;
@@ -136,6 +137,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
       else if (k === ' ') { e.preventDefault(); DI.setSpeed(G.speed ? 0 : 1); }
       else if (k === 'm') DI.ui.showManual();
       else if (k === 'g') DI.ui.showGoals();
+      else if (k === 'f') DI.ui.toggleFocus();
+      else if (k === 'home') { e.preventDefault(); DI.ui.fitSite(); }
       else if (k === 'delete' || k === 'backspace') { if (G.sel && G.sel.kind === 'part') { const p = G.W.parts.get(G.sel.id); if (p && !p.p.fixed) { DI.pushUndo(); G.W.money += DI.partCost(p.type, p.p); G.W.removePart(p.id); G.sel = null; DI.edited(); DI.inspect.render(true); } } }
       else keys.add(k);
     });

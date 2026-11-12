@@ -19,10 +19,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if (pz) { if (sv && sv.puz) DI.puzLoad(S, sv.puz); else DI.puzInit(S, sc); } else DI.puzActive = null;
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
     S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
-    let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0; for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
-    for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
-    g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
-    DI.ui.onScenario();
+    DI.ui.onScenario(); DI.ui.fitSite();
     // a field call opens on its records: what the setup put in the event log (the night's alarm, the resets) is shown
     if (pz) for (const l of S.log) DI.bus.emit('log', l.text, l.cls);
     if (!sv) DI.ui.showBrief(sc);
