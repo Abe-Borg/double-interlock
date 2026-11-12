@@ -2691,7 +2691,8 @@ const grid = (W, x0, y0, x1, y1) => { for (let y = y0; y <= y1; y++) for (let x 
     let html = fs.readFileSync(path.join(ROOT8, 'index.html'), 'utf8');
     html = html.replace(/<link rel="stylesheet" href="([^"]+)">/, (m, f) => '<style>\n' + fs.readFileSync(path.join(ROOT8, f), 'utf8') + '</style>').replace(/<script src="([^"]+)"><\/script>/g, (m, f) => '<script>\n' + fs.readFileSync(path.join(ROOT8, f), 'utf8').replace(/<\/script/g, '<\\/script') + '\n</script>');
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT8, 'package.json'), 'utf8'));
-    ok('A133 build-standalone.js reproduces double-interlock.html byte for byte; the fixture is the pinned file; npm run test:ui runs ui.c8.js after ui.c7.js; the game still has no runtime dependency', html === fs.readFileSync(path.join(ROOT8, 'double-interlock.html'), 'utf8') && TT.sha16(TT.FILE) === 'cb3462b268359c6e' && /node test\/ui\.c7\.js \/tmp\/c7\.png && node test\/ui\.c8\.js \/tmp\/c8\.png$/.test(pkg.scripts['test:ui']) &&
+    // (the field call checks, ui.puz.js, run last; npm test runs the field call engine test, puzzle.test.js, last)
+    ok('A133 build-standalone.js reproduces double-interlock.html byte for byte; the fixture is the pinned file; npm run test:ui runs ui.c8.js after ui.c7.js, then the field calls; the game still has no runtime dependency', html === fs.readFileSync(path.join(ROOT8, 'double-interlock.html'), 'utf8') && TT.sha16(TT.FILE) === 'cb3462b268359c6e' && /node test\/ui\.c7\.js \/tmp\/c7\.png && node test\/ui\.c8\.js \/tmp\/c8\.png && node test\/ui\.puz\.js \/tmp\/puz\.png$/.test(pkg.scripts['test:ui']) && /node test\/puzzle\.test\.js$/.test(pkg.scripts.test) &&
       !pkg.dependencies && Object.keys(pkg.devDependencies).sort().join() === '@tauri-apps/cli,playwright' && fs.existsSync(path.join(__dirname, 'ui.c8.js')));
   }
   // static checks on the sources

@@ -13,7 +13,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   ui.init = function () {
     $('bMenu').onclick = () => { DI.saveGame(); ui.showMenu(); };
     $('bGoals').onclick = ui.showGoals; $('bSite').onclick = () => ui.showSite(); $('bReview').onclick = ui.showReview; $('bTests').onclick = ui.showTests; $('bManual').onclick = () => ui.showManual();
-    $('bDrill').onclick = ui.askDrill; $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
+    $('bDrill').onclick = ui.askDrill; $('bHint').onclick = () => DI.puzUI.hint(); $('bDiag').onclick = () => DI.puzUI.diagnose(); $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
     $('bSnd').classList.add('on');
     document.querySelectorAll('.sp').forEach((b) => { b.onclick = () => DI.setSpeed(+b.dataset.sp); });
     $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, 44, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
@@ -58,6 +58,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   ui.onScenario = function () {
     const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
     $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
+    $('bHint').style.display = $('bDiag').style.display = G.sc.puzzle ? '' : 'none';
     ui.setTool('select'); DI.inspect.render(true);
   };
   ui.tick = function () {
@@ -68,6 +69,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('wx').textContent = DI.fmt(W.outTemp) + '°F  ' + (W.power ? 'UTILITY OK' : 'UTILITY OUT');
     $('wx').style.color = W.power ? '' : 'var(--red)';
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
+    if (G.sc.puzzle && S.puz) { const left = G.sc.v.hints.length - S.puz.hints; $('bHint').textContent = 'Hint (' + left + ')'; $('bDiag').classList.toggle('go', !S.puz.diag.ok); $('bDiag').textContent = S.puz.diag.ok ? 'Diagnosed' : 'Diagnose'; }
     // Impairment tags are riser tags, not signals: listed above the signals, and still shown with a dead panel.
     const imps = DI.impairments(S), ih = imps.length ? '<div class="hd3">IMPAIRMENT TAGS</div>' + imps.map((x) => '<div class="imp" data-p="' + x.id + '">' + esc(x.text) + '</div>').join('') : '';
     if ($('imp').dataset.h !== ih) { $('imp').innerHTML = ih; $('imp').dataset.h = ih; }
@@ -109,15 +111,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
       h += '<button class="card' + (open ? '' : ' lock') + '" data-sc="' + sc.id + '"' + (open ? '' : ' disabled') + '><em>' + (sc.sandbox ? 'FREE PLAY' : 'CONTRACT ' + (i + 1)) + '</em>' + (d ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') + '<b>' + esc(sc.name) + '</b><small>' + esc(sc.tag) + (sv ? ' · in progress' : '') + '</small></button>';
       if (!sc.sandbox && !d) unlocked = false;
     });
-    h += '</div><div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">' + (DI.desktop && DI.desktop.available ? 'Progress saves on this PC.' : 'Progress saves in this browser.') + ' Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
+    h += '</div>' + DI.puzUI.menuHtml() + '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">' + (DI.desktop && DI.desktop.available ? 'Progress saves on this PC.' : 'Progress saves in this browser.') + ' Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
     if (DI.desktop && DI.desktop.available) h += '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Windows desktop · Progress saves on this PC.</span><button id="mUpdates">Check for updates</button></div>';
     ui.modal(h, false);
     if ($('mUpdates')) $('mUpdates').onclick = DI.desktop.check;
-    $('mbox').querySelectorAll('.card').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); });
+    $('mbox').querySelectorAll('.card[data-sc]').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); }); DI.puzUI.bindMenu();
     $('mMan').onclick = () => ui.showManual(null, ui.showMenu);
-    $('mUnlock').onclick = () => { for (const sc of DI.SCEN) if (!sc.sandbox && !G.prog.done[sc.id]) G.prog.done[sc.id] = { stars: 0, spent: 0 }; DI.LS.set('di.progress', G.prog); ui.showMenu(); };
+    $('mUnlock').onclick = () => { for (const sc of DI.SCEN) if (!sc.sandbox && !G.prog.done[sc.id]) G.prog.done[sc.id] = { stars: 0, spent: 0 }; for (const pz of DI.PUZ) if (!G.prog.done[pz.id]) G.prog.done[pz.id] = { stars: 0, v: {} }; DI.LS.set('di.progress', G.prog); ui.showMenu(); };
   };
   ui.showBrief = function (sc) {
+    if (sc.puzzle) return DI.puzUI.brief(sc);
     ui.modal('<h4>CONTRACT BRIEFING</h4><h2>' + esc(sc.name) + '</h2><div class="sub">' + esc(sc.tag).toUpperCase() + ' · BUDGET ' + DI.money(sc.money) + '</div>' + sc.brief.map((p) => '<p>' + esc(p) + '</p>').join('') +
       (sc.learn.length ? '<h4>WHAT THIS CONTRACT TEACHES</h4><ul>' + sc.learn.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>' : '') +
       (sc.goals.length ? '<h4>GOALS</h4>' + sc.goals.map((q) => '<div class="goal"><i>○</i><div>' + esc(q.t) + '</div></div>').join('') : '') +
@@ -125,6 +128,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('mGo').onclick = ui.close;
   };
   ui.showGoals = function () {
+    if (g().sc.puzzle) return DI.puzUI.goals();
     const G = g(); let h = '<h4>' + esc(G.sc.name).toUpperCase() + '</h4><h2>Goals</h2>';
     G.sc.goals.forEach((q, i) => { h += '<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + (!G.goalOk[i] && q.hint ? '<small>' + esc(q.hint) + '</small>' : '') + '</div></div>'; });
     if (G.sc.drill) h += '<p>When every goal is met, run the acceptance drill: <b>' + esc(G.sc.drill.name) + '</b>. You can run it early to see what happens. It will not be kind.</p>';
@@ -326,10 +330,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const G = g(), d = G.sc.drill, ready = DI.goalsDone();
     ui.modal('<h4>ACCEPTANCE DRILL</h4><h2>' + esc(d.name) + '</h2><p>' + (ready ? 'Every goal is met. The drill throws real incidents at what you built, in real time. You are the operator: watch the annunciator, and restore anything that gets impaired.' : '<b style="color:var(--amb)">Goals are not complete.</b> You can still run the drill to see how the plant behaves. It will not count, and the map is restored afterwards.') +
       '</p><p>Speed controls work during the drill. The map is saved first and restored when the drill ends.</p><div class="mrow"><button id="mNo">Not yet</button><button id="mGo" class="hot">Run the drill</button></div>');
-    $('mNo').onclick = ui.close; $('mGo').onclick = () => { ui.close(); G.pre = { world: JSON.stringify(G.W.toJSON()), sim: JSON.stringify(G.S.dump()), ex: G.W.rooms.map((r) => r.exempt) }; DI.setSpeed(1); DI.startDrill(G.S, d); };
+    $('mNo').onclick = ui.close; $('mGo').onclick = () => { ui.close(); G.pre = { world: JSON.stringify(G.W.toJSON()), sim: JSON.stringify(G.S.dump()), ex: G.W.rooms.map((r) => r.exempt) }; DI.setSpeed(1); DI.startDrill(G.S, d, DI.goalState(G.S, G.sc)); };
   };
   ui.showReport = function (res, stars, spent, full) {
     const G = g(), st = res.stats || {}; let h = '<h4>' + (G.sc.drill ? 'DRILL REPORT · ' + esc(G.sc.drill.name).toUpperCase() : 'CONTRACT COMPLETE') + '</h4><h2>' + (res.pass ? (full ? 'Contract complete' : 'Survived, but goals are incomplete') : 'The plant failed') + '</h2>';
+    const g0 = G.S.drill && G.S.drill.goals0; if (G.sc.drill && g0) h += '<p style="font-size:13px">Commissioning record, taken when the drill started: ' + g0.filter(Boolean).length + ' of ' + g0.length + ' goals met' + (g0.every(Boolean) ? '. What was proved before the drill stays proved.' : '. The drill counts only with every goal met before it.') + '</p>';
     if (res.pass && full) h += '<div class="stars">' + '★'.repeat(stars) + '<s>' + '★'.repeat(3 - stars) + '</s></div><p>Spent ' + DI.money(spent) + ' of ' + DI.money(G.sc.money) + ' (par ' + DI.money(G.sc.par) + ').</p>';
     h += res.lines.map((l) => '<div class="goal' + (l[0] === '✓' ? ' ok' : '') + '"><i>' + esc(l[0]) + '</i><div>' + esc(l.slice(2)) + '</div></div>').join('');
     if (G.sc.drill) h += '<h4>LOSSES</h4><div class="goal"><i></i><div>Fire ' + DI.money(st.fireLoss || 0) + ' · Water ' + DI.money(st.waterLoss || 0) + ' · Smoke ' + DI.money(st.smokeLoss || 0) + '</div></div>' + DI.galLines(st).map((t) => '<div class="goal gal"><i></i><div>' + esc(t) + '</div></div>').join('');     // two gallon lines, never a total

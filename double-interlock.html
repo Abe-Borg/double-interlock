@@ -95,6 +95,12 @@ button.pill { border-radius:12px; padding:3px 10px; }
 #mbox.wide { width:min(1280px,96vw); } #mbox p.impTag { border-left:3px solid var(--amb); padding-left:10px; color:#ffd590; }
 .ce { border-collapse:collapse; width:100%; margin:10px 0; font:11.5px/1.35 var(--mono); } .ce th, .ce td { border:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; color:#b6c6d2; } .ce th { color:#fff; background:#0f1820; position:sticky; top:-22px; }
 .ce tr.off td { color:#566878; } .ce tr.live td { background:#2a1d0c; color:#ffe2b0; } .ce .now { display:block; color:var(--amb); font-weight:700; letter-spacing:.06em; }
+/* field calls: the comparison of fixes after a call is solved, and the variant line on a menu card */
+.cmp { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:6px; } .cmpc { background:#0f1820; border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+.cmpc > b { display:block; font-size:13px; color:#fff; margin-bottom:6px; } .cmpc canvas { width:100%; height:auto; display:block; border-radius:4px; background:#0d141b; }
+.cmpc small { display:block; font:12px var(--mono); color:var(--amb); margin:6px 0 2px; } .cmpc ul, .cmpc ol { margin:4px 0; padding-left:18px; } .cmpc li { font-size:12.5px !important; } .cmpc p { font-size:12.5px !important; margin:6px 0 0 !important; }
+.card small.vs { font:11px var(--mono); color:var(--amb); margin-top:3px; }
+button.dg { text-align:left; width:100%; }
 </style>
 </head>
 <body>
@@ -107,7 +113,7 @@ button.pill { border-radius:12px; padding:3px 10px; }
     <button id="bSkip" title="Skip ahead">Skip &#9662;</button>
     <div id="wx"></div>
   </div>
-  <div class="tr"><div id="money"></div><button id="bSite" title="Site settings: enforced edition, pipe size cut, water delivery, detection thresholds, signal classes, company rules. Read-only in a contract">Site</button><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
+  <div class="tr"><div id="money"></div><button id="bSite" title="Site settings: enforced edition, pipe size cut, water delivery, detection thresholds, signal classes, company rules. Read-only in a contract">Site</button><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bHint" title="Graduated hints: the system, a measurement, the fault">Hint</button><button id="bDiag" title="Answer the call's central question">Diagnose</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
 </div>
 <div id="ann"><div class="hd">FIRE ALARM ANNUNCIATOR <span id="annState">NORMAL</span></div><div id="imp"></div><div id="sigs"></div><div id="stq"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
 <div id="side"></div>
@@ -138,6 +144,9 @@ DI.clock = (s) => {
   const p = (n) => String(n).padStart(2, '0');
   return (d ? 'D' + (d + 1) + ' ' : '') + p(h) + ':' + p(m) + ':' + p(x);
 };
+// A pressure gauge reading. The network solver has no cavitation: a starved pump suction can solve far below a full
+// vacuum. A gauge cannot read lower than -14.7 psi, so below that the reading says vacuum (display only).
+DI.gaugeText = (p, d) => (p < -DI.ATM ? '-' + DI.ATM + ' (full vacuum)' : DI.fmt(p, d || 0));
 DI.dur = (s) => (s < 90 ? DI.fmt(s, s < 10 ? 1 : 0) + ' s' : s < 5400 ? DI.fmt(s / 60, 1) + ' min' : DI.fmt(s / 3600, 1) + ' h');
 
 DI.rng = function (seed) {           // mulberry32
@@ -821,6 +830,7 @@ DI.OWNER_REFILL = [0, 10, 15, 20, 25];
 DI.ownerRefill = (W) => { const m = W && W.cfg ? W.cfg.ownerRefill : undefined; return typeof m === 'number' && isFinite(m) && m > 0 ? m : 0; };
 DI.N2_SCFM = [1, 2.5, 5];
 DI.SPK_K = 5.6;                     // standard spray sprinkler K-factor (gpm/psi^0.5)
+DI.TAMPER_SW_COST = 600;            // ASSUMED: a supervisory (tamper) switch fitted to a control valve that has none
 DI.SPK_COST = 140;                  // $ per sprinkler tile (head + branch pipe is priced separately)
 
 DI.pumpHp = (p) => Math.ceil((p.gpm * 1.5 * p.psi * 0.65) / (1714 * 0.7) / 5) * 5;   // driver sized for 150% point
@@ -836,6 +846,8 @@ DI.partCost = (type, props) => {
   if (type === 'comp') return 1800 + (props ? props.scfm : 5) * 320;
   if (type === 'n2') return 19000 + (props ? props.scfm : 2.5) * 4000;
   if (type === 'dryv') return d.cost + (props && props.qod ? 2800 : 0);
+  // a control valve with no supervisory switch fitted (sw === 0) costs the switch less (ASSUMED)
+  if (type === 'gate' && props && props.sw === 0) return d.cost - DI.TAMPER_SW_COST;
   // panel: the battery by Ah against the default pick, plus the charger by its amperes (both ASSUMED)
   if (type === 'panel' && props) return d.cost + Math.round(((props.ah > 0 ? props.ah : DI.PANEL_LOADS.ah) - DI.PANEL_LOADS.ah) * DI.BATT_COST_PER_AH) + (DI.CHG_COST[props.chgA] || 0);
   return d.cost;
@@ -2594,7 +2606,8 @@ DI.alarmStep = function (S, dt) {
   }
   for (const p of W.parts.values()) {
     const q = p.p;
-    if (p.type === 'gate' && q.open < 0.8) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
+    // a valve with no supervisory switch fitted (q.sw === 0: an old sealed yard valve, the field calls) has nothing to signal with
+    if (p.type === 'gate' && q.open < 0.8 && q.sw !== 0) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
     else if (p.type === 'epump' || p.type === 'dpump') {
       const nm = (p.type === 'dpump' ? 'DIESEL' : 'ELECTRIC') + ' FIRE PUMP #' + p.id;
       if (q.spd > 0.5) add('pr' + p.id, 'pumpRun', nm + ' RUNNING', p);
@@ -4000,7 +4013,7 @@ DI.testStep = function (S, dt) {
           if (pr.stage === 3) {
             const [a, b, c] = pr.pts, net = (p) => p.pd - p.ps, R = v.p.psi;
             const ok1 = net(a) <= 1.4 * R + 0.5, ok2 = b.q >= 0.98 * v.p.gpm && net(b) >= 0.95 * R, ok3 = c.q >= 0.98 * 1.5 * v.p.gpm && net(c) >= 0.95 * 0.65 * R, ok4 = c.ps >= -3;
-            const row = (n, p, lim) => n + ': ' + DI.fmt(p.q) + ' gpm, suction ' + DI.fmt(p.ps) + ', discharge ' + DI.fmt(p.pd) + ', net ' + DI.fmt(net(p)) + ' psi ' + lim;
+            const row = (n, p, lim) => n + ': ' + DI.fmt(p.q) + ' gpm, suction ' + DI.gaugeText(p.ps) + ', discharge ' + DI.fmt(p.pd) + ', net ' + DI.fmt(net(p)) + ' psi ' + lim;
             res = { pass: ok1 && ok2 && ok3 && ok4, title: 'Fire pump flow test (' + v.p.gpm + ' gpm @ ' + R + ' psi)', pts: pr.pts, lines: [
               row('Churn', a, '(max ' + DI.fmt(1.4 * R) + ')'), row('100%', b, '(min ' + DI.fmt(0.95 * R) + ')'), row('150%', c, '(min ' + DI.fmt(0.95 * 0.65 * R) + ')'),
               !ok2 || !ok3 ? 'Could not reach the required flow/pressure: the suction supply or piping is the limit.' : ok4 ? 'Suction stayed positive at 150%.' : 'SUCTION WENT NEGATIVE at 150%: supply cannot feed this pump.'] };
@@ -4076,6 +4089,10 @@ DI.buildScenario = function (sc, cfg) {
 // are fixed, and a Manual Release zone bypass shows as an impairment.
 DI.simFlags = function (S, sc) { S.live = !!sc.sandbox; S.contract = !sc.sandbox; };
 
+// How long the fire pumps have been quiet: seconds since the last automatic start, the last edit, the last pump test
+// and the last moment any fire pump was running (q.lastRun), whichever is latest. t0: an earliest start, optional.
+DI.quietFor = (S, t0) => S.t - Math.max(S.lastAuto || 0, S.editT || 0, S.lastTestT || 0, t0 || 0,
+  ...[...S.W.parts.values()].filter((p) => (p.type === 'epump' || p.type === 'dpump') && p.p.lastRun > 0 && p.p.spd === 0).map((p) => p.p.lastRun));
 // --- goal helpers (all read live state)
 DI.G = {
   covered: (S, types) => S.W.rooms.filter((r) => !types || types.includes(r.type)).every((r) => (r.cov === undefined ? 0 : r.cov) >= 0.999),
@@ -4226,8 +4243,13 @@ DI.drillRecovery = function (S, what) {
 };
 
 // --- drills: timed scripts of incidents. step = [secondsFromStart, fn(S), optional banner]
-DI.startDrill = function (S, d) {
+// goals0: the commissioning record, the scenario's goals as they stood when the drill started (DI.goalState). The game
+// reads the goals from it for the whole drill, so what was proved before the fire (Churn's thirty quiet minutes, a
+// refill, a passing calc) stays proved while the drill runs the plant hard. Optional: without it nothing is recorded.
+DI.goalState = (S, sc) => sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });
+DI.startDrill = function (S, d, goals0) {
   S.drill = { name: d.name, steps: d.steps(S).sort((a, b) => a[0] - b[0]), i: 0, t0: S.t, len: d.len, judge: d.judge, done: false };
+  if (Array.isArray(goals0)) S.drill.goals0 = goals0.slice();
   S.stats = { fireLoss: 0, waterLoss: 0, smokeLoss: 0, gallons: 0 }; S.drillLog0 = S.log.length;
   S.say('ACCEPTANCE DRILL: ' + d.name, 'warn'); DI.bus.emit('drill', S.drill);
 };
@@ -4362,7 +4384,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       { t: 'Storage building hydraulic calc passes with the pump running', ok: (S) => G.calcOk(S, 'stor'), hint: 'Select the wet riser and run the calc. It assumes pumps in AUTO are running.' },
       { t: 'Pump stays under 150% of rated flow and the tank lasts 60 minutes', ok: (S) => G.each(S, 'stor', (v, i, s, id) => { const c = S.calc && S.calc.get(id); return !!c && c.ok && !c.over && c.durOk; }) && pumps(S).length > 0, hint: 'The calc reports the pump operating point and tank duration. Demand × 60 min is the minimum tank.' },
       { t: 'Jockey pump installed with start/stop settings in the right order', ok: (S) => S.W.byType('jockey').length > 0 && G.noWarn(S, 'ockey') && pumps(S).length > 0, hint: 'Jockey stop about churn + suction pressure. Jockey start 10 psi under that. Fire pump start 5 psi under jockey start.' },
-      { t: 'Thirty quiet minutes: the jockey holds pressure and the fire pump never starts', ok: (S) => pumps(S).length > 0 && pumps(S).every((p) => p.p.mode === 'auto' && p.p.spd === 0) && S.t - Math.max(S.lastAuto || 0, S.editT || 0, S.lastTestT || 0) >= 1800, hint: 'There is a small leak on the old underground main. Let time run (speed up). If the fire pump starts, your settings overlap.' },
+      { t: 'Thirty quiet minutes: the jockey holds pressure and the fire pump never starts', ok: (S) => pumps(S).length > 0 && pumps(S).every((p) => p.p.mode === 'auto' && p.p.spd === 0) && DI.quietFor(S) >= 1800, hint: 'There is a small leak on the old underground main. Let time run (speed up). If the fire pump starts, your settings overlap.' },
       { t: 'No code failures in review', ok: (S) => G.noFails(S), hint: '' },
     ],
     drill: { name: 'Night Shift', len: 1500, steps: () => [[10, X.fire('stor', 0.6, 0.5, 0, 1.5), 'Fire in rack storage of cable reels and packaging.']],
@@ -4514,6 +4536,804 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
 </script>
 <script>
+// Field calls: small "find the fault" puzzles. Engine side (no DOM), so the tests can play them under Node.
+// A puzzle hands the player an existing installation, a symptom and a small repair budget, and asks one central
+// question. The live plant is the same simulation as the contracts: nothing here changes how water, air or the panel
+// behave. This file holds the puzzle machinery; the puzzles themselves are in puz1.js and puz2.js.
+//
+//   DI.PUZ            the puzzle list: { id, n, name, tag, kind, question, learn, w, h, parts, variants: [...] }
+//   variant           { key, name, money, symptom, records, build(W, b), setup(S), area, hints, diag, goals,
+//                       cheap, maint, live, impPar, cfg }
+//   DI.puzScenario    one variant as a scenario object (the shape main.js and DI.buildScenario expect)
+//   S.puz             the running puzzle's state: the starting layout (w0), hints shown, diagnosis tries, the
+//                     out-of-service clock and the resets made while the cause was still live. It is saved beside
+//                     the world and the sim (main.js), never inside Sim.dump.
+//   DI.puzDiff        the edits between the starting layout and now: what "fewest edits" counts
+//   DI.puzScore       the scorecard and the stars
+//   DI.puzSolution    the cheap and the easily maintained fix, applied to a copy of the starting layout, for the
+//                     comparison after the puzzle (and for the tests, which play both)
+var DI = globalThis.DI || (globalThis.DI = {});
+
+DI.PUZ = [];
+DI.PUZ_HINTS = 3;                 // graduated hints: the system, a measurement, the fault
+DI.PUZ_IMP_PAR = 1800;            // default out-of-service par, seconds of game time (ASSUMED, a game value)
+DI.PUZ_COST_SLACK = 0.1;          // the cost line passes within 10 % of the cheapest fix (ASSUMED, a game value)
+// Design settings: a change to one of these on a part is an edit. Everything else on a part is operation (a valve
+// position, a pump's mode, a running flag) and is never counted.
+DI.PUZ_KEYS = {
+  epump: ['gpm', 'psi', 'start', 'emerg'], dpump: ['gpm', 'psi', 'start'], jockey: ['psi', 'start', 'stop'], tank: ['cap'],
+  comp: ['scfm', 'cutOut', 'maxPsi', 'relief'], n2: ['scfm'], dryv: ['qod', 'airSet', 'hiAir', 'loAir', 'avc', 'avcTamper'],
+  prev: ['trim', 'airSet', 'hiAir', 'loAir', 'pTrip', 'avc', 'avcTamper', 'vent'], panel: ['ah', 'chgA'],
+};
+// What the layout is worth at installed cost (the same prices the build tools charge and refund).
+DI.puzWorth = function (W) {
+  let c = 0;
+  for (let k = 0; k < W.pd.length; k++) { if (W.pd[k]) c += DI.pipeAt(W, k).cost + (W.spk[k] ? DI.SPK_COST : 0); if (W.air[k]) c += 25; }
+  for (const p of W.parts.values()) if (!p.p.fixed) c += DI.partCost(p.type, p.p) + (p.p.vent ? 3200 : 0);
+  return c;
+};
+DI.puzSnap = (W) => JSON.stringify(W.toJSON());
+DI.puzWorld = (snap) => DI.World.fromJSON(JSON.parse(snap));
+
+// The edits between two layouts, one per changed thing: a pipe tile (added, removed, resized, re-oriented, a head
+// added or removed), a capped joint, a tile of air tubing, a part (added, removed, replaced, turned end for end, or
+// a design setting changed) and a wire. A tile that holds a part in either layout is judged as a part only, so
+// dropping a valve into a pipe run is one edit. A sprinkler that operated (fused or broken) is still a sprinkler.
+DI.puzDiff = function (W0, W) {
+  const items = [], tiles = new Set(), w = W.w, xy = (k) => [k % w, (k / w) | 0];
+  const add = (k, what) => { const [x, y] = xy(k); items.push({ x, y, k, what }); tiles.add(k); };
+  for (let k = 0; k < W.pd.length; k++) {
+    if (W0.partAt[k] || W.partAt[k]) continue;
+    const a = W0.pd[k], b = W.pd[k];
+    if (a !== b || (a && (W0.pk[k] !== W.pk[k] || (W0.spk[k] > 0) !== (W.spk[k] > 0))))
+      add(k, !a ? 'pipe added' : !b ? 'pipe removed' : a !== b ? 'pipe resized ' + DI.PIPES[a - 1].n + ' to ' + DI.PIPES[b - 1].n : W0.pk[k] !== W.pk[k] ? 'branch line re-laid' : W.spk[k] ? 'sprinkler added' : 'sprinkler removed');
+    if (W0.air[k] !== W.air[k]) add(k, W.air[k] ? 'air tubing added' : 'air tubing removed');
+    if (W0.cut[k * 2] !== W.cut[k * 2]) add(k, W.cut[k * 2] ? 'joint capped' : 'cap removed');
+    if (W0.cut[k * 2 + 1] !== W.cut[k * 2 + 1]) add(k, W.cut[k * 2 + 1] ? 'joint capped' : 'cap removed');
+  }
+  for (let k = 0; k < W.pd.length; k++) if (W0.partAt[k] || W.partAt[k]) {
+    // caps and tubing on a part's tile still count
+    if (W0.air[k] !== W.air[k]) add(k, W.air[k] ? 'air tubing added' : 'air tubing removed');
+    if (W0.cut[k * 2] !== W.cut[k * 2] || W0.cut[k * 2 + 1] !== W.cut[k * 2 + 1]) add(k, 'cap changed');
+  }
+  const at = (WW, p) => WW.parts.get(WW.partAt[WW.k(p.x, p.y)]);
+  const name = (p) => DI.PARTS[p.type].name.toLowerCase();
+  for (const p of W0.parts.values()) {
+    const q = at(W, p), k = W.k(p.x, p.y);
+    if (!q) { add(k, name(p) + ' removed'); continue; }
+    if (q.type !== p.type) { add(k, name(p) + ' replaced by ' + name(q)); continue; }
+    if (q.rot !== p.rot) { add(k, name(p) + ' turned'); continue; }
+    const keys = DI.PUZ_KEYS[p.type] || [];
+    const ch = keys.filter((key) => JSON.stringify(p.p[key]) !== JSON.stringify(q.p[key]));
+    if (ch.length) add(k, name(p) + ' setting changed (' + ch.join(', ') + ')');
+  }
+  for (const q of W.parts.values()) if (!at(W0, q)) add(W.k(q.x, q.y), name(q) + ' added');
+  // wires are compared by the tiles of the panel and the device, so a part put back where it was keeps its wire
+  const wset = (WW) => new Set(WW.wires.map(([a, b]) => { const pa = WW.parts.get(a), pb = WW.parts.get(b); return pa && pb ? pa.x + ',' + pa.y + '>' + pb.x + ',' + pb.y : ''; }).filter(Boolean));
+  const w0 = wset(W0), w1 = wset(W);
+  for (const s of w1) if (!w0.has(s)) { const [x, y] = s.split('>')[1].split(',').map(Number); add(W.k(x, y), 'wire added'); }
+  for (const s of w0) if (!w1.has(s)) { const [x, y] = s.split('>')[1].split(',').map(Number); add(W.k(x, y), 'wire removed'); }
+  return { n: items.length, items, tiles };
+};
+
+// ---------- a variant as a scenario
+DI.puzFind = (id) => DI.PUZ.find((p) => p.id === id) || null;
+DI.puzScenario = function (id, vi) {
+  const pz = DI.puzFind(id); if (!pz) return null;
+  const i = DI.clamp(vi | 0, 0, pz.variants.length - 1), v = pz.variants[i];
+  const diagGoal = { t: 'Name the fault (Diagnose, on the top bar)', ok: (S) => !!(S.puz && S.puz.diag.ok), hint: 'Answer the central question: ' + (v.diag.q || pz.question) };
+  const sc = {
+    id: pz.id, name: pz.name, tag: 'Field call ' + pz.n + ' · ' + v.name, w: v.w || pz.w, h: v.h || pz.h, money: v.money, par: 0,
+    parts: v.parts || pz.parts, brief: v.symptom, learn: pz.learn, cfg: v.cfg, drill: null, puzzle: true, pz, vi: i, v,
+    build: (W) => v.build(W, DI.mk(W)), start: v.setup ? (S) => v.setup(S) : undefined,
+    goals: v.goals.concat([diagGoal]), tick: (S) => DI.puzTick(S),
+  };
+  return sc;
+};
+// build a variant and start its puzzle state (the tests and main.js both use it)
+DI.puzBuild = function (id, vi) { const sc = DI.puzScenario(id, vi); const { W, S } = DI.buildScenario(sc); DI.puzInit(S, sc); return { W, S, sc }; };
+
+// ---------- the running puzzle
+DI.puzInit = function (S, sc) {
+  // the records of the call: fixed text, or read from the starting state (a baseline test the setup recorded)
+  const v = sc.v, rec = typeof v.records === 'function' ? v.records(S) : v.records || [];
+  S.puz = { id: sc.id, vi: sc.vi, t0: S.t, w0: DI.puzSnap(S.W), rec, money0: S.W.money, hints: 0, diag: { tries: 0, ok: false, picks: [] }, imp: 0, lastT: S.t, futile: 0, resets: 0, actN: S.acts.length, lastReset: -1, flags: {} };
+  DI.puzActive = S; return S.puz;
+};
+// (the keys that start with _ are caches: the parsed starting layout and the par)
+DI.puzSave = (S) => (S.puz ? JSON.parse(JSON.stringify(S.puz, (k, val) => (k[0] === '_' ? undefined : val))) : null);
+DI.puzLoad = function (S, o) { S.puz = Object.assign({ flags: {}, diag: { tries: 0, ok: false, picks: [] } }, o); S.puz.lastT = S.t; S.puz.actN = S.acts.length; DI.puzActive = S; return S.puz; };
+DI.puzVariant = (S) => { const pz = S.puz && DI.puzFind(S.puz.id); return pz ? pz.variants[S.puz.vi] : null; };
+DI.puzStart = (S) => (S.puz._w0 && S.puz._w0s === S.puz.w0 ? S.puz._w0 : (S.puz._w0s = S.puz.w0, S.puz._w0 = DI.puzWorld(S.puz.w0)));
+DI.puzSpent = (S) => S.puz.money0 - S.W.money;
+
+// What is out of service right now, as short phrases: a control valve not fully open, a fire pump out of AUTO (a pump
+// on its own test is not counted), a dry or preaction zone that is not set and pressurized or has P latched, and an
+// isolated air / N2 supply. Read by the out-of-service clock (limited impairment).
+DI.puzImpaired = function (S) {
+  const W = S.W, out = [], onTest = (id) => S.procs.some((p) => (p.kind === 'pump' || p.kind === 'run') && (p.id === id || (p.others || []).some(([o]) => o === id)));
+  for (const p of W.parts.values()) {
+    if (p.type === 'gate' && p.p.open < 0.99) out.push('control valve #' + p.id + ' not fully open');
+    if ((p.type === 'epump' || p.type === 'dpump') && p.p.mode !== 'auto' && !onTest(p.id)) out.push('fire pump #' + p.id + ' not in AUTO');
+  }
+  for (const [id, s] of S.ss) { const v = W.parts.get(id), inf = S.sysd.info.get(id); if (!v || v.type === 'wetv') continue;
+    if (s.state !== 'dry' || !s.set || (v.type === 'prev' && v.p.pLatch)) out.push(DI.sysName(S, id) + ' not in service');
+    else if (inf && inf.src.length && !v.p.airValve && !S.procs.some((q) => q.kind === 'leak' && q.id === id)) out.push('air supply to ' + DI.sysName(S, id) + ' isolated'); }
+  return out;
+};
+// Called after every batch of steps (main.js frame, the tests): the out-of-service clock, and every panel reset made
+// while the variant's cause was still live (its `live` predicate): a reset that cannot hold.
+DI.puzTick = function (S) {
+  const pz = S.puz; if (!pz) return;
+  const dt = S.t - pz.lastT; pz.lastT = S.t;
+  if (dt > 0 && DI.puzImpaired(S).length) pz.imp += dt;
+  const v = DI.puzVariant(S); if (!v) return;
+  for (let i = pz.actN; i < S.acts.length; i++) { const a = S.acts[i];
+    if (a.kind !== 'reset-panel' || a.t < pz.t0 || a.t === pz.lastReset) continue;      // one panel reset logs one entry per valve
+    pz.lastReset = a.t; pz.resets++; if (v.live && v.live(S)) pz.futile++; }
+  pz.actN = S.acts.length;
+  if (v.watch) v.watch(S, pz.flags);
+};
+// The supervising station got a new signal (alarm.js emits 'signal' when one first appears): a waterflow from the
+// running puzzle that was transmitted at once is recorded, for the "the alarm reached the station" goals.
+DI.bus.on('signal', (o) => { const S = DI.puzActive; if (!S || !S.puz || !o || !o.key || o.key.slice(0, 2) !== 'wf') return;
+  if (o.mon && o.tx && !o.cut && !o.dark) { const f = S.puz.flags; (f.stn || (f.stn = {}))[o.part] = S.t; } });
+
+// Graduated hints: the system, a measurement, then the fault. Returns the hint just shown, or null when all are out.
+DI.puzHint = function (S) {
+  const v = DI.puzVariant(S); if (!v || S.puz.hints >= v.hints.length) return null;
+  return v.hints[S.puz.hints++];
+};
+// The diagnosis: one pick from the variant's options. A wrong pick is counted and answered with why it is not that.
+DI.puzDiagnose = function (S, i) {
+  const v = DI.puzVariant(S), o = v && v.diag.opts[i]; if (!o) return null;
+  const d = S.puz.diag; if (d.ok) return { ok: true, why: o[2] };
+  d.tries++; d.picks.push(i); if (o[1]) d.ok = true;
+  S.say('Diagnosis: ' + o[0] + (o[1] ? ' - correct.' : ' - not the fault.'), o[1] ? 'good' : 'warn');
+  return { ok: !!o[1], why: o[2] };
+};
+
+// ---------- solutions: the cheap fix and the easily maintained fix, on a copy of the starting layout
+// sol = { t, steps: [text], edit(W, b), op(S) } (op runs on a live sim: the tests, never the comparison)
+DI.puzSolution = function (S, which) {
+  const v = DI.puzVariant(S), sol = v && v[which]; if (!sol) return null;
+  const W0 = DI.puzStart(S), W1 = DI.puzWorld(S.puz.w0);
+  if (sol.edit) sol.edit(W1, DI.mk(W1));
+  return { sol, W: W1, diff: DI.puzDiff(W0, W1), cost: DI.puzWorth(W1) - DI.puzWorth(W0) };
+};
+// par = the cheap fix: its edits and its cost
+DI.puzPar = function (S) {
+  const pz = S.puz; if (pz._par) return pz._par;
+  const c = DI.puzSolution(S, 'cheap'), v = DI.puzVariant(S);
+  return (pz._par = { edits: c ? c.diff.n : 0, cost: c ? Math.max(0, c.cost) : 0, imp: v && v.impPar !== undefined ? v.impPar : DI.PUZ_IMP_PAR });
+};
+// The scorecard. [ok, text] lines; the stars: one for the fix (every goal, the diagnosis included), one for fewest
+// edits at no more than the cheap fix's cost, one for the diagnosis right the first time with at most one hint, no
+// more out-of-service time than par and no reset made while the cause was still live.
+DI.puzScore = function (S) {
+  const pz = S.puz, v = DI.puzVariant(S), par = DI.puzPar(S), d = DI.puzDiff(DI.puzStart(S), S.W), spent = DI.puzSpent(S);
+  const costOk = spent <= par.cost * (1 + DI.PUZ_COST_SLACK) + 100, editOk = d.n <= par.edits, diagOk = pz.diag.ok && pz.diag.tries === 1, hintOk = pz.hints <= 1, impOk = pz.imp <= par.imp, resetOk = !v.live || pz.futile === 0;
+  const lines = [
+    [editOk, 'Edits: ' + d.n + ' (fewest needed: ' + par.edits + ')'],
+    [costOk, 'Spent: ' + DI.money(Math.max(0, spent)) + ' (cheapest fix: ' + DI.money(par.cost) + ')'],
+    [diagOk, pz.diag.ok ? 'Diagnosis: ' + (pz.diag.tries === 1 ? 'right the first time' : 'right on try ' + pz.diag.tries) : 'Diagnosis: not given'],
+    [hintOk, 'Hints used: ' + pz.hints + ' of ' + v.hints.length],
+    [impOk, 'Out of service: ' + DI.dur(pz.imp) + ' (par ' + DI.dur(par.imp) + ')'],
+  ];
+  if (v.live) lines.push([resetOk, 'Resets made while the cause was still live: ' + pz.futile + (pz.resets ? ' of ' + pz.resets : '')]);
+  const stars = 1 + (editOk && costOk ? 1 : 0) + (diagOk && hintOk && impOk && resetOk ? 1 : 0);
+  return { stars, lines, edits: d.n, diff: d, spent, par };
+};
+// Live status for the inspector's home panel and the goals dialog.
+DI.puzStatus = function (S) {
+  const v = DI.puzVariant(S), pz = S.puz; if (!v) return null;
+  return { v, edits: DI.puzDiff(DI.puzStart(S), S.W).n, spent: DI.puzSpent(S), hints: v.hints.slice(0, pz.hints), left: v.hints.length - pz.hints, imp: pz.imp, now: DI.puzImpaired(S), futile: pz.futile, diag: pz.diag };
+};
+
+// ---------- helpers the puzzles share
+DI.PZ = {
+  // the last result of a kind on part `id` recorded after the puzzle started
+  since: (S, kind, id) => { const r = DI.lastResult(S, kind, id); return r && S.puz && r.t >= S.puz.t0 ? r : null; },
+  // every control valve fully open
+  allOpen: (S) => S.W.byType('gate').every((g) => g.p.open > 0.99 && g.p.target > 0.99),
+  // the zone of a system valve is set, pressurized, with no latch left anywhere on it
+  inService: (S, v) => { const s = v && S.ss.get(v.id); return !!s && s.state === 'dry' && s.set && !v.p.pLatch && !v.p.sol && !v.p.pull && !v.p.mrzL && v.p.airValve === 1 && !v.p.sdrain; },
+  // no signal of these classes on the annunciator (superseded detector stages are records, not signals)
+  quiet: (S, types) => ![...S.sig.values()].some((o) => !o.sup && !o.lost && types.includes(o.type)),
+  // thirty quiet minutes: every fire pump in AUTO and stopped, and no fire pump running, automatic start, edit or pump
+  // test for 1,800 s (DI.quietFor): a pump that ran half an hour and was then stopped by hand is not a quiet half hour
+  sleeps: (S) => { const fp = [...S.W.parts.values()].filter((p) => p.type === 'epump' || p.type === 'dpump');
+    return fp.length > 0 && fp.every((p) => p.p.mode === 'auto' && p.p.spd === 0) && DI.quietFor(S, S.puz ? S.puz.t0 : 0) >= 1800; },
+};
+
+</script>
+<script>
+// Field calls 1-4: The Narrow Neck, Facing the Wrong Way, The Last Row, Pressure Without Supply.
+// Each variant changes something that matters (where the fault is, the supply, the layout or what else is going on),
+// not just the budget. Coordinates are tiles of the variant's own map. See puz.js for the shape of a puzzle.
+var DI = globalThis.DI || (globalThis.DI = {});
+(function () {
+  const G = DI.G, PZ = DI.PZ;
+  // small edit helpers, shared with puz2.js (the solutions and the tests use them)
+  const E = DI.PZE = {
+    resize(W, x, y, size) { const k = W.k(x, y); W.pd[k] = size + 1; W.ver++; },
+    turn(W, x, y) { const p = W.at(x, y); if (p) { p.rot = (p.rot + 2) % 4; W.ver++; } },
+    cap(W, x, y, south, on) { W.setCut(x, y, !!south, on ? 1 : 0); },
+    kind(W, x, y, kind) { W.pk[W.k(x, y)] = kind; W.ver++; },
+    gate(W, x, y, rot, wire) { W.erasePipe(x, y); const g = W.addPart('gate', x, y, rot); if (g && wire) W.wire(W.byType('panel')[0].id, g.id); return g; },
+    wire(W, x, y) { const p = W.at(x, y); if (p) W.wire(W.byType('panel')[0].id, p.id); },
+    fitSwitch(W, x, y) { const p = W.at(x, y); if (p) { p.p.sw = 1; W.ver++; } },
+    erase(W, x, y) { const p = W.at(x, y); if (p) W.removePart(p.id); W.erasePipe(x, y); },
+  };
+  DI.PUZ_KEYS.gate = ['sw'];
+
+  // ---------- the pump site (the contract 3 site): a weak city main feeding the storage building's wet system, and
+  // the pump house of contract 4: tank, electric fire pump, discharge check valve, jockey pump, test header.
+  //   tank (6,12) -> 8 in. suction (7..10,12) -> pump (11,12) -> (12..13,12) -> check (14,12) -> discharge (15..19,12)
+  //   -> (19,13..17) -> city main (row 18) -> riser feed (24,13..17) -> control valve (27,13), wet riser (28,13)
+  //   jockey: suction tee (9,11..10) -> jockey (11,10) -> check (14,10) -> (15,10..11) -> discharge (15,12)
+  //   test header line: tee (17,12) -> (17,13..15) -> test header (17,16)
+  const c3 = () => DI.SCEN.find((s) => s.id === 'c3');
+  const pumpSite = (W, b) => { c3().build(W); const pn = W.byType('panel')[0], o = DI.pumpHouse(b, pn); o.ep.p.orig = 1; return o; };
+  const leak = (S) => { S.leaks.push({ k: S.W.k(20, 18), K: 0.012 }); S.dirty = true; };
+  const PUMP_AREA = [3, 8, 30, 19];
+  const pump = (S) => S.W.byType('epump')[0];
+  const flowTest = (S) => { const p = pump(S); DI.startTest(S, 'pump', p.id); S.warp(420); };
+  const flowOk = (S) => { const p = pump(S), r = p && PZ.since(S, 'pump', p.id); return !!r && r.pass; };
+
+  // ---------- the office building: city tap, yard valve, backflow preventer, riser control valve, wet riser, panel,
+  // a 4 in. feed main to a 3 in. cross main, and 1 1/2 in. branch lines both sides.
+  //   city (0,12) -> (1,12) -> yard valve (2,12) -> (3,12) -> backflow (4,12) -> control valve (5,12) -> riser (6,12)
+  //   feed main (7..19,12) -> cross main (20,3..20) -> branch lines west (8..19) and east (21..33), rows 3..20
+  const OFFICE_AREA = [0, 2, 34, 21];
+  const office = (W, b, o) => {
+    o = o || {};
+    W.addRoom('riser', 3, 9, 5, 6).exempt = true; W.addRoom('office', 8, 3, 26, 18);
+    b.p('city', 0, 12, 0, Object.assign({ stat: 80, resid: 66, flow: 1500, fixed: true }, o.city || {})); b.h(1, 1, 12, 7);
+    const yard = b.p('gate', 2, 12, 0, Object.assign({ label: 'Yard PIV' }, o.yard || {})); b.h(3, 3, 12, 7);
+    b.p('bfp', 4, 12); const g = b.p('gate', 5, 12), r = b.p('wetv', 6, 12);
+    b.h(7, 7, 12, 6); b.h(8, 19, 12, 6, true); b.v(20, 3, 20, 5, true);
+    b.grid(8, 3, 19, 20, 2, 1); b.grid(21, 3, 33, 20, 2, 1);
+    const pn = b.p('panel', 4, 10); b.wire(pn, g); if (!o.noFlowWire) b.wire(pn, r);
+    return { yard, g, r, pn };
+  };
+  const riser = (S) => S.W.at(6, 12);
+  const drainTest = (S, id) => { DI.startTest(S, 'drain', id); S.warp(60); };
+
+  // =====================================================================================================
+  DI.PUZ.push({
+    id: 'p1', n: 1, name: 'The Narrow Neck', kind: 'Inherited installation', w: 60, h: 32, parts: ['gate', 'check', 'panel'],
+    question: 'Where is the water being choked?',
+    learn: ['Pipe size sets friction: halve the diameter and the loss at the same flow goes up about thirty times', 'Read a flow test: churn proves the pump, the 150% point proves the pipe around it', 'Hover a pipe while it flows: the velocity jumps at a restriction', 'Fix the fault, not the symptom: one tile, not a new pump'],
+    variants: [
+      { key: 'A', name: 'Site A: 1,000 gpm pump', money: 6000, area: PUMP_AREA,
+        symptom: ['Inherited installation. The annual fire pump flow test failed: the pump never got past about 940 gpm, and the 150% point was never reached. The pump was rebuilt last year and its curve was good on the bench.', 'One short piece of pipe was put in the wrong size during that rebuild. Find it and fix it with the fewest edits, then prove the pump.'],
+        records: ['Last annual test: 100% point 918 gpm, 150% point 936 gpm. Churn 120 psi net (rated 100 psi, churn limit 140).'],
+        build(W, b) { pumpSite(W, b); E.resize(W, 16, 12, 3); }, setup: leak,
+        hints: [['Start at the pump house. The pump itself made full churn pressure, so look at the pipe the water has to pass through on its way to the test header.', 13, 12],
+          ['Run the flow test and, at the 150% step, hover each pipe tile between the pump and the test header tee. A restriction shows as a jump in velocity (ft/s) and a drop in pressure across one tile.', 15, 12],
+          ['The tile just past the jockey line tee, two east of the discharge check valve, is 2 in. on an 8 in. discharge. Pick the 8 in. size and drag the Main tool (1) over that one tile.', 16, 12]],
+        diag: { q: 'Why does the pump stall below its rated flow?', opts: [
+          ['The pump is worn and cannot make its rated pressure', false, 'Churn was 120 psi net, exactly 120% of the 100 psi rating. A worn impeller loses pressure at churn too.'],
+          ['One tile of the pump discharge is 2 in. pipe', true, 'Yes. At 900 gpm a 2 in. tile loses the whole margin the pump has; the flow stalls where pump pressure equals that loss.'],
+          ['The tank is too small for the test', false, 'The level hardly moved in the test. Tank size sets how long the pump can run, not how much it can deliver.'],
+          ['The test header does not have enough hose valves open', false, 'The test keeps opening the hose valves (up to 12) until it reaches the target flow. It ran out of pressure first.']] },
+        goals: [{ t: 'Fire pump flow test passes at churn, 100% and 150%', ok: flowOk, hint: 'Select the pump and run the flow test after the repair.' },
+          { t: 'Storage building hydraulic calc passes', ok: (S) => G.calcOk(S, 'stor'), hint: 'Select the wet riser and run the calc.' }],
+        prove: (S) => flowTest(S),
+        cheap: { t: 'Resize the one tile', steps: ['Drag the 8 in. Main tool over the 2 in. tile', 'Run the flow test again'], edit: (W) => E.resize(W, 16, 12, 8),
+          lesson: 'One tile, a few hundred dollars. The pump was never the problem.' },
+        maint: { t: 'Resize it and add a supervised discharge valve', steps: ['Resize the 2 in. tile to 8 in.', 'Put a control valve on the discharge after the test header tee and wire its tamper switch to the panel', 'Run the flow test again'],
+          edit: (W) => { E.resize(W, 16, 12, 8); E.gate(W, 18, 12, 0, true); },
+          lesson: 'A supervised valve between the test header tee and the system lets the next crew test or service the pump with the building isolated, and the panel knows the moment it is closed. Suction and discharge valves on a fire pump are NFPA 20 practice.' } },
+      { key: 'B', name: 'Site B: stronger pump, same tank', money: 6000, area: PUMP_AREA,
+        symptom: ['Inherited installation. The pump was upgraded to 120 psi. On its flow test it made the flow, but the suction gauge went below zero at the 150% point and the test failed. The tank was full the whole time.', 'One short piece of pipe is the wrong size. Find it and fix it with the fewest edits, then prove the pump.'],
+        records: ['Pump nameplate 1,000 gpm at 120 psi. Tank 120,000 gal, full.', 'Flow test: suction 14 psi at churn, 0 psi at 100%, -16 psi at 150%.'],
+        build(W, b) { const o = pumpSite(W, b); o.ep.p.psi = 120; o.ep.p.start = 115; const j = W.byType('jockey')[0]; j.p.psi = 140; j.p.start = 130; j.p.stop = 140; E.resize(W, 8, 12, 5); }, setup: leak,
+        hints: [['The suction gauge is the clue: something between the tank and the pump is starving it.', 8, 12],
+          ['Run the flow test and hover the suction pipe from the tank to the pump at the 150% step. Velocity in a suction pipe should stay low; one tile will read several times higher than its neighbours.', 9, 12],
+          ['The tile next to the tank nozzle is 3 in. on an 8 in. suction line. Drag the 8 in. Main tool over it.', 8, 12]],
+        diag: { q: 'Why does the suction collapse during the test?', opts: [
+          ['The tank is too small', false, 'The tank stayed full. Its size sets duration, not how fast water can reach the pump.'],
+          ['The jockey pump is stealing the suction', false, 'The jockey pump makes up a 15 gpm leak. It is off during the test.'],
+          ['One tile of the suction pipe is 3 in.', true, 'Yes. The friction through that tile at 1,500 gpm is more than the tank head, so the gauge falls below zero.'],
+          ['The pump is oversized for the site', false, 'A pump draws what the system asks for. The calc passes with this pump once its suction is sized right.']] },
+        goals: [{ t: 'Fire pump flow test passes, suction positive at 150%', ok: flowOk, hint: 'Select the pump and run the flow test after the repair.' },
+          { t: 'Storage building hydraulic calc passes', ok: (S) => G.calcOk(S, 'stor'), hint: 'Select the wet riser and run the calc.' }],
+        prove: (S) => flowTest(S),
+        cheap: { t: 'Resize the one tile', steps: ['Drag the 8 in. Main tool over the 3 in. suction tile', 'Run the flow test again'], edit: (W) => E.resize(W, 8, 12, 8), lesson: 'Suction pipe is sized for low velocity: one small tile undoes it.' },
+        maint: { t: 'Resize it and add a supervised suction valve', steps: ['Resize the suction tile to 8 in.', 'Put a control valve on the suction near the tank and wire its tamper switch', 'Run the flow test again'],
+          edit: (W) => { E.resize(W, 8, 12, 8); E.gate(W, 10, 12, 0, true); },
+          lesson: 'A supervised suction valve lets the pump be serviced without draining the tank, and the panel shows when it is shut. NFPA 20 practice.' } },
+      { key: 'C', name: 'Site C: the pump tests fine', money: 6000, area: PUMP_AREA,
+        symptom: ['Inherited installation. The fire pump passed its flow test last month. The storage building hydraulic calc still comes up short, and the sprinkler contractor says the pump must be too small.', 'One short piece of pipe is the wrong size. Find it and fix it with the fewest edits. The pump stays.'],
+        records: ['Flow test last month: PASS at churn, 100% and 150%. Storage building calc: FAIL, the far branch line is short of its minimum flow.'],
+        build(W, b) { pumpSite(W, b); E.resize(W, 24, 15, 2); }, setup: (S) => { leak(S); flowTest(S); S.warp(60); },
+        hints: [['The pump passed, so look past the test header: the water has to travel from the pump to the storage riser.', 24, 16],
+          ['Select the wet riser and run the calc, then hover the pipe from the city main up to the riser while the calc is shown. One tile carries the whole demand at a far higher velocity.', 24, 15],
+          ['A tile of the riser feed, between the city main and the riser room, is 1 1/2 in. on a 6 in. line. Drag the 6 in. Main tool over it.', 24, 15]],
+        diag: { q: 'Why does the calc fail when the pump tests fine?', opts: [
+          ['The pump is too small for the building', false, 'The pump passed its 150% point. It can deliver; the water cannot get to the building.'],
+          ['The flow test was done wrong', false, 'The test flows through the header, which sits before the restriction. That is why it passes.'],
+          ['One tile of the riser feed is 1 1/2 in. pipe', true, 'Yes. The test header tee is upstream of it, so the pump test never sees it; the building does.'],
+          ['The branch lines in the building are too small', false, 'The same branch lines pass the calc once the feed is right.']] },
+        goals: [{ t: 'Storage building hydraulic calc passes', ok: (S) => G.calcOk(S, 'stor'), hint: 'Select the wet riser and run the calc after the repair.' }],
+        prove: () => {},
+        cheap: { t: 'Resize the one tile', steps: ['Drag the 6 in. Main tool over the 1 1/2 in. tile of the riser feed', 'Run the calc again'], edit: (W) => E.resize(W, 24, 15, 7), lesson: 'A passing pump test proves the pump and the pipe up to the test header, nothing further.' },
+        maint: { t: 'Resize it and add a supervised valve on the riser feed', steps: ['Resize the tile to 6 in.', 'Add a control valve on the riser feed at the city main and wire its tamper switch', 'Run the calc again'],
+          edit: (W) => { E.resize(W, 24, 15, 7); E.gate(W, 24, 14, 3, true); },
+          lesson: 'The building can then be isolated at the main for work on the feed without shutting the pump house, and the panel sees it. A valve costs some friction: the calc still passes.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  DI.PUZ.push({
+    id: 'p2', n: 2, name: 'Facing the Wrong Way', kind: 'Nearly finished plant', w: 60, h: 32, parts: ['gate', 'check', 'epump', 'panel'],
+    question: 'Why can the pump not draw water from a full tank?',
+    learn: ['A tank that stays full during a flow test is a clue: the water is not coming from it', 'Every inline part has a direction: the glyph points the way the water goes', 'A test blank left in a flange after a hydrostatic test is invisible from outside: look at the joints', 'Select a part and use Turn end for end to reverse it in place'],
+    variants: [
+      { key: 'A', name: 'Site A: new pump set', money: 4000, area: PUMP_AREA,
+        symptom: ['Nearly finished plant. The new fire pump was set last week. The tank is full and the pump runs, but on its acceptance flow test the suction gauge collapses and the flow meter reads nothing.', 'One component is facing the wrong way or is disconnected. Find it and fix it with the fewest edits.'],
+        records: ['Acceptance test: churn 120 psi net, 100% point 0 gpm, suction below zero. Tank level unchanged.'],
+        build(W, b) { pumpSite(W, b); E.turn(W, 11, 12); }, setup: leak,
+        hints: [['The tank level never moved during the test, so no water left the tank. Look at the path from the tank nozzle to the pump.', 9, 12],
+          ['Select each inline part on that path and look at its glyph: the arrow and the pump volute show the direction of flow. Compare with the jockey pump, which works.', 11, 12],
+          ['The fire pump is installed end for end: its suction faces the system and its discharge faces the tank. Select it and press Turn end for end.', 11, 12]],
+        diag: { q: 'Why does the suction collapse?', opts: [
+          ['The tank suction valve is closed', false, 'There is no valve on this suction line. The way is open to the pump.'],
+          ['The fire pump is installed end for end', true, 'Yes. Its suction side faces the discharge check valve, which will not pass water backwards, so the pump pulls against a closed door.'],
+          ['The tank is empty and the gauge is wrong', false, 'The tank inspector reads it full, and the level did not move during the test.'],
+          ['The pump is too big for an 8 in. suction', false, 'The same pump and suction pass the test once the pump faces the right way.']] },
+        goals: [{ t: 'Fire pump flow test passes at churn, 100% and 150%', ok: flowOk, hint: 'Run the flow test after the repair.' }, { t: 'The original fire pump is still in service', ok: (S) => S.W.byType('epump').some((p) => p.p.orig), hint: 'Turn it, do not replace it.' }],
+        prove: (S) => flowTest(S),
+        cheap: { t: 'Turn the pump end for end', steps: ['Select the pump and press Turn end for end', 'Run the flow test again'], edit: (W) => E.turn(W, 11, 12), lesson: 'No new parts: the same pump the right way round.' },
+        maint: { t: 'Turn it and add supervised valves both sides', steps: ['Turn the pump end for end', 'Add a control valve on the suction and one on the discharge, both wired to the panel'], edit: (W) => { E.turn(W, 11, 12); E.gate(W, 10, 12, 0, true); E.gate(W, 13, 12, 0, true); },
+          lesson: 'With the pump between two supervised valves it can come out for service without draining anything, and a closed valve is never a surprise.' } },
+      { key: 'B', name: 'Site B: after the hydrostatic test', money: 4000, area: PUMP_AREA,
+        symptom: ['Nearly finished plant. The suction line was hydrostatically tested last week. The tank is full and the pump runs, but on its acceptance flow test the suction gauge collapses and no flow is recorded.', 'One component is facing the wrong way or is disconnected. Find it and fix it with the fewest edits.'],
+        records: ['Hydrostatic test of the suction line: 200 psi for 2 h, passed. Test blanks installed at the flanges.'],
+        build(W, b) { pumpSite(W, b); E.cap(W, 10, 12, false, true); }, setup: leak,
+        hints: [['The tank level never moved during the test, so no water left the tank. Look at the path from the tank nozzle to the pump.', 9, 12],
+          ['Hover the suction pipe during the test: upstream of the blockage the pressure is the tank head, downstream it is below zero. The fault sits on a joint, not a tile. Caps show as a short bar across a joint.', 10, 12],
+          ['A test blank (a cap) was left in the flange between the suction pipe and the pump inlet. Use the Cap tool (6) on that joint to remove it.', 10, 12]],
+        diag: { q: 'Why does the suction collapse?', opts: [
+          ['A test blank was left in the suction flange at the pump', true, 'Yes. The hydrostatic test blanks were never pulled: the pump inlet is sealed off from the tank.'],
+          ['The fire pump is installed end for end', false, 'Look at the pump glyph: its suction faces the tank.'],
+          ['The tank vent is blocked', false, 'A blocked vent pulls a tank down slowly over a long draw. Here no water left the tank at all.'],
+          ['The jockey pump is drawing all the suction', false, 'The jockey runs off the same line and works; it is off during the test.']] },
+        goals: [{ t: 'Fire pump flow test passes at churn, 100% and 150%', ok: flowOk, hint: 'Run the flow test after the repair.' }, { t: 'The original fire pump is still in service', ok: (S) => S.W.byType('epump').some((p) => p.p.orig), hint: '' }],
+        prove: (S) => flowTest(S),
+        cheap: { t: 'Pull the test blank', steps: ['Cap tool (6) on the joint at the pump inlet', 'Run the flow test again'], edit: (W) => E.cap(W, 10, 12, false, false), lesson: 'One joint, no cost.' },
+        maint: { t: 'Pull it and add a supervised suction valve', steps: ['Remove the cap at the pump inlet', 'Add a control valve on the suction and wire its tamper switch'], edit: (W) => { E.cap(W, 10, 12, false, false); E.gate(W, 10, 12, 0, true); },
+          lesson: 'Next time the line is opened, the valve closes it instead of a blank, and the panel shows it closed until it is reopened.' } },
+      { key: 'C', name: 'Site C: two symptoms', money: 4000, area: PUMP_AREA,
+        symptom: ['Nearly finished plant. Two complaints from the night shift: the fire pump runs all night, and when they tried the flow test the suction gauge collapsed. The tank is full.', 'One fault explains both. Find it and fix it with the fewest edits.'],
+        records: ['Night log: electric fire pump RUNNING since 22:10. Jockey pump runs continuously. Tank level unchanged.'],
+        build(W, b) { pumpSite(W, b); E.cap(W, 7, 12, false, true); }, setup: (S) => { leak(S); S.warp(600); },
+        hints: [['Both pumps take suction from the same line. If neither can draw water, the fire pump starts on falling pressure and cannot stop it. Look at the tank nozzle.', 7, 12],
+          ['Hover the suction line: the tile at the tank reads the tank head, the rest reads below zero. The fault is on a joint.', 8, 12],
+          ['A test blank (a cap) sits in the flange at the tank nozzle, upstream of both pump suctions. Cap tool (6) on that joint removes it. Stop the fire pump afterwards.', 7, 12]],
+        diag: { q: 'What one fault explains both symptoms?', opts: [
+          ['The jockey pump settings overlap the fire pump', false, 'The settings are in order (jockey 115 / 125, fire pump 100). The jockey runs and still cannot hold pressure.'],
+          ['A test blank in the tank nozzle starves both pumps', true, 'Yes. Neither pump can draw from the tank, so the jockey cannot make up the leak, the fire pump starts, and it cannot deliver either.'],
+          ['The fire pump is installed end for end', false, 'Its glyph faces the right way.'],
+          ['The underground leak is too big for the jockey pump', false, 'The jockey makes up that leak easily once it has water to pump.']] },
+        goals: [{ t: 'Fire pump flow test passes at churn, 100% and 150%', ok: flowOk, hint: 'Run the flow test after the repair.' }, { t: 'Fire pump back in AUTO and stopped', ok: (S) => S.W.byType('epump').every((p) => p.p.mode === 'auto' && p.p.spd === 0), hint: 'Select the pump and press Stop pump once the jockey holds pressure.' }],
+        prove: (S) => { flowTest(S); const p = pump(S); p.p.on = false; S.warp(120); },
+        cheap: { t: 'Pull the test blank', steps: ['Cap tool (6) on the joint at the tank nozzle', 'Stop the fire pump', 'Run the flow test'], edit: (W) => E.cap(W, 7, 12, false, false), lesson: 'One joint, both symptoms gone.' },
+        maint: { t: 'Pull it and add a supervised valve at the tank', steps: ['Remove the cap at the tank nozzle', 'Add a control valve right after the nozzle, wired to the panel'], edit: (W) => { E.cap(W, 7, 12, false, false); E.gate(W, 8, 12, 0, true); },
+          lesson: 'A supervised tank valve is what isolates the line for the next hydrostatic test, and the panel shows it until it is reopened.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  const coverOk = (S) => G.covered(S, ['office']) && !!S.rv && !S.rv.some((f) => f.sev === 'fail');
+  const lastRowGoals = [{ t: 'Every head is on the riser and plan review finds no code failures', ok: coverOk, hint: 'Open Review: it lists heads that are not connected to any riser.' },
+    { t: 'Hydraulic calc passes', ok: (S) => G.calcOk(S, 'office'), hint: 'Select the riser and run the calc.' }];
+  // tie the far ends of the branch lines into a main (a gridded wet system): x is the column, rows y0..y1
+  const gridTie = (W, x, y0, y1) => { for (let y = y0; y <= y1; y++) { const k = W.k(x, y); if (W.pd[k]) W.pk[k] = 0; } W.ver++; };
+  DI.PUZ.push({
+    id: 'p3', n: 3, name: 'The Last Row', kind: 'Nearly finished plant', w: 36, h: 23, parts: ['gate'],
+    question: 'Where is the remote branch line cut off?',
+    learn: ['Branch lines join only end to end and to a main beside them: one tile laid the wrong way breaks the line', 'A cap is a joint, not a tile', 'Hover a pipe: a line that is not on the riser reads no pressure', 'On a wet system the far ends of the branch lines can be tied into a grid; dry and preaction systems cannot'],
+    variants: [
+      { key: 'A', name: 'Office A: north-east corner', money: 3000, area: OFFICE_AREA,
+        symptom: ['Nearly finished plant. The contractor reports the office wet system complete and every line flushed. At the walk-down one remote branch line has heads with no water behind them.', 'Find the broken connection and fix it with the fewest edits.'],
+        records: ['Plan review: one room with heads not connected to any riser.'],
+        build(W, b) { office(W, b); E.cap(W, 20, 3, false, true); },
+        hints: [['Open Review and click the finding: it points at the office. The heads that are not on the riser are on one branch line.', 26, 3],
+          ['Hover the branch lines in the far corners. A line on the riser reads the system pressure; the cut-off line reads 0. Then look at where that line meets the cross main.', 21, 3],
+          ['The top row east of the cross main has a cap on its first joint, between the cross main and the branch line. Cap tool (6) on that joint removes it.', 20, 3]],
+        diag: { q: 'Where is the remote line cut off?', opts: [
+          ['The cross main is undersized', false, 'An undersized main gives low pressure, not none. The rest of the lines read full pressure.'],
+          ['A cap on the joint between the cross main and the top east branch line', true, 'Yes. One capped joint, and the whole line is on no riser.'],
+          ['The branch line is laid in the wrong direction', false, 'Its tiles run east-west, like the line below it.'],
+          ['The riser control valve is partly closed', false, 'Every other line reads full pressure through the same valve.']] },
+        goals: lastRowGoals, prove: () => {},
+        cheap: { t: 'Remove the cap', steps: ['Cap tool (6) on the joint'], edit: (W) => E.cap(W, 20, 3, false, false), lesson: 'One joint, no cost.' },
+        maint: { t: 'Remove it and grid the east lines', steps: ['Remove the cap', 'Lay the far end column of the east branch lines as a main (Main tool over them), so every line is fed from both ends'], edit: (W) => { E.cap(W, 20, 3, false, false); gridTie(W, 33, 3, 20); },
+          lesson: 'A gridded wet system feeds each line from both ends: one lost joint no longer leaves a line dry, and the remote area calculates better. Not allowed on dry or preaction pipe.' } },
+      { key: 'B', name: 'Office B: south-west corner', money: 3000, area: OFFICE_AREA,
+        symptom: ['Nearly finished plant. The contractor reports the office wet system complete. At the walk-down one remote branch line has heads with no water behind them, and the drawings show it piped like every other line.', 'Find the broken connection and fix it with the fewest edits.'],
+        records: ['Plan review: one room with heads not connected to any riser.'],
+        build(W, b) { office(W, b); E.kind(W, 19, 20, 2); },
+        hints: [['Open Review and click the finding. Then look at the bottom row of the west side.', 14, 20],
+          ['Hover the bottom west branch line: it reads 0 psi, all the way to the cross main. Zoom in on the last tile before the cross main and compare its line direction with its neighbours.', 19, 20],
+          ['The tile next to the cross main on the bottom west row is laid north-south. A north-south branch tile does not join an east-west line or the main beside it. Erase it and lay it again east-west (Sprinkler tool, R flips the direction).', 19, 20]],
+        diag: { q: 'Where is the remote line cut off?', opts: [
+          ['A cap on the joint at the cross main', false, 'There is no cap on that joint.'],
+          ['One tile at the start of the line is laid north-south', true, 'Yes. Branch lines join only end to end and to a main beside them; a north-south tile in an east-west line joins neither.'],
+          ['The cross main does not reach the bottom row', false, 'The cross main runs to row 20; the east line on that row is on the riser.'],
+          ['The heads on that line are the wrong K-factor', false, 'A head does not stop water reaching the pipe it sits on.']] },
+        goals: lastRowGoals, prove: () => {},
+        cheap: { t: 'Re-lay the one tile', steps: ['Erase the tile and lay it again east-west'], edit: (W) => E.kind(W, 19, 20, 1), lesson: 'One tile.' },
+        maint: { t: 'Re-lay it and grid the west lines', steps: ['Re-lay the tile east-west', 'Lay the far end column of the west branch lines as a main'], edit: (W) => { E.kind(W, 19, 20, 1); gridTie(W, 8, 3, 20); },
+          lesson: 'Gridding the west side feeds the bottom line from its other end too. On a wet system that is a choice; on dry pipe it is not allowed.' } },
+      { key: 'C', name: 'Office C: the whole last row', money: 3000, area: OFFICE_AREA,
+        symptom: ['Nearly finished plant. At the walk-down the last row, both sides of the cross main, has no water. The head of the cross main on that row is dry too.', 'Find the broken connection and fix it with the fewest edits.'],
+        records: ['Plan review: one room with heads not connected to any riser.'],
+        build(W, b) { office(W, b); E.cap(W, 20, 19, true, true); },
+        hints: [['Both halves of the last row are dry, so the break is on what feeds both: the cross main.', 20, 19],
+          ['Hover the cross main tile by tile from the feed main southwards. The pressure drops to 0 between two tiles.', 20, 19],
+          ['The cross main has a cap on the joint between its last two tiles (rows 19 and 20). Cap tool (6) on that joint removes it.', 20, 20]],
+        diag: { q: 'Where is the last row cut off?', opts: [
+          ['Each half of the row has its own break', false, 'Two breaks at once is unlikely, and the cross main tile on that row is dry too.'],
+          ['A cap on the cross main between the last two rows', true, 'Yes. Everything past that joint is on no riser: the last cross main tile and both lines it feeds.'],
+          ['The last row is laid north-south', false, 'Its tiles run east-west like the others.'],
+          ['The cross main is too small to reach the last row', false, 'Size limits flow; it does not cut the water off.']] },
+        goals: lastRowGoals, prove: () => {},
+        cheap: { t: 'Remove the cap', steps: ['Cap tool (6) on the joint'], edit: (W) => E.cap(W, 20, 19, true, false), lesson: 'One joint.' },
+        maint: { t: 'Remove it and grid both sides', steps: ['Remove the cap', 'Lay the far end columns of both sides as mains'], edit: (W) => { E.cap(W, 20, 19, true, false); gridTie(W, 8, 3, 20); gridTie(W, 33, 3, 20); },
+          lesson: 'With both sides gridded, a lost joint on the cross main still leaves every line fed from the other end.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // The main drain test is the proof: a static reading proves pressure, the residual (full flow pressure) proves supply.
+  const drainOk = (id) => (S) => { const v = typeof id === 'function' ? id(S) : riser(S), r = v && PZ.since(S, 'drain', v.id); return !!r && r.pass; };
+  // record a baseline main drain test (the riser's last annual test), as a record from before the call
+  const baseline = (S, id) => { drainTest(S, id); const r = DI.lastResult(S, 'drain', id); if (r) { r.name += ' (last annual test)'; r.t = 0; } S.warp(120); };
+  const PUMP_RISER = (S) => S.W.at(28, 13);
+  const lastAnnual = (S, v) => { const r = v && DI.lastResult(S, 'drain', v.id); return r ? 'Last annual main drain test: static ' + DI.fmt(r.lines.length && +r.lines[0].replace(/[^0-9.]/g, '')) + ' psi, full flow (residual) ' + DI.fmt(r.val) + ' psi.' : 'No main drain test on record.'; };
+  DI.PUZ.push({
+    id: 'p4', n: 4, name: 'Pressure Without Supply', kind: 'Records-only investigation', w: 36, h: 23, parts: ['gate', 'panel'],
+    question: 'Can this system actually deliver water, and if not, what stops it?',
+    learn: ['A gauge behind a closed valve holds its last pressure: static pressure proves nothing about supply', 'The main drain test is the proof: the residual (full flow pressure) against the baseline', 'A drop of more than 10 percent in full flow pressure is a reason to look upstream, not an automatic fail (NFPA 25)', 'A valve without a tamper switch, or a seal, can be shut and nobody knows'],
+    variants: [
+      { key: 'A', name: 'Office A: after the street work', money: 2000, area: OFFICE_AREA,
+        symptom: ['Records-only investigation. The city did street work last week. The facilities manager says the sprinkler system is fine: the riser gauge reads 80 psi, as it always has, and the panel is quiet.', 'Prove the system can actually supply flowing water. If it cannot, find out why and put it right.'],
+        records: (S) => [lastAnnual(S, riser(S)), 'City work order: valve operated at the property line, 9 days ago.'],
+        build(W, b) { office(W, b, { yard: { sw: 0 } }); }, setup: (S) => { const r = riser(S); baseline(S, r.id); const y = S.W.at(2, 12); y.p.target = 0; S.warp(60); },
+        hints: [['The riser gauge reads the pressure trapped in the pipe. To know whether water can flow, make it flow: the main drain test on the riser.', 6, 12],
+          ['Run the main drain test from the riser. Compare its full flow (residual) reading with the last annual test (Tests). If it falls away, use Check the valves upstream on the riser.', 6, 12],
+          ['The yard post indicator valve at the property line is shut. It has no tamper switch, so the panel could not see it. Select it and open it, then run the main drain test again.', 2, 12]],
+        diag: { q: 'What stops the water?', opts: [
+          ['Nothing: the gauge reads normal', false, 'The gauge reads the water trapped behind a closed valve. The main drain test shows the residual collapsing.'],
+          ['The backflow preventer is stuck shut', false, 'The backflow preventer is downstream of the yard valve; with the yard valve open the test passes through it.'],
+          ['The yard valve at the property line was left shut', true, 'Yes. The city closed it for the street work and never reopened it. Without a tamper switch nobody was told.'],
+          ['The city main has lost pressure', false, 'The city main reads its normal static on the far side of the yard valve.']] },
+        goals: [{ t: 'Main drain test passes on the riser (full flow pressure within 10 percent of the baseline)', ok: drainOk(), hint: 'Riser → Tests → Main drain test.' }, { t: 'Every control valve fully open', ok: PZ.allOpen, hint: '' }],
+        prove: (S) => drainTest(S, riser(S).id),
+        cheap: { t: 'Open the yard valve', steps: ['Run the main drain test: the residual collapses', 'Check the valves upstream', 'Open the yard valve', 'Run the main drain test again'], op: (S) => DI.setGate(S, S.W.at(2, 12).id, 1), lesson: 'No edits, no cost: the fault was a valve position.' },
+        maint: { t: 'Open it and supervise it', steps: ['Open the yard valve', 'Fit a tamper switch to it and wire it to the panel', 'Run the main drain test again'], edit: (W) => { E.fitSwitch(W, 2, 12); E.wire(W, 2, 12); }, op: (S) => DI.setGate(S, S.W.at(2, 12).id, 1),
+          lesson: 'A supervised valve that is shut is a supervisory signal within seconds. NFPA 13 requires valves on water supply connections to be supervised (by switch, lock or seal): here the seal had been cut.' } },
+      { key: 'B', name: 'Office B: after the repair', money: 2000, area: OFFICE_AREA,
+        symptom: ['Records-only investigation. The backflow preventer was rebuilt last month. The riser gauge reads 80 psi and the panel is quiet. The insurer wants proof that the system still delivers.', 'Prove the system can actually supply flowing water. If it cannot, find out why and put it right.'],
+        records: (S) => [lastAnnual(S, riser(S)), 'Backflow rebuild ticket: closed, "valves restored".'],
+        build(W, b) { office(W, b, { yard: { sw: 0 } }); }, setup: (S) => { const r = riser(S); baseline(S, r.id); const y = S.W.at(2, 12); y.p.target = 0.1; S.warp(60); },
+        hints: [['The gauge reads static pressure. Make water flow: the main drain test on the riser.', 6, 12],
+          ['The full flow reading is well below the baseline, though not zero. Something upstream is partly shut. Use Check the valves upstream on the riser.', 6, 12],
+          ['The yard valve was reopened only a few turns after the rebuild: about 10 percent open. Open it fully, then run the main drain test again.', 2, 12]],
+        diag: { q: 'What holds the water back?', opts: [
+          ['The new backflow preventer has a high loss', false, 'With the yard valve fully open the residual is back within 10 percent of the baseline, through the same backflow preventer.'],
+          ['The yard valve was left only partly open', true, 'Yes. A partly open valve passes static pressure perfectly and chokes the flow. The ticket said "restored", not "fully open".'],
+          ['The main drain itself is partly blocked', false, 'A blocked drain flows less water but reads a higher residual, not a lower one.'],
+          ['The city supply has weakened', false, 'Static is unchanged at 80 psi, and the residual comes back once the yard valve is fully open.']] },
+        goals: [{ t: 'Main drain test passes on the riser (full flow pressure within 10 percent of the baseline)', ok: drainOk(), hint: 'Riser → Tests → Main drain test.' }, { t: 'Every control valve fully open', ok: PZ.allOpen, hint: '' }],
+        prove: (S) => drainTest(S, riser(S).id),
+        cheap: { t: 'Open the yard valve fully', steps: ['Main drain test: residual well down', 'Check the valves upstream', 'Open the yard valve fully', 'Main drain test again'], op: (S) => DI.setGate(S, S.W.at(2, 12).id, 1), lesson: 'No edits, no cost.' },
+        maint: { t: 'Open it fully and supervise it', steps: ['Open the yard valve fully', 'Fit a tamper switch and wire it to the panel'], edit: (W) => { E.fitSwitch(W, 2, 12); E.wire(W, 2, 12); }, op: (S) => DI.setGate(S, S.W.at(2, 12).id, 1),
+          lesson: 'A tamper switch reports a valve that is off normal (here, below 80 percent open), not only one that is shut.' } },
+      { key: 'C', name: 'Pump site: the jockey keeps it happy', money: 2000, area: PUMP_AREA, w: 60, h: 32, parts: ['gate', 'check', 'panel'],
+        symptom: ['Records-only investigation. A storage building on a weak city main, boosted by a fire pump from a tank. The system gauge reads a steady 120 psi and the jockey pump cycles as it always has. The pump room was repainted last week.', 'Prove the storage system can actually supply flowing water. If it cannot, find out why and put it right.'],
+        records: (S) => [lastAnnual(S, PUMP_RISER(S)) + ' The fire pump ran during it.', 'Painting contractor: "valves cycled and returned".'],
+        build(W, b) { pumpSite(W, b); const g = E.gate(W, 10, 12, 0, false); g.p.sw = 0; }, setup: (S) => { leak(S); S.warp(200); baseline(S, PUMP_RISER(S).id); for (const p of S.W.byType('epump')) p.p.on = false; S.warp(200); const g = S.W.at(10, 12); g.p.target = 0; S.warp(120); },
+        hints: [['The jockey pump has its own suction tee, so it can hold pressure on a starved fire pump. Make water flow: the main drain test on the storage riser.', 28, 13],
+          ['During the test the fire pump starts, but the residual sits near the city pressure and the suction gauge on the fire pump falls. Use Check the valves upstream on the riser.', 11, 12],
+          ['The fire pump suction valve, between the jockey suction tee and the pump, is shut. It has no tamper switch. Open it, then stop the fire pump and run the main drain test again.', 10, 12]],
+        diag: { q: 'Why does the storage system not get its water?', opts: [
+          ['The jockey pump is too small', false, 'The jockey only maintains pressure. It is the fire pump that should carry the flow.'],
+          ['The fire pump suction valve was left shut', true, 'Yes. The jockey takes its suction upstream of that valve, so the gauge stays perfect while the fire pump has nothing to pump.'],
+          ['The tank is empty', false, 'The tank reads full; the jockey is pumping from it.'],
+          ['The discharge check valve is reversed', false, 'The check valve faces the system and passes the flow once the suction valve is open.']] },
+        goals: [{ t: 'Main drain test passes on the storage riser', ok: drainOk(PUMP_RISER), hint: 'Riser → Tests → Main drain test.' }, { t: 'Every control valve fully open', ok: PZ.allOpen, hint: '' }],
+        prove: (S) => { for (const p of S.W.byType('epump')) p.p.on = false; S.warp(60); drainTest(S, PUMP_RISER(S).id); },
+        cheap: { t: 'Open the suction valve', steps: ['Main drain test: residual near city pressure', 'Check the valves upstream', 'Open the fire pump suction valve', 'Main drain test again'], op: (S) => DI.setGate(S, S.W.at(10, 12).id, 1), lesson: 'No edits, no cost.' },
+        maint: { t: 'Open it and supervise it', steps: ['Open the suction valve', 'Fit a tamper switch and wire it to the panel'], edit: (W) => { E.fitSwitch(W, 10, 12); E.wire(W, 10, 12); }, op: (S) => DI.setGate(S, S.W.at(10, 12).id, 1),
+          lesson: 'A pump suction valve is the textbook case for supervision: a pressure maintenance pump can hide it shut for years.' } },
+    ],
+  });
+  // shared with puz2.js
+  Object.assign(DI.PZ, { office, pumpSite, leak, flowTest, flowOk, PUMP_AREA, OFFICE_AREA });
+})();
+
+</script>
+<script>
+// Field calls 5-8: The Empty Test Header, The Alarm That Never Left, The Pump That Won't Sleep, Reset, Reset, Reset.
+// The later variants combine ideas from the earlier calls: a closed valve on a test line (call 4), a test blank in a
+// suction line (call 2), a trouble on the panel that is not the cause. See puz.js for the shape of a puzzle.
+var DI = globalThis.DI || (globalThis.DI = {});
+(function () {
+  const G = DI.G, PZ = DI.PZ, E = DI.PZE;
+  const pump = (S) => S.W.byType('epump')[0];
+  const origPump = { t: 'The original fire pump is still in service', ok: (S) => S.W.byType('epump').some((p) => p.p.orig), hint: 'The pump is not the fault: repair the test arrangement.' };
+  const flowGoal = { t: 'Fire pump flow test passes at churn, 100% and 150%', ok: PZ.flowOk, hint: 'Select the pump and run the flow test.' };
+  // the test header line of the reference pump house: tee (17,12), pipe (17,13..15), header (17,16)
+  const noHeader = (W) => { E.erase(W, 17, 16); for (let y = 13; y <= 15; y++) W.erasePipe(17, y); };
+  const header = (W, valve) => { for (let y = 13; y <= 15; y++) W.setPipe(17, y, 7, 0); if (valve) E.gate(W, 17, 13, 1, true); W.addPart('testhdr', 17, 16, 1); };
+
+  // =====================================================================================================
+  DI.PUZ.push({
+    id: 'p5', n: 5, name: 'The Empty Test Header', kind: 'Inherited installation', w: 60, h: 32, parts: ['gate', 'check', 'testhdr', 'panel'],
+    question: 'Why does the flow test record almost no flow through a healthy pump?',
+    learn: ['The flow test measures what goes through the pump, so the test header has to be fed from the pump discharge, after the check valve', 'A header piped from the suction, or from a small line, flows water that the pump never touched', 'A valve on a test line is part of the test arrangement: shut, it makes a good pump look dead (call 4)', 'Repair the arrangement, not the pump'],
+    variants: [
+      { key: 'A', name: 'Site A: a header that flows', money: 9000, area: PDI(),
+        symptom: ['Inherited installation. The hose valves at the test header flow plenty of water, yet the flow test records almost nothing through the pump, and the tank level drops during the test. The owner has been quoted for a new pump.', 'Repair the test arrangement so the flow test passes. Do not replace the pump.'],
+        records: ['Flow test: churn normal, 100% point 0 gpm through the pump, test header flowing about 2,000 gpm. Tank level down 3,000 gal.'],
+        build(W, b) { PZ.pumpSite(W, b); noHeader(W); W.setPipe(8, 13, 7, 0); W.setPipe(8, 14, 7, 0); W.addPart('testhdr', 8, 15, 1); }, setup: PZ.leak,
+        hints: [['Water leaving the test header is not proof it went through the pump. Follow the pipe from the test header back to where it tees in.', 8, 15],
+          ['Run the flow test and compare the flow through the pump (select it) with the flow at the header (select it). They should be the same. Then see which side of the pump the header line joins.', 8, 13],
+          ['The test header is teed off the suction line, between the tank and the pump: it flows tank water by gravity. Move it to the discharge, after the check valve (the stub at the tee south of the discharge line is where it belongs).', 17, 13]],
+        diag: { q: 'Why does the pump record almost no flow?', opts: [
+          ['The pump impeller is worn out', false, 'Churn is on the curve, and the pump passes once the header is on the discharge.'],
+          ['The test header is piped from the suction side', true, 'Yes. It drains the tank around the pump: the header flows, the pump does not.'],
+          ['The tank outlet is too small', false, 'The tank delivered about 2,000 gpm to the header through the same outlet.'],
+          ['The hose valves at the header are too small', false, 'They flowed far more than the pump’s 150% point.']] },
+        goals: [flowGoal, origPump], prove: PZ.flowTest,
+        cheap: { t: 'Move the header to the discharge', steps: ['Erase the test header on the suction side', 'Pipe a line from the discharge tee down and put the header on it', 'Run the flow test'], edit: (W) => { E.erase(W, 8, 15); header(W, false); },
+          lesson: 'Five edits. The suction stub stays as a dead end, which costs nothing and does no harm.' },
+        maint: { t: 'Move it, remove the stub, valve the new line', steps: ['Remove the header and its stub from the suction', 'Pipe the new line from the discharge with a control valve wired to the panel, then the header'], edit: (W) => { E.erase(W, 8, 15); W.erasePipe(8, 14); W.erasePipe(8, 13); header(W, true); },
+          lesson: 'No dead leg left on the suction, and a supervised valve on the test line lets the hose valves be serviced with the pump in service: the NFPA 20 arrangement.' } },
+      { key: 'B', name: 'Site B: the small line', money: 9000, area: PDI(),
+        symptom: ['Inherited installation. The flow test stalls at about 550 gpm whatever the hose valves do, on a 1,000 gpm pump that reached full churn pressure. The test header was moved during a renovation.', 'Repair the test arrangement so the flow test passes. Do not replace the pump.'],
+        records: ['Flow test: churn normal, 100% and 150% points both about 557 gpm.'],
+        build(W, b) { PZ.pumpSite(W, b); noHeader(W); W.setPipe(16, 10, 3, 0); W.addPart('testhdr', 17, 10, 0); }, setup: PZ.leak,
+        hints: [['The pump makes its churn pressure, so look at the way from the pump to the hose valves.', 17, 10],
+          ['Hover the line that feeds the test header during the test: its velocity is far higher than anything on the 8 in. discharge. Follow it back to where it tees in.', 16, 10],
+          ['The header was re-piped off the 2 in. jockey pump discharge: the whole test flow runs backwards up a 2 in. line. Move the header to the 8 in. discharge, after the check valve.', 15, 10]],
+        diag: { q: 'Why does the flow stall at about 550 gpm?', opts: [
+          ['The test header is fed through the 2 in. jockey line', true, 'Yes. Even a good pump cannot push 1,500 gpm through 2 in. pipe.'],
+          ['The pump is worn and loses pressure at flow', false, 'At 557 gpm the pump still makes 115 psi net, well above its curve: the pump is fine and the pipe is the limit.'],
+          ['The jockey pump check valve is reversed', false, 'The jockey check valve faces the right way; water reaches the header through the pipe beside it.'],
+          ['The test header needs more hose valves', false, 'The test opens up to 12; the flow stalled with the valves still opening.']] },
+        goals: [flowGoal, origPump], prove: PZ.flowTest,
+        cheap: { t: 'Move the header to the discharge', steps: ['Erase the header on the jockey line', 'Pipe a line from the discharge tee down and put the header on it', 'Run the flow test'], edit: (W) => { E.erase(W, 17, 10); header(W, false); }, lesson: 'Five edits; the 2 in. stub stays as a dead end.' },
+        maint: { t: 'Move it, remove the stub, valve the new line', steps: ['Remove the header and the stub on the jockey line', 'Pipe the new line from the discharge with a supervised control valve, then the header'], edit: (W) => { E.erase(W, 17, 10); W.erasePipe(16, 10); header(W, true); },
+          lesson: 'The jockey line goes back to doing one job, and the test line can be isolated without touching the pump.' } },
+      { key: 'C', name: 'Site C: nothing at the header', money: 9000, area: PDI(),
+        symptom: ['Inherited installation. On the flow test not a drop comes out of the test header. The pump reaches full churn pressure, the hose valves were replaced last year, and the owner has been quoted for a new pump.', 'Repair the test arrangement so the flow test passes. Do not replace the pump.'],
+        records: ['Flow test: churn normal, 0 gpm at every step. Hose valves replaced last year.'],
+        build(W, b) { PZ.pumpSite(W, b); const g = E.gate(W, 17, 14, 1, false); g.p.sw = 0; }, setup: (S) => { PZ.leak(S); const g = S.W.at(17, 14); g.p.target = 0; S.warp(30); },
+        hints: [['Zero flow, full churn: the pump is pushing against something shut. Follow the test line from the header up to the discharge.', 17, 14],
+          ['Hover the test line during the test: full pump pressure above one tile, nothing below it.', 17, 14],
+          ['A control valve on the test header line is shut. It has no tamper switch, so the panel never showed it (call 4). Select it and open it.', 17, 14]],
+        diag: { q: 'Why does nothing come out of the test header?', opts: [
+          ['The new hose valves are seized', false, 'The test opens them; the line above them reads zero pressure.'],
+          ['The pump is not turning', false, 'It reaches full churn pressure.'],
+          ['A valve on the test header line is shut', true, 'Yes. An unsupervised valve on the test line, left shut after the hose valves were replaced.'],
+          ['The discharge check valve is reversed', false, 'The jockey keeps system pressure through the same discharge line, and the check passes it.']] },
+        goals: [flowGoal, origPump, { t: 'Every control valve fully open', ok: PZ.allOpen, hint: '' }], prove: PZ.flowTest,
+        cheap: { t: 'Open the valve', steps: ['Open the valve on the test line', 'Run the flow test'], op: (S) => DI.setGate(S, S.W.at(17, 14).id, 1), lesson: 'No edits, no cost.' },
+        maint: { t: 'Open it and supervise it', steps: ['Open the valve', 'Fit a tamper switch and wire it to the panel'], edit: (W) => { E.fitSwitch(W, 17, 14); E.wire(W, 17, 14); }, op: (S) => DI.setGate(S, S.W.at(17, 14).id, 1),
+          lesson: 'Supervised, the next time it is left shut the panel shows it within seconds, before anyone books a pump replacement.' } },
+    ],
+  });
+  function PDI() { return PZ.PUMP_AREA; }
+
+  // =====================================================================================================
+  const riser = (S) => S.W.at(6, 12);
+  // the station has a waterflow from this riser that first appeared after the call came in
+  const reached = (S) => { const r = riser(S), f = S.puz && S.puz.flags.stn; return !!r && !!f && f[r.id] >= S.puz.t0; };
+  // the night event: somebody opened the inspector's test valve for two minutes (a real flow, not a test procedure)
+  const night = (S) => { const r = riser(S); r.p.itc = 1; S.touch(); S.warp(150); r.p.itc = 0; S.touch(); S.warp(600); };
+  const itc = (S) => { DI.startTest(S, 'itc', riser(S).id); S.warp(300); };
+  const reset = (S) => { const pn = S.W.byType('panel')[0]; DI.panelReset(S, pn.id); S.warp(20); };
+  const chan = (S, a, b) => { S.W.byType('panel')[0].p.chan = [a, b]; };
+  const stnGoal = { t: 'An inspector’s test on the riser reaches the supervising station', ok: reached, hint: 'Run the inspector’s test from the riser and watch the event log for the station.' };
+  DI.PUZ.push({
+    id: 'p6', n: 6, name: 'The Alarm That Never Left', kind: 'Records-only investigation', w: 36, h: 23, parts: ['gate', 'panel'],
+    question: 'Why did the waterflow alarm never reach the supervising station?',
+    learn: ['Local means local: a flow switch that is not wired to a panel rings its gong and tells nobody', 'A panel can annunciate an alarm it cannot send: on a DACT, both lines down means nothing leaves', 'A trouble on the panel is not always the cause: one DACT line down still sends on the other', 'Prove it end to end: run the inspector’s test and see the station receive it'],
+    variants: [
+      { key: 'A', name: 'Office A: IP path', money: 1500, area: PZ.OFFICE_AREA,
+        build(W, b) { PZ.office(W, b, { noFlowWire: true }); }, setup: night,
+        symptom: ['Records-only investigation. At 02:14 the night guard heard the water motor gong on the office riser: somebody had opened the inspector’s test valve. The supervising station has no record of it, and no fire department was sent.', 'Find why the alarm never left the building, fix it with the fewest edits, and prove it with an inspector’s test.'],
+        records: ['Guard log 02:14: water motor gong ringing at the office riser, about 2 minutes.', 'Supervising station: no signal from this account last night.'],
+        hints: [['Start at the riser: what tells the panel that water is flowing?', 6, 12],
+          ['Select the wet riser and read "Wired to". Then look at the event log line for last night’s waterflow: it says where the signal went.', 6, 12],
+          ['The riser’s waterflow switch is not wired to the panel: the signal was local only. Wire tool (5): click the panel, then the riser. Then run the inspector’s test.', 4, 10]],
+        diag: { q: 'Why did the alarm never leave?', opts: [
+          ['The supervising station lost the signal', false, 'The panel never had it to send: the event log says local only.'],
+          ['The waterflow switch on the riser is not wired to the panel', true, 'Yes. The gong is mechanical and rang; the switch had no wire to the panel.'],
+          ['The water motor gong is broken', false, 'The guard heard it.'],
+          ['The panel was dead on battery', false, 'The panel is alive and shows normal.']] },
+        goals: [stnGoal], prove: itc,
+        cheap: { t: 'Wire the flow switch', steps: ['Wire tool: panel, then the riser', 'Run the inspector’s test'], edit: (W) => E.wire(W, 6, 12), lesson: 'One wire.' },
+        maint: { t: 'Wire it, and the yard valve too', steps: ['Wire the riser’s flow switch', 'Wire the yard valve’s tamper switch as well', 'Run the inspector’s test'], edit: (W) => { E.wire(W, 6, 12); E.wire(W, 2, 12); },
+          lesson: 'While the panel is open, every supervised point gets checked: the yard valve had a switch with no wire either.' } },
+      { key: 'B', name: 'Office B: DACT', money: 1500, area: PZ.OFFICE_AREA, cfg: { commPath: 'dact' },
+        build(W, b) { PZ.office(W, b); }, setup: (S) => { chan(S, 0, 0); S.warp(60); night(S); S.warp(900); },
+        symptom: ['Records-only investigation. At 02:14 the night guard heard the water motor gong on the office riser, and the panel showed WATERFLOW. The supervising station has no record of it. The building had its telephone lines rerouted during a renovation.', 'Find why the alarm never left, put it right, and prove it with an inspector’s test.'],
+        records: ['Guard log 02:14: WATERFLOW on the panel, water motor gong ringing.', 'Supervising station: no signal from this account last night, and the daily test signal was missed.'],
+        hints: [['The panel had the alarm, so look at how the panel talks to the station. Select the panel.', 4, 10],
+          ['Read the DACT channels on the panel, and the annunciator line of the waterflow: it says whether it could be sent.', 4, 10],
+          ['Both DACT telephone lines are down after the renovation, so nothing can leave the panel. Restore the DACT channels on the panel, reset the panel to clear last night’s latched waterflow, then run the inspector’s test.', 4, 10]],
+        diag: { q: 'Why did the alarm never leave?', opts: [
+          ['The waterflow switch is not wired', false, 'The panel showed WATERFLOW: the switch is wired.'],
+          ['Both DACT telephone lines are down', true, 'Yes. With both channels down the panel annunciates everything and can send nothing, alarms included.'],
+          ['The waterflow class is set to supervisory', false, 'Waterflow is a fixed alarm signal; nobody can change its class.'],
+          ['The station only takes alarms from the fire pump', false, 'A station takes every alarm a panel sends.']] },
+        goals: [stnGoal], prove: (S) => { reset(S); itc(S); },
+        cheap: { t: 'Restore the lines', steps: ['Restore the DACT channels on the panel', 'Reset the panel to clear the latched waterflow', 'Run the inspector’s test'], op: (S) => chan(S, 1, 1), lesson: 'No edits. The held signals go out late, with their original time, once a line is back.' },
+        maint: { t: 'Restore them, and wire the yard valve', steps: ['Restore the DACT channels', 'Wire the yard valve’s tamper switch', 'Reset, then the inspector’s test'], edit: (W) => E.wire(W, 2, 12), op: (S) => chan(S, 1, 1),
+          lesson: 'A second path (cellular or IP) would be the real fix for a site that loses its phone lines; that is a site setting here.' } },
+      { key: 'C', name: 'Office C: a trouble on the panel', money: 1500, area: PZ.OFFICE_AREA, cfg: { commPath: 'dact' },
+        build(W, b) { PZ.office(W, b, { noFlowWire: true }); }, setup: (S) => { chan(S, 0, 1); S.warp(600); night(S); },
+        symptom: ['Records-only investigation. At 02:14 the night guard heard the water motor gong on the office riser. The supervising station has no record of it. The panel has been showing a DACT trouble for a week, and the telephone company is booked to fix the line.', 'Find why the alarm never left, fix it with the fewest edits, and prove it with an inspector’s test.'],
+        records: ['Guard log 02:14: water motor gong ringing at the office riser.', 'Panel: DACT CHANNEL 1 FAILURE, trouble, acknowledged a week ago.', 'Supervising station: the trouble was received. No waterflow.'],
+        hints: [['The station did get the DACT trouble, so the panel can still send. Is the waterflow even reaching the panel?', 6, 12],
+          ['Look at last night’s waterflow line in the event log, and at "Wired to" on the riser.', 6, 12],
+          ['The DACT trouble is real but not the cause: one line down still sends on the other. The riser’s flow switch is not wired to the panel. Wire it and run the inspector’s test.', 4, 10]],
+        diag: { q: 'Why did the alarm never leave?', opts: [
+          ['The failed DACT line', false, 'With one channel down every signal goes on the other at once; the station received the trouble that way.'],
+          ['The waterflow switch on the riser is not wired to the panel', true, 'Yes. The trouble was a distraction: the alarm never reached the panel at all.'],
+          ['The guard silenced the panel', false, 'Silence quiets the panel; it does not stop a signal from being sent.'],
+          ['The inspector’s test valve is too small to trip the switch', false, 'The gong rang, so water flowed through the alarm valve.']] },
+        goals: [stnGoal], prove: itc,
+        cheap: { t: 'Wire the flow switch', steps: ['Wire tool: panel, then the riser', 'Run the inspector’s test'], edit: (W) => E.wire(W, 6, 12), lesson: 'One wire. The DACT line is the telephone company’s job.' },
+        maint: { t: 'Wire it, the yard valve, and chase the line', steps: ['Wire the riser’s flow switch and the yard valve’s tamper switch', 'Restore DACT channel 1 (the telephone company)', 'Run the inspector’s test'], edit: (W) => { E.wire(W, 6, 12); E.wire(W, 2, 12); }, op: (S) => chan(S, 1, 1),
+          lesson: 'One line down is a trouble for a reason: the next fault would leave nothing. Fix both.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  const JK = { suction: [9, 11], check: [14, 10] };
+  const sleepGoals = [{ t: 'Plan review: no jockey pump or fire pump start warnings', ok: (S) => G.noWarn(S, 'ockey'), hint: 'Jockey stop about churn plus suction; jockey start at least 10 psi lower; fire pump start at least 5 psi below jockey start.' },
+    { t: 'Thirty quiet minutes: the jockey holds pressure and the fire pump never starts', ok: PZ.sleeps, hint: 'Stop the fire pump once the jockey can hold pressure, then let time run (speed up).' }];
+  const sleep = (S) => { for (const p of S.W.byType('epump')) p.p.on = false; S.editT = S.t; S.warp(1900); };
+  const jockeyValves = (W) => { E.gate(W, 10, 10, 0, false); E.gate(W, 13, 10, 0, false); };
+  const settings = (W, st, sp) => { const j = W.byType('jockey')[0]; j.p.start = st; j.p.stop = sp; W.ver++; };
+  DI.PUZ.push({
+    id: 'p7', n: 7, name: 'The Pump That Won’t Sleep', kind: 'Active incident', w: 60, h: 32, parts: ['gate', 'check', 'jockey'],
+    question: 'Why does a small leak keep waking the fire pump?',
+    learn: ['The jockey pump makes up small leaks so the fire pump only starts for real demand', 'Settings in order: jockey stop near churn plus suction, jockey start 10 psi lower, fire pump start 5 psi below that (NFPA 20 annex)', 'A jockey pump that cannot draw or cannot push (a blank, a reversed check valve) runs and does nothing', 'Prove it: thirty quiet minutes with the leak still there'],
+    variants: [
+      { key: 'A', name: 'Site A: after the controller swap', money: 3000, area: PZ.PUMP_AREA,
+        build(W, b) { PZ.pumpSite(W, b); settings(W, 95, 105); }, setup: (S) => { PZ.leak(S); S.warp(600); },
+        symptom: ['Active incident. The fire pump is running again. A small leak on the old underground main has been starting it once a night since the jockey pump controller was replaced. Facilities stops it by hand every morning.', 'Correct the jockey arrangement and settings with the fewest edits, then demonstrate thirty quiet minutes.'],
+        records: ['Controller replacement ticket: jockey pump controller, settings "as found".', 'Night log: electric fire pump start demand, every night since.'],
+        hints: [['Two pumps sense the same pressure. Which one is meant to start first, and does it?', 11, 10],
+          ['Select the jockey pump and the fire pump and compare their start pressures. Plan review (Review) also checks the order.', 11, 10],
+          ['The new jockey controller was set to start at 95 psi and stop at 105, below the fire pump’s 100 psi start. Set the jockey to start at 115 and stop at 125, stop the fire pump, and let thirty minutes run.', 11, 10]],
+        diag: { q: 'Why does the leak wake the fire pump?', opts: [
+          ['The leak is too big for the jockey pump', false, 'A 15 gpm jockey makes up this leak easily once its settings are right.'],
+          ['The jockey pump starts below the fire pump’s start pressure', true, 'Yes. Pressure falls to the fire pump’s 100 psi before it reaches the jockey’s 95.'],
+          ['The jockey pump check valve is reversed', false, 'The check valve faces the system; the jockey never runs because it never gets its start pressure.'],
+          ['The fire pump controller is faulty', false, 'It starts exactly at its setting. The order of the settings is the fault.']] },
+        goals: sleepGoals, prove: sleep, impPar: 600,
+        cheap: { t: 'Reset the jockey settings', steps: ['Jockey pump: start 115 psi, stop 125 psi', 'Stop the fire pump', 'Thirty quiet minutes'], edit: (W) => settings(W, 115, 125), lesson: 'One setting.' },
+        maint: { t: 'Reset them and add jockey isolation valves', steps: ['Jockey start 115, stop 125', 'Isolation valves on the jockey suction and discharge'], edit: (W) => { settings(W, 115, 125); jockeyValves(W); },
+          lesson: 'With its own isolation valves the jockey pump can be serviced, or its controller swapped, without taking the fire pump or the system out of service.' } },
+      { key: 'B', name: 'Site B: after the jockey rebuild', money: 3000, area: PZ.PUMP_AREA,
+        build(W, b) { PZ.pumpSite(W, b); E.turn(W, ...JK.check); }, setup: (S) => { PZ.leak(S); S.warp(600); },
+        symptom: ['Active incident. The fire pump is running. The jockey pump was rebuilt last week; since then it runs non-stop and the fire pump starts anyway.', 'Correct the jockey arrangement with the fewest edits, then demonstrate thirty quiet minutes.'],
+        records: ['Jockey rebuild ticket: pump and check valve removed and reinstalled.', 'Jockey pump run counter: running continuously since the rebuild.'],
+        hints: [['The jockey runs, so it has power and settings. Where does its water go?', 12, 10],
+          ['Look at the parts on the jockey discharge line: the glyph of each shows its flow direction. Compare with the fire pump’s discharge check valve.', 14, 10],
+          ['The jockey discharge check valve went back in the wrong way round. Select it and press Turn end for end, stop the fire pump, and let thirty minutes run.', 14, 10]],
+        diag: { q: 'Why does the jockey run and the fire pump still start?', opts: [
+          ['The jockey settings overlap the fire pump', false, 'Jockey 115 / 125, fire pump 100: in order.'],
+          ['The jockey discharge check valve is in backwards', true, 'Yes. The jockey pushes against a closed check valve: it runs, and no water reaches the system.'],
+          ['The jockey pump is too small', false, 'Fifteen gpm against this leak is plenty.'],
+          ['The jockey has no suction', false, 'Its suction tee is open to the full tank.']] },
+        goals: sleepGoals, prove: sleep, impPar: 600,
+        cheap: { t: 'Turn the check valve', steps: ['Select the jockey check valve, Turn end for end', 'Stop the fire pump', 'Thirty quiet minutes'], edit: (W) => E.turn(W, ...JK.check), lesson: 'One edit.' },
+        maint: { t: 'Turn it and add jockey isolation valves', steps: ['Turn the check valve', 'Isolation valves on the jockey suction and discharge'], edit: (W) => { E.turn(W, ...JK.check); jockeyValves(W); }, lesson: 'The next rebuild isolates the jockey at its own valves.' } },
+      { key: 'C', name: 'Site C: two faults', money: 3000, area: PZ.PUMP_AREA,
+        build(W, b) { PZ.pumpSite(W, b); E.cap(W, JK.suction[0], JK.suction[1], true, true); settings(W, 120, 125); }, setup: (S) => { PZ.leak(S); S.warp(600); },
+        symptom: ['Active incident. The fire pump is running. After the suction header was hydrostatically tested, the jockey pump has been running non-stop and short-cycling in between, and the fire pump starts every night.', 'There are two faults. Correct both with the fewest edits, then demonstrate thirty quiet minutes.'],
+        records: ['Hydrostatic test of the suction header: passed, blanks installed (call 2).', 'Jockey pump: 312 starts this week.'],
+        hints: [['The jockey runs, so look at where its water comes from, and at its settings.', 9, 11],
+          ['Hover the jockey suction pipe: it reads below zero. Then compare the jockey’s start and stop pressures: plan review warns about the band.', 9, 11],
+          ['A test blank (a cap) was left between the jockey suction tee and the tank line (call 2), and the jockey’s start / stop band is only 5 psi (start 120, stop 125). Remove the cap, set the jockey start to 115, stop the fire pump and let thirty minutes run.', 9, 11]],
+        diag: { q: 'What two faults keep the fire pump awake?', opts: [
+          ['A blank in the jockey suction, and a 5 psi start / stop band', true, 'Yes. The blank starves the jockey; the narrow band would have short-cycled it even with water.'],
+          ['A reversed jockey check valve, and the fire pump start set too high', false, 'The check valve faces the system, and the fire pump start (100 psi) is in order.'],
+          ['The underground leak, and a worn jockey pump', false, 'The jockey makes up the leak once it can draw water.'],
+          ['A closed suction valve on the fire pump', false, 'There is no valve on the suction, and the fire pump has water.']] },
+        goals: sleepGoals, prove: sleep, impPar: 600,
+        cheap: { t: 'Pull the blank and widen the band', steps: ['Cap tool on the jockey suction joint', 'Jockey start 115 psi (stop 125)', 'Stop the fire pump, thirty quiet minutes'], edit: (W) => { E.cap(W, JK.suction[0], JK.suction[1], true, false); settings(W, 115, 125); }, lesson: 'Two edits, one per fault.' },
+        maint: { t: 'Both, and jockey isolation valves', steps: ['Pull the blank and set the band to 10 psi', 'Isolation valves on the jockey suction and discharge, so the next hydrostatic test closes a valve instead of a blank'], edit: (W) => { E.cap(W, JK.suction[0], JK.suction[1], true, false); settings(W, 115, 125); jockeyValves(W); },
+          lesson: 'A valve, unlike a blank, is visible and is part of the plant record.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // the preaction zone of contract 6: city -> control valve (13,14) -> preaction valve (17,14), compressor (17,12),
+  // panel (19,12), VESDA in the hall, and a manual release station (typed DETECTION) in the hall at (41,8)
+  const c6 = () => DI.SCEN.find((s) => s.id === 'c6');
+  const PRE_AREA = [10, 6, 43, 21];
+  const pre = (W, b) => { c6().build(W); W.byType('comp')[0].p.scfm = 10; W.erasePipe(41, 8); const m = b.p('mstn', 41, 8); b.wire(W.byType('panel')[0], m); };
+  const pv = (S) => S.W.byType('prev')[0], pss = (S) => S.ss.get(pv(S).id), pnl = (S) => S.W.byType('panel')[0], stn = (S) => S.W.byType('mstn')[0];
+  const resetN = (S, n) => { for (let i = 0; i < n; i++) { DI.panelReset(S, pnl(S).id); S.warp(40); } };
+  const drainDown = (S) => { const v = pv(S); v.p.sdrain = 1; S.touch(); S.warp(90); };
+  // the operator's way out: wait for the air above low air, then one reset
+  const airBack = (S) => { const v = pv(S); S.warp(3600, 0, () => pss(S).P > v.p.loAir + 0.5); resetN(S, 1); S.warp(30); };
+  const backGoals = [{ t: 'Zone back in service: set, pressurized, nothing latched', ok: (S) => PZ.inService(S, pv(S)), hint: 'Clear the cause first, wait for the reading to recover, then reset the panel once.' },
+    { t: 'Annunciator normal: no alarm, supervisory or open item', ok: (S) => PZ.quiet(S, ['ALARM', 'SUPV', 'OPEN']), hint: '' }];
+  DI.PUZ.push({
+    id: 'p8', n: 8, name: 'Reset, Reset, Reset', kind: 'Active incident', w: 64, h: 36, parts: ['gate'],
+    question: 'What keeps bringing the indication back?',
+    learn: ['A panel reset clears the latches and reads every input again: a live input comes straight back', 'P relatches while the pipe is below P trip: restore the air first, then reset', 'A manual station stays operated until it is reset at the station', 'Every reset made while the cause is live is noise in the panel history: clear the cause, then reset once'],
+    variants: [
+      { key: 'A', name: 'Hall A: after the head change', money: 1000, area: PRE_AREA, impPar: 2400,
+        build: pre, setup: (S) => { const v = pv(S); v.p.airValve = 0; drainDown(S); v.p.sdrain = 0; S.touch(); S.warp(30); resetN(S, 3); },
+        live: (S) => !pv(S).p.airValve || pss(S).P <= pv(S).p.pTrip,
+        symptom: ['Active incident. A sprinkler head in the data hall was replaced this afternoon and the operator has reset the panel three times. Each time the same indications come straight back.', 'Identify and clear the live cause before you reset again. Then put the zone back in service with one reset.'],
+        records: ['Head replacement ticket: control valve closed, air isolated, drained, head replaced, drain closed, control valve reopened.'],
+        hints: [['Read the annunciator and the impairment tags before touching Reset. What is still the way the repair left it?', 17, 14],
+          ['Select the preaction valve: compare the pipe pressure with its P trip and low air setpoints, and look at the air / N2 supply row.', 17, 13],
+          ['The air supply to the zone was never restored after the repair: the pipe sits at 0 psi, below P trip, so P relatches on every reset. Restore the air supply, let the zone refill past low air (skip ahead), then reset the panel once.', 17, 13]],
+        diag: { q: 'What brings the indication back?', opts: [
+          ['A detector in the hall is still in alarm', false, 'No detector is above its first stage. The indication is P and low air, not detection.'],
+          ['The air supply to the zone is still isolated, so the pipe stays below P trip', true, 'Yes. The ticket missed "restore air". P is a live input: it latches again the moment the panel reads the pipe.'],
+          ['The panel is faulty and needs replacing', false, 'The panel does exactly what it should: it reads a pipe below P trip.'],
+          ['The new head is leaking', false, 'With the air supply isolated no gauge can tell, but the zone holds once the supply is back.']] },
+        goals: backGoals, prove: airBack,
+        cheap: { t: 'Restore the air, then one reset', steps: ['Open the air / N2 supply to the zone', 'Let the zone refill past low air', 'Reset the panel once'], op: (S) => { pv(S).p.airValve = 1; }, lesson: 'No edits: the fault was a step missed.' },
+        maint: { t: 'Restore the air, prove the zone, then one reset', steps: ['Open the air / N2 supply', 'Let it refill, reset the panel once', 'Run the 24 h air test to prove the new head holds'], op: (S) => { pv(S).p.airValve = 1; },
+          lesson: 'The recovery checklist on the valve has "restore air" as its own step for this reason. The air test proves the repair, not just the reset.' } },
+      { key: 'B', name: 'Hall B: after the tour', money: 1000, area: PRE_AREA, impPar: 900,
+        build: pre, setup: (S) => { stn(S).p.on = true; S.warp(30); resetN(S, 3); },
+        live: (S) => !!stn(S).p.on,
+        symptom: ['Active incident. A school tour went through the data hall this morning. Since then the panel shows an alarm that comes straight back however many times the operator resets it. No water has flowed.', 'Identify and clear the live cause before you reset again. Then return the panel to normal with one reset.'],
+        records: ['Operator log: panel reset at 10:02, 10:03 and 10:05. Same alarm each time.'],
+        hints: [['Read the alarm on the annunciator: which device is it?', 41, 8],
+          ['Click the alarm row to go to the device and read its status.', 41, 8],
+          ['The manual station in the hall was operated during the tour and is still operated. Reset it at the station, then reset the panel once.', 41, 8]],
+        diag: { q: 'What brings the alarm back?', opts: [
+          ['Smoke from the tour set off the VESDA', false, 'The detector is at normal. The alarm is a manual pull.'],
+          ['The manual station in the hall is still operated', true, 'Yes. A station stays operated until it is reset at the station; the panel reads it again after every reset.'],
+          ['P is latched on the zone', false, 'The pipe is at normal pressure and P is clear.'],
+          ['The panel reset button is broken', false, 'The reset works: it clears and re-reads, and the station is still operated.']] },
+        goals: backGoals, prove: (S) => { S.warp(10); resetN(S, 1); S.warp(30); },
+        cheap: { t: 'Reset the station, then the panel', steps: ['Select the manual station, Reset station', 'Reset the panel once'], op: (S) => { stn(S).p.on = false; }, lesson: 'No edits.' },
+        maint: { t: 'Reset the station, the panel, and walk the room', steps: ['Reset the station', 'Reset the panel once', 'Walk the room: every station and detector back to normal before the panel is left'], op: (S) => { stn(S).p.on = false; },
+          lesson: 'The station was typed DETECTION, so it latched D: with P it would have released water. Know what every input in the room does.' } },
+      { key: 'C', name: 'Hall C: after the trip test', money: 1000, area: PRE_AREA, impPar: 2400,
+        build: pre, setup: (S) => { drainDown(S); resetN(S, 3); },
+        live: (S) => !!pv(S).p.sdrain || pss(S).P <= pv(S).p.pTrip,
+        symptom: ['Active incident. The zone was trip tested and restored yesterday. Overnight its air fell away, and the operator has reset the panel three times since. Each time P latches again within seconds. The compressor runs and runs.', 'Identify and clear the live cause before you reset again. Then put the zone back in service with one reset.'],
+        records: ['Trip test record: valve reset at the riser, air restored, panel reset, control valve reopened.', 'Compressor: running continuously since 01:40.'],
+        hints: [['The compressor runs and the pressure still falls: air is leaving faster than it is made. Where can it leave?', 17, 14],
+          ['Select the preaction valve and read every valve on its trim: control valve, air supply, system drain, inspector’s test.', 17, 14],
+          ['The system drain was left open after the trip test: it vents the zone faster than the compressor can fill it, so P relatches on every reset. Close the system drain, let the zone refill past low air, then reset the panel once.', 17, 14]],
+        diag: { q: 'What brings P back?', opts: [
+          ['The air supply to the zone is isolated', false, 'The supply is open: the compressor is running into the zone.'],
+          ['The system drain was left open after the trip test', true, 'Yes. The recovery step "close the drain" was missed: the air goes out as fast as it comes in.'],
+          ['The compressor is too small for the zone', false, 'It passes the 30 minute sizing check, and it refills the zone once the drain is shut.'],
+          ['The pipe has corroded through', false, 'A pinhole loses air slowly; this zone empties in under two minutes.']] },
+        goals: backGoals, prove: airBack,
+        cheap: { t: 'Close the drain, then one reset', steps: ['Close the system drain', 'Let the zone refill past low air', 'Reset the panel once'], op: (S) => { pv(S).p.sdrain = 0; S.touch(); }, lesson: 'No edits.' },
+        maint: { t: 'Close the drain, reset once, record it', steps: ['Close the system drain', 'Let it refill, reset the panel once', 'Finish the recovery checklist on the valve so the missed step is on record'], op: (S) => { pv(S).p.sdrain = 0; S.touch(); },
+          lesson: 'A practice recovery on the valve shows the thirteen steps in order: "close the drain" is step 9, before the air is restored.' } },
+    ],
+  });
+})();
+
+</script>
+<script>
 // Field manual: the real-world knowledge behind each mechanic. Edition basis of the text: NFPA 13-2025,
 // NFPA 20, NFPA 25, NFPA 72 (the enforced NFPA 13 edition is a site setting; plan review cites that one).
 // Company rules and ASSUMED / NEEDS PE REVIEW values are listed on the 'site' page. Always verify against
@@ -4579,6 +5399,17 @@ DI.MANUAL = [
 <p><b>One tile is 10 ft.</b> One sprinkler tile protects 100 ft&sup2;. Branch lines only connect end to end, and to a main beside them. Mains connect to everything they touch.</p>
 <p>Pipe colour is what is inside it: blue is water (brighter is higher pressure), sand is compressed air, teal is nitrogen. White dashes are flow. Hover any pipe for pressure, flow and velocity.</p>
 <p>Select a riser or pump to operate it and run its tests. <b>Review</b> is the plan checker. <b>Skip</b> jumps ahead in time and stops if an alarm comes in.</p>` },
+  { id: 'calls', t: 'Field calls (find the fault)', h: `<p>A field call is a small puzzle on an installation that already exists. You get a symptom, the records, a small repair budget and one central question. The plant is the same simulation as the contracts: nothing is scripted except the fault.</p>
+<p><b>Starting states.</b> Inherited installation (it has been like this for a while), nearly finished plant (the contractor says it is done), records-only investigation (something happened last night; the log and the test records are your evidence) and active incident (it is going wrong right now).</p>
+<p><b>Hints</b> come one at a time: the system to look at, a measurement to take, then the fault itself. The camera goes to each one. <b>Diagnose</b> answers the central question; a wrong pick is answered with why it is not that, and counted.</p>
+<p><b>Scoring.</b> One star for the fix (every goal, the diagnosis included). One for the fewest edits at no more than the cheapest fix costs. One for a diagnosis right the first time, at most one hint, no more time out of service than par, and, where the call has a live cause, no panel reset made while it was still live.</p>
+<ul><li><b>An edit</b> is a change to the layout against the starting state: a pipe tile added, removed, resized or re-laid; a cap; a tile of air tubing; a part added, removed, replaced or turned end for end; a wire; a design setting on a part (a pump or jockey setting, a trim setpoint, a tamper switch fitted). Dropping a valve into a pipe run is one edit.</li>
+<li><b>Not an edit:</b> operating the plant. Opening or closing a valve, a pump's mode, stopping a pump, resetting a station or the panel, running a test.</li>
+<li><b>Out of service</b> is game time with a control valve not fully open, a fire pump out of AUTO (not on its own test), a dry or preaction zone not set and pressurized or with P latched, or an isolated air supply. Pause (Space) while you think; time spent paused costs nothing.</li></ul>
+<p><b>Variants.</b> Each call has two or three. They move the fault, change the supply, the layout or what else is going on, and the later ones combine ideas from earlier calls. Switching variant starts it fresh.</p>
+<p><b>Afterwards</b> the report compares three fixes side by side: yours, the cheapest one and an easily maintained one, each drawn with its edits ringed (red where something was taken away), with its cost and what it teaches.</p>
+<p><b>Tools that matter here.</b> <b>Turn end for end</b> (select an inline part: a check valve, a pump, a backflow preventer, a control valve) reverses it in place for free. A cap shows as a short yellow bar across a joint, also where a pipe meets a part. A control valve can have <b>no tamper switch fitted</b> (an old sealed yard valve): closing it signals nothing until a switch is fitted and wired. A pump suction gauge cannot read below a full vacuum: the game shows a starved suction as -14.7 (full vacuum).</p>
+<p><b>Drills keep the commissioning record.</b> In a contract the goals are recorded when the acceptance drill starts. What was proved before the fire (a quiet half hour on the jockey, a refill, a passing calc) stays proved while the drill runs the plant hard.</p>` },
   { id: 'wet', t: 'Wet pipe systems', h: `<p>Pipe full of water under pressure, closed heat-activated sprinklers. Only the sprinklers that get hot open. Wet is the default: it is the most reliable and it puts water on the fire soonest.</p>
 <ul><li><b>Limits:</b> the whole system must stay at 40&nbsp;&deg;F or above. One riser may protect 52,000 ft&sup2; per floor for light and ordinary hazard (NFPA 13-2025 &sect;4.4.1).</li>
 <li><b>Riser:</b> control valve with tamper switch, alarm check valve or riser check with a waterflow switch, main drain, gauges above and below.</li>
@@ -4989,9 +5820,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
     }
     // capped joints
     if (z >= 7) { c.strokeStyle = '#ffd24a'; c.lineWidth = Math.max(2, z * 0.11); c.lineCap = 'butt'; c.beginPath();
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = y * w + x; if (!W.pd[k]) continue;
-        if (W.cut[k * 2] && W.pd[k + 1]) { c.moveTo(ox + (x + 1) * z, oy + (y + 0.28) * z); c.lineTo(ox + (x + 1) * z, oy + (y + 0.72) * z); }
-        if (W.cut[k * 2 + 1] && W.pd[k + w]) { c.moveTo(ox + (x + 0.28) * z, oy + (y + 1) * z); c.lineTo(ox + (x + 0.72) * z, oy + (y + 1) * z); } }
+      // a cap between a pipe and a part (a test blank at a pump inlet) is drawn too
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = y * w + x; if (!W.pd[k] && !W.partAt[k]) continue;
+        if (W.cut[k * 2] && (W.pd[k + 1] || W.partAt[k + 1]) && x < w - 1) { c.moveTo(ox + (x + 1) * z, oy + (y + 0.28) * z); c.lineTo(ox + (x + 1) * z, oy + (y + 0.72) * z); }
+        if (W.cut[k * 2 + 1] && (W.pd[k + w] || W.partAt[k + w])) { c.moveTo(ox + (x + 0.28) * z, oy + (y + 1) * z); c.lineTo(ox + (x + 0.72) * z, oy + (y + 1) * z); } }
       c.stroke(); c.lineCap = 'round'; }
     // flow animation
     if (G && z >= 8) {
@@ -5238,13 +6070,15 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.row('Zone behind it', () => { if (q.target > 0.5) return q.open > 0.98 ? ['in service', 'good'] : 'opening'; const c = DI.reopenCheck(S, p.id); return c.msg ? [c.msg, 'warn'] : c.items.length ? [c.items.length + ' item(s) still open', 'warn'] : ['ready to reopen', 'good']; });
       // opening is refused only in the scored incident of a running drill; anywhere else it opens and the warning lists what is still open
       B.btns([[q.target > 0.5 ? 'Close valve' : 'Open valve', () => { const opening = !(q.target > 0.5), chk = opening ? DI.reopenCheck(S, p.id) : null, m = DI.setGate(S, p.id, opening ? 1 : 0); if (m) say(m); else { if (chk && chk.items.length) say(DI.reopenWarn(p.id, chk.items)); DI.audio.play('valve'); } },
-        q.target > 0.5 ? 'hot' : 'go', false, 'In the scored incident of a drill the valve reopens only when the zone behind it will hold: panel reset, clapper reset, P clear, air above low air. Anywhere else it opens, and warns about what is still open.']]); }
+        q.target > 0.5 ? 'hot' : 'go', false, 'In the scored incident of a drill the valve reopens only when the zone behind it will hold: panel reset, clapper reset, P clear, air above low air. Anywhere else it opens, and warns about what is still open.']]);
+      // a valve with no supervisory switch fitted (an old sealed yard valve in a field call): closing it signals nothing
+      if (q.sw === 0) { B.row('Tamper switch', () => ['none fitted: nothing reports this valve', 'warn']); B.btns([['Fit a tamper switch (' + DI.money(DI.TAMPER_SW_COST) + ')', () => reprice(p, () => { q.sw = 1; }), '', false, 'A supervisory switch: wired to a panel, the valve reports off normal (below 80 percent open) as a supervisory signal.']]); } }
     else if (p.type === 'city') { B.row('Flow test', () => q.stat + ' static, ' + q.resid + ' @ ' + q.flow + ' gpm'); B.row('Flowing now', () => gpm(S.flowOf(p.id))); B.row('Pressure at tap', () => psi(S.pout(p.id))); }
     else if (p.type === 'tank') { B.pick('Capacity (gal)', [60000, 120000, 240000, 360000, 500000], () => q.cap, (v) => reprice(p, () => { q.cap = v; q.gal = v; }), (v) => v / 1000 + 'k'); B.row('Level', () => DI.fmt(100 * q.gal / q.cap, 1) + '%  (' + Math.round(q.gal).toLocaleString() + ' gal)'); B.row('Draw', () => gpm(S.flowOf(p.id))); B.row('Lasts at this rate', () => S.flowOf(p.id) > 5 ? DI.dur(q.gal / S.flowOf(p.id) * 60) : '-'); }
     else if (p.type === 'epump' || p.type === 'dpump') {
       B.canvas(296, 150, pumpChart(p));
       B.row('Status', () => q.spd > 0.9 ? ['RUNNING', 'good'] : q.on ? [q.failed ? 'FAILED TO START' : p.type === 'dpump' ? 'cranking' : 'no power', 'bad'] : 'standby');
-      B.row('Flow', () => gpm(S.flowOf(p.id)) + ' (' + DI.fmt(100 * S.flowOf(p.id) / q.gpm) + '%)'); B.row('Suction / discharge', () => DI.fmt(S.pin(p.id)) + ' / ' + DI.fmt(S.pout(p.id)) + ' psi'); B.row('System pressure (sensing line)', () => psi(S.pout(q.sense || p.id)));
+      B.row('Flow', () => gpm(S.flowOf(p.id)) + ' (' + DI.fmt(100 * S.flowOf(p.id) / q.gpm) + '%)'); B.row('Suction / discharge', () => DI.gaugeText(S.pin(p.id)) + ' / ' + DI.fmt(S.pout(p.id)) + ' psi'); B.row('System pressure (sensing line)', () => psi(S.pout(q.sense || p.id)));
       B.sec('CONTROLLER'); B.pick('Mode', ['off', 'auto', 'hand'], () => q.mode, (v) => { q.mode = v; if (v === 'off') q.on = false; }, (v) => v.toUpperCase());
       B.btns([['Stop pump', () => { q.on = false; }, 'hot', !q.on || q.mode === 'hand', 'Fire pumps are stopped by hand once the emergency is over']]);
       B.step('Start pressure', () => q.start, (v) => { q.start = v; }, 5, 30, 220, ' psi');
@@ -5323,9 +6157,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
         [q.battDisc ? 'Reconnect battery' : 'Disconnect battery', () => { q.battDisc = !q.battDisc; }, q.battDisc ? 'hot' : '', false, 'Sandbox only. BATTERY DISCONNECTED is modelled as a trouble (PRACTICE, not code). With no battery the panel dies as soon as AC is lost.']]);
       // Sandbox only, DACT path only: fail one or both of the two DACT channels. One down is a trouble sent on the
       // other channel within 4 minutes; both down, nothing can be sent and the station reports a missed test.
-      if (g().sc.sandbox && DI.commPath(W) === 'dact') { const ch = () => (Array.isArray(q.chan) ? q.chan : [1, 1]), setCh = (a, b) => { q.chan = [a, b]; };
+      if ((g().sc.sandbox || (g().sc.puzzle && !(Array.isArray(q.chan) && q.chan[0] && q.chan[1]))) && DI.commPath(W) === 'dact') { const ch = () => (Array.isArray(q.chan) ? q.chan : [1, 1]), setCh = (a, b) => { q.chan = [a, b]; };
         B.row('DACT channels', () => { const c = ch(); return ['1 ' + (c[0] ? 'up' : 'DOWN') + ', 2 ' + (c[1] ? 'up' : 'DOWN'), c[0] && c[1] ? 'good' : 'warn']; }, 'One channel down: a trouble at the panel at once, sent on the other channel within ' + DI.delayText(DI.DACT_CHAN_S) + ' [' + DI.ref72(W).dactChan + ']; every other signal goes on the surviving channel at once. Both down: the panel cannot send anything, alarms included, so nothing is transmitted and the fire department is not dispatched from it. It tries each signal ' + DI.DACT_TRIES + ' times, ' + DI.DACT_ATTEMPT_S + ' s each (CODE bounds, count ASSUMED; ' + DI.ref72(W).dactTry + '), then shows DACT TRANSMISSION FAILED. When a channel is back every signal that is still active is sent, with its original event time, in priority order (alarm, supervisory, trouble, then a class not elected), then the restorals. Hold and send (site setting, PRACTICE) decides only what happens to a signal that restored inside the outage: ON sends it late with its restoral, OFF drops it. If the panel dies with signals queued none of them is sent: the hazard case. The supervising station reports a missed test after ' + DI.delayText(DI.commDelay(W)) + ' (ASSUMED).');
-        B.btns([['Fail DACT channel 1', () => setCh(0, ch()[1]), 'hot', !ch()[0], 'Sandbox only.'], ['Fail DACT channel 2', () => setCh(ch()[0], 0), 'hot', !ch()[1], 'Sandbox only.'], ['Restore DACT channels', () => setCh(1, 1), 'go', !!(ch()[0] && ch()[1])]]); }
+        B.btns([g().sc.sandbox ? ['Fail DACT channel 1', () => setCh(0, ch()[1]), 'hot', !ch()[0], 'Sandbox only.'] : null, g().sc.sandbox ? ['Fail DACT channel 2', () => setCh(ch()[0], 0), 'hot', !ch()[1], 'Sandbox only.'] : null, ['Restore DACT channels', () => setCh(1, 1), 'go', !!(ch()[0] && ch()[1]), g().sc.sandbox ? '' : 'The telephone company puts the lines back.']]); }
       // one read-only cause-and-effect matrix per preaction zone wired to this panel
       const zones = W.wires.filter((w) => w[0] === p.id).map((w) => W.parts.get(w[1])).filter((d) => d && d.type === 'prev' && S.sysd.info.has(d.id));
       if (zones.length) B.btns(zones.map((z) => ['Cause and effect matrix: #' + z.id, () => DI.ui.showCE(z.id), '', false, DI.sysName(S, z.id) + '. Read-only.']));
@@ -5363,6 +6197,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.row('Operates', () => { const z = zone(); return z.length ? 'valve ' + z.map((v) => '#' + v.id + ' (' + DI.stationType(W, v) + ')').join(', ') : ['no preaction valve protects this room', 'warn']; });
       B.btns([q.on ? ['Reset station', () => { q.on = false; S.say('Manual station #' + p.id + ' reset. Reset the panel to clear the alarm.', ''); }, 'go'] : ['Operate station', () => { q.on = true; DI.audio.play('valve'); }, 'hot', false, 'An alarm, and the manual input of the valves listed above.']]);
       B.p('Typed DETECTION: operating it is the detection leg D, and water still needs P. It stays operated until it is reset here, so a panel reset alone brings the alarm straight back. With the Manual Release zone bypass ON (site setting, NEEDS PE REVIEW) it is typed MANUAL RELEASE on an electric / electric trim and releases without P.'); }
+    // a two-port part can be turned end for end in place (free): a check valve, a pump or a backflow preventer set the
+    // wrong way round is a fault of its own (the field calls). The glyph shows which way the water is meant to go.
+    if (!q.fixed && DI.PARTS[p.type].ports === 2 && !DI.SYSV[p.type]) B.btns([['Turn end for end', () => { DI.pushUndo(); p.rot = (p.rot + 2) % 4; W.ver++; S.touch(); DI.edited(); }, '', false, 'Reverse the part in place: inlet and outlet swap. The glyph points the way the water goes.']]);
     if (!q.fixed) B.btns([['Remove (refund ' + DI.money(DI.partCost(p.type, q)) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.partCost(p.type, q) + (q.vent ? 3200 : 0); W.removePart(p.id); G.sel = null; DI.edited(); }]]);
   }
   function tilePanel(S, W, k) {
@@ -5394,15 +6231,29 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.btns([['Send technician', () => say(DI.sendTech(S, room.id))], G.sc.sandbox ? ['Start a fire here', () => DI.ignite(S, k, 0, 1), 'hot'] : null, G.sc.sandbox ? ['Smouldering fault here', () => DI.ignite(S, k, 240, 1), 'hot'] : null]); }
   }
   function homePanel(G) {
+    if (G.sc.puzzle) return puzPanel(G);
     B.title(G.sc.name, G.sc.sandbox ? 'sandbox' : 'goals'); if (!G.sc.goals.length) { B.p('Free build. Select a floor tile to start a fire there or break a sprinkler. The Incident menu cuts power and changes the weather.'); return; }
     G.sc.goals.forEach((q, i) => B.add('<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '" style="margin:0 10px;font-size:12.5px"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + '</div></div>'));
     const nx = G.sc.goals.find((q, i) => !G.goalOk[i]); if (nx && nx.hint) B.p('Next: ' + nx.hint); else if (!nx && G.sc.drill) B.p('All goals met. Run the acceptance drill.');
+  }
+  // a field call: the question, the goals, the running scorecard and the hints shown so far
+  function puzPanel(G) {
+    const S = G.S, st = DI.puzStatus(S); B.title(G.sc.name, 'field call ' + G.sc.pz.n + ' · ' + G.sc.v.key); if (!st) return;
+    B.p(st.v.diag.q);
+    G.sc.goals.forEach((q, i) => B.add('<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '" style="margin:0 10px;font-size:12.5px"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + '</div></div>'));
+    B.sec('SO FAR');
+    B.row('Edits', () => String(DI.puzStatus(S).edits)); B.row('Spent', () => DI.money(Math.max(0, DI.puzSpent(S))) + ' of ' + DI.money(G.sc.money));
+    B.row('Out of service', () => { const x = DI.puzStatus(S); return x.now.length ? [DI.dur(x.imp) + ' (now)', 'warn'] : DI.dur(x.imp); });
+    if (st.v.live) B.row('Resets while the cause was live', () => { const n = S.puz.futile; return n ? [String(n), 'warn'] : '0'; });
+    B.row('Hints used', () => (st.v.hints.length - DI.puzStatus(S).left) + ' of ' + st.v.hints.length);
+    if (st.hints.length) { B.sec('HINTS'); st.hints.forEach((x, i) => B.p((i + 1) + '. ' + x[0])); }
+    B.btns([[st.left ? 'Hint (' + st.left + ' left)' : 'Hints', () => DI.puzUI.hint()], [S.puz.diag.ok ? 'Diagnosed' : 'Diagnose', () => DI.puzUI.diagnose(), S.puz.diag.ok ? '' : 'go'], ['Goals and records', () => DI.puzUI.goals()]]);
   }
   DI.inspect = { render(force) {
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }
     const S = G.S, W = G.W, sel = G.sel, p = sel && sel.kind === 'part' ? W.parts.get(sel.id) : null; if (sel && sel.kind === 'part' && !p) G.sel = null;
     const s = p && S.ss.get(p.id);
-    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length, s.ret ? (DI.returnStep(S, p.id) || {}).mode : 0, DI.refilling(S, p.id), !!W.cfg.nfpa76Adopted, highGas(S, p), p.type === 'prev' ? drillScored(S, p.id) : 0] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0), p && p.type === 'prev' ? !!DI.recoveryScore(S, p.id) : 0, p && p.type === 'vesda' ? [DI.n76Flags(W).length, !!W.cfg.nfpa76Adopted] : 0], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
+    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length, s.ret ? (DI.returnStep(S, p.id) || {}).mode : 0, DI.refilling(S, p.id), !!W.cfg.nfpa76Adopted, highGas(S, p), p.type === 'prev' ? drillScored(S, p.id) : 0] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0), p && p.type === 'prev' ? !!DI.recoveryScore(S, p.id) : 0, p && p.type === 'vesda' ? [DI.n76Flags(W).length, !!W.cfg.nfpa76Adopted] : 0, S.puz ? [S.puz.hints, S.puz.diag.ok, S.puz.diag.tries] : 0], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
     if (force || sig !== lastSig) { lastSig = sig; acts = []; upd = []; B.h = ''; if (p) partPanel(S, W, p); else if (sel && sel.kind === 'tile') tilePanel(S, W, sel.k); else homePanel(G); el.innerHTML = B.h; }
     for (let i = 0; i < upd.length; i++) { const v = upd[i](); if (v === null) continue; const e = document.getElementById('iv' + i); if (!e) continue; const t = Array.isArray(v) ? v[0] : v, c = Array.isArray(v) ? v[1] : ''; if (e.textContent !== t) e.textContent = t; if (e.className !== c) e.className = c; }
   } };
@@ -5471,7 +6322,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   ui.init = function () {
     $('bMenu').onclick = () => { DI.saveGame(); ui.showMenu(); };
     $('bGoals').onclick = ui.showGoals; $('bSite').onclick = () => ui.showSite(); $('bReview').onclick = ui.showReview; $('bTests').onclick = ui.showTests; $('bManual').onclick = () => ui.showManual();
-    $('bDrill').onclick = ui.askDrill; $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
+    $('bDrill').onclick = ui.askDrill; $('bHint').onclick = () => DI.puzUI.hint(); $('bDiag').onclick = () => DI.puzUI.diagnose(); $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
     $('bSnd').classList.add('on');
     document.querySelectorAll('.sp').forEach((b) => { b.onclick = () => DI.setSpeed(+b.dataset.sp); });
     $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, 44, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
@@ -5516,6 +6367,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   ui.onScenario = function () {
     const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
     $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
+    $('bHint').style.display = $('bDiag').style.display = G.sc.puzzle ? '' : 'none';
     ui.setTool('select'); DI.inspect.render(true);
   };
   ui.tick = function () {
@@ -5526,6 +6378,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('wx').textContent = DI.fmt(W.outTemp) + '°F  ' + (W.power ? 'UTILITY OK' : 'UTILITY OUT');
     $('wx').style.color = W.power ? '' : 'var(--red)';
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
+    if (G.sc.puzzle && S.puz) { const left = G.sc.v.hints.length - S.puz.hints; $('bHint').textContent = 'Hint (' + left + ')'; $('bDiag').classList.toggle('go', !S.puz.diag.ok); $('bDiag').textContent = S.puz.diag.ok ? 'Diagnosed' : 'Diagnose'; }
     // Impairment tags are riser tags, not signals: listed above the signals, and still shown with a dead panel.
     const imps = DI.impairments(S), ih = imps.length ? '<div class="hd3">IMPAIRMENT TAGS</div>' + imps.map((x) => '<div class="imp" data-p="' + x.id + '">' + esc(x.text) + '</div>').join('') : '';
     if ($('imp').dataset.h !== ih) { $('imp').innerHTML = ih; $('imp').dataset.h = ih; }
@@ -5567,15 +6420,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
       h += '<button class="card' + (open ? '' : ' lock') + '" data-sc="' + sc.id + '"' + (open ? '' : ' disabled') + '><em>' + (sc.sandbox ? 'FREE PLAY' : 'CONTRACT ' + (i + 1)) + '</em>' + (d ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') + '<b>' + esc(sc.name) + '</b><small>' + esc(sc.tag) + (sv ? ' · in progress' : '') + '</small></button>';
       if (!sc.sandbox && !d) unlocked = false;
     });
-    h += '</div><div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">' + (DI.desktop && DI.desktop.available ? 'Progress saves on this PC.' : 'Progress saves in this browser.') + ' Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
+    h += '</div>' + DI.puzUI.menuHtml() + '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">' + (DI.desktop && DI.desktop.available ? 'Progress saves on this PC.' : 'Progress saves in this browser.') + ' Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
     if (DI.desktop && DI.desktop.available) h += '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Windows desktop · Progress saves on this PC.</span><button id="mUpdates">Check for updates</button></div>';
     ui.modal(h, false);
     if ($('mUpdates')) $('mUpdates').onclick = DI.desktop.check;
-    $('mbox').querySelectorAll('.card').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); });
+    $('mbox').querySelectorAll('.card[data-sc]').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); }); DI.puzUI.bindMenu();
     $('mMan').onclick = () => ui.showManual(null, ui.showMenu);
-    $('mUnlock').onclick = () => { for (const sc of DI.SCEN) if (!sc.sandbox && !G.prog.done[sc.id]) G.prog.done[sc.id] = { stars: 0, spent: 0 }; DI.LS.set('di.progress', G.prog); ui.showMenu(); };
+    $('mUnlock').onclick = () => { for (const sc of DI.SCEN) if (!sc.sandbox && !G.prog.done[sc.id]) G.prog.done[sc.id] = { stars: 0, spent: 0 }; for (const pz of DI.PUZ) if (!G.prog.done[pz.id]) G.prog.done[pz.id] = { stars: 0, v: {} }; DI.LS.set('di.progress', G.prog); ui.showMenu(); };
   };
   ui.showBrief = function (sc) {
+    if (sc.puzzle) return DI.puzUI.brief(sc);
     ui.modal('<h4>CONTRACT BRIEFING</h4><h2>' + esc(sc.name) + '</h2><div class="sub">' + esc(sc.tag).toUpperCase() + ' · BUDGET ' + DI.money(sc.money) + '</div>' + sc.brief.map((p) => '<p>' + esc(p) + '</p>').join('') +
       (sc.learn.length ? '<h4>WHAT THIS CONTRACT TEACHES</h4><ul>' + sc.learn.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>' : '') +
       (sc.goals.length ? '<h4>GOALS</h4>' + sc.goals.map((q) => '<div class="goal"><i>○</i><div>' + esc(q.t) + '</div></div>').join('') : '') +
@@ -5583,6 +6437,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('mGo').onclick = ui.close;
   };
   ui.showGoals = function () {
+    if (g().sc.puzzle) return DI.puzUI.goals();
     const G = g(); let h = '<h4>' + esc(G.sc.name).toUpperCase() + '</h4><h2>Goals</h2>';
     G.sc.goals.forEach((q, i) => { h += '<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + (!G.goalOk[i] && q.hint ? '<small>' + esc(q.hint) + '</small>' : '') + '</div></div>'; });
     if (G.sc.drill) h += '<p>When every goal is met, run the acceptance drill: <b>' + esc(G.sc.drill.name) + '</b>. You can run it early to see what happens. It will not be kind.</p>';
@@ -5784,10 +6639,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const G = g(), d = G.sc.drill, ready = DI.goalsDone();
     ui.modal('<h4>ACCEPTANCE DRILL</h4><h2>' + esc(d.name) + '</h2><p>' + (ready ? 'Every goal is met. The drill throws real incidents at what you built, in real time. You are the operator: watch the annunciator, and restore anything that gets impaired.' : '<b style="color:var(--amb)">Goals are not complete.</b> You can still run the drill to see how the plant behaves. It will not count, and the map is restored afterwards.') +
       '</p><p>Speed controls work during the drill. The map is saved first and restored when the drill ends.</p><div class="mrow"><button id="mNo">Not yet</button><button id="mGo" class="hot">Run the drill</button></div>');
-    $('mNo').onclick = ui.close; $('mGo').onclick = () => { ui.close(); G.pre = { world: JSON.stringify(G.W.toJSON()), sim: JSON.stringify(G.S.dump()), ex: G.W.rooms.map((r) => r.exempt) }; DI.setSpeed(1); DI.startDrill(G.S, d); };
+    $('mNo').onclick = ui.close; $('mGo').onclick = () => { ui.close(); G.pre = { world: JSON.stringify(G.W.toJSON()), sim: JSON.stringify(G.S.dump()), ex: G.W.rooms.map((r) => r.exempt) }; DI.setSpeed(1); DI.startDrill(G.S, d, DI.goalState(G.S, G.sc)); };
   };
   ui.showReport = function (res, stars, spent, full) {
     const G = g(), st = res.stats || {}; let h = '<h4>' + (G.sc.drill ? 'DRILL REPORT · ' + esc(G.sc.drill.name).toUpperCase() : 'CONTRACT COMPLETE') + '</h4><h2>' + (res.pass ? (full ? 'Contract complete' : 'Survived, but goals are incomplete') : 'The plant failed') + '</h2>';
+    const g0 = G.S.drill && G.S.drill.goals0; if (G.sc.drill && g0) h += '<p style="font-size:13px">Commissioning record, taken when the drill started: ' + g0.filter(Boolean).length + ' of ' + g0.length + ' goals met' + (g0.every(Boolean) ? '. What was proved before the drill stays proved.' : '. The drill counts only with every goal met before it.') + '</p>';
     if (res.pass && full) h += '<div class="stars">' + '★'.repeat(stars) + '<s>' + '★'.repeat(3 - stars) + '</s></div><p>Spent ' + DI.money(spent) + ' of ' + DI.money(G.sc.money) + ' (par ' + DI.money(G.sc.par) + ').</p>';
     h += res.lines.map((l) => '<div class="goal' + (l[0] === '✓' ? ' ok' : '') + '"><i>' + esc(l[0]) + '</i><div>' + esc(l.slice(2)) + '</div></div>').join('');
     if (G.sc.drill) h += '<h4>LOSSES</h4><div class="goal"><i></i><div>Fire ' + DI.money(st.fireLoss || 0) + ' · Water ' + DI.money(st.waterLoss || 0) + ' · Smoke ' + DI.money(st.smokeLoss || 0) + '</div></div>' + DI.galLines(st).map((t) => '<div class="goal gal"><i></i><div>' + esc(t) + '</div></div>').join('');     // two gallon lines, never a total
@@ -5801,6 +6657,152 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const M = DI.MANUAL, cur = M.find((m) => m.id === topic) || M[0];
     ui.modal('<h4>FIELD MANUAL</h4><div class="man"><nav>' + M.map((m) => '<button data-m="' + m.id + '"' + (m === cur ? ' class="on"' : '') + '>' + esc(m.t) + '</button>').join('') + '</nav><div><h2>' + esc(cur.t) + '</h2>' + cur.h + '</div></div><div class="mrow"><button id="mGo" class="go">Close</button></div>');
     $('mbox').querySelectorAll('nav button').forEach((b) => { b.onclick = () => ui.showManual(b.dataset.m, back); }); $('mGo').onclick = back || ui.close;
+  };
+})();
+
+</script>
+<script>
+// Field calls, front end: the menu cards, the call briefing with its variants, hints, the diagnosis, the scorecard and
+// the comparison of fixes after a call is solved (your layout, the cheapest fix, the easily maintained fix).
+// The rules live in puz.js; this file only shows them.
+var DI = globalThis.DI || (globalThis.DI = {});
+(function () {
+  const $ = (id) => document.getElementById(id), g = () => DI.game;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const P = DI.puzUI = {};
+  const stars = (n) => '★'.repeat(n) + '<s>' + '★'.repeat(3 - n) + '</s>';
+  const best = (pz) => { const d = g().prog.done[pz.id]; return d ? d.stars || 0 : -1; };
+  P.open = (pz) => pz.n === 1 || !!g().prog.done[DI.PUZ[pz.n - 2].id];
+
+  // ---------- menu
+  P.menuHtml = function () {
+    if (!DI.PUZ.length) return '';
+    let h = '<h4 style="margin-top:22px">FIELD CALLS · FIND THE FAULT</h4><p style="margin:2px 0 0;font-size:13px">Small puzzles on an installation that already exists: a symptom, a small repair budget and one question. Fewest edits, the right diagnosis and the least time out of service earn the stars.</p><div class="cards">';
+    for (const pz of DI.PUZ) {
+      const open = P.open(pz), d = g().prog.done[pz.id], sv = DI.LS.get('di.save.' + pz.id, null);
+      const vs = pz.variants.map((v) => v.key + (d && d.v && d.v[v.key] ? '★'.repeat(d.v[v.key]) : '·')).join(' ');
+      h += '<button class="card puz' + (open ? '' : ' lock') + '" data-pz="' + pz.id + '"' + (open ? '' : ' disabled') + '><em>FIELD CALL ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</em>' + (d && d.stars ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') +
+        '<b>' + esc(pz.name) + '</b><small>' + esc(pz.question) + '</small><small class="vs">' + esc(vs) + (sv ? ' · in progress' : '') + '</small></button>';
+    }
+    return h + '</div>';
+  };
+  P.bindMenu = function () { $('mbox').querySelectorAll('.card.puz').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.pz); }); };
+
+  // ---------- briefing, with the variant picker
+  P.brief = function (sc) {
+    const pz = sc.pz, v = sc.v, S = g().S, rec = (S.puz && S.puz.rec) || [], d = g().prog.done[pz.id];
+    let h = '<h4>FIELD CALL ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</h4><h2>' + esc(pz.name) + '</h2><div class="sub">' + esc(v.name.toUpperCase()) + ' · REPAIR BUDGET ' + DI.money(v.money) + '</div>' +
+      v.symptom.map((t) => '<p>' + esc(t) + '</p>').join('') +
+      (rec.length ? '<h4>RECORDS</h4><ul>' + rec.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
+      '<h4>THE QUESTION</h4><p><b>' + esc(v.diag.q || pz.question) + '</b> Answer it with Diagnose on the top bar once you know.</p>' +
+      '<h4>GOALS</h4>' + sc.goals.map((q) => '<div class="goal"><i>○</i><div>' + esc(q.t) + '</div></div>').join('') +
+      '<h4>HOW IT IS SCORED</h4><ul><li>One star for the fix: every goal, the diagnosis included.</li><li>One for the fewest edits, at no more than the cheapest fix costs. Operating a valve or a pump is not an edit; changing the layout, a wire or a setting is.</li>' +
+      '<li>One for a diagnosis right the first time, at most one hint, and no more time out of service than par' + (v.live ? ', with no panel reset made while the cause is still live' : '') + '.</li></ul>' +
+      '<h4>VARIANTS</h4><p style="font-size:13px">Each variant moves the fault, the supply, the layout or what else is going on. Switching starts that variant fresh.</p><div class="mrow" style="justify-content:flex-start;margin-top:4px">' +
+      pz.variants.map((x, i) => '<button data-vi="' + i + '" class="' + (i === sc.vi ? 'on' : '') + '">' + esc(x.name) + (d && d.v && d.v[x.key] ? ' ' + '★'.repeat(d.v[x.key]) : '') + '</button>').join('') + '</div>' +
+      '<div class="mrow"><button id="mGo" class="go">Start</button></div>';
+    DI.ui.modal(h); $('mGo').onclick = DI.ui.close;
+    $('mbox').querySelectorAll('button[data-vi]').forEach((b) => { b.onclick = () => { const i = +b.dataset.vi; if (i === sc.vi) { DI.ui.close(); return; } DI.LS.del('di.save.' + pz.id); DI.startScenario(pz.id, true, i); }; });
+  };
+
+  // ---------- hints and the diagnosis
+  P.hint = function () {
+    const G = g(), S = G.S, v = DI.puzVariant(S); if (!v) return;
+    const shown = S.puz.hints, list = v.hints;
+    let h = '<h4>HINTS · ' + esc(G.sc.pz.name.toUpperCase()) + '</h4>';
+    if (shown) h += list.slice(0, shown).map((x, i) => '<div class="goal"><i>' + (i + 1) + '</i><div>' + esc(x[0]) + '</div></div>').join('');
+    else h += '<p>No hints used yet. They come one at a time: the system to look at, then a measurement to take, then the fault itself. Each one used counts on the scorecard; more than one costs the third star.</p>';
+    h += '<div class="mrow">' + (shown < list.length ? '<button id="mHint" class="' + (shown ? '' : 'go') + '">Show hint ' + (shown + 1) + ' of ' + list.length + '</button>' : '<span style="color:var(--dim);font-size:12px;margin-right:auto">All hints shown.</span>') + '<button id="mGo">Close</button></div>';
+    DI.ui.modal(h); $('mGo').onclick = DI.ui.close;
+    if ($('mHint')) $('mHint').onclick = () => { const x = DI.puzHint(S); if (x && x[1] !== undefined) DI.ui.focus(x[1], x[2]); P.hint(); DI.inspect.render(true); };
+  };
+  P.diagnose = function () {
+    const S = g().S, v = DI.puzVariant(S); if (!v) return;
+    const dg = S.puz.diag;
+    let h = '<h4>DIAGNOSIS</h4><h2>' + esc(v.diag.q) + '</h2>';
+    if (dg.ok) { const o = v.diag.opts.find((x) => x[1]); h += '<div class="goal ok"><i>✓</i><div><b>' + esc(o[0]) + '</b><small>' + esc(o[2]) + '</small></div></div>'; }
+    else {
+      h += '<p>Pick the fault. A wrong pick is answered and counted; the third star needs it right the first time.</p>';
+      h += v.diag.opts.map((o, i) => { const tried = dg.picks.includes(i); return '<div class="goal' + (tried ? '' : '') + '"><i>' + (tried ? '✗' : '○') + '</i><div>' + (tried ? '<span style="color:var(--dim)">' + esc(o[0]) + '</span><small>' + esc(o[2]) + '</small>' : '<button class="dg" data-i="' + i + '">' + esc(o[0]) + '</button>') + '</div></div>'; }).join('');
+    }
+    h += '<div class="mrow"><button id="mGo" class="go">Close</button></div>';
+    DI.ui.modal(h); $('mGo').onclick = DI.ui.close;
+    $('mbox').querySelectorAll('button.dg').forEach((b) => { b.onclick = () => { const r = DI.puzDiagnose(S, +b.dataset.i); if (r) DI.ui.banner(r.ok ? 'Right: ' + r.why : 'Not that: ' + r.why); P.diagnose(); DI.inspect.render(true); }; });
+  };
+
+  // ---------- goals dialog (the G key and the Goals pill)
+  P.goals = function () {
+    const G = g(), S = G.S, sc = G.sc, st = DI.puzStatus(S); if (!st) return;
+    let h = '<h4>FIELD CALL ' + sc.pz.n + ' · ' + esc(sc.v.name.toUpperCase()) + '</h4><h2>' + esc(sc.pz.name) + '</h2>';
+    sc.goals.forEach((q, i) => { h += '<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + (!G.goalOk[i] && q.hint ? '<small>' + esc(q.hint) + '</small>' : '') + '</div></div>'; });
+    h += '<h4>SO FAR</h4>' + P.status(st).map((t) => '<div class="goal"><i></i><div>' + esc(t) + '</div></div>').join('');
+    if (S.puz.rec && S.puz.rec.length) h += '<h4>RECORDS</h4><ul>' + S.puz.rec.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
+    h += '<div class="mrow"><button id="mRe" style="margin-right:auto">Restart this variant</button><button id="mBrief">Briefing</button><button id="mHintB">Hints</button><button id="mDiag">Diagnose</button>' + (S.puz.done ? '<button id="mRep">Report</button>' : '') + '<button id="mGo" class="go">Close</button></div>';
+    DI.ui.modal(h); $('mGo').onclick = DI.ui.close; $('mBrief').onclick = () => P.brief(sc); $('mHintB').onclick = P.hint; $('mDiag').onclick = P.diagnose; if ($('mRep')) $('mRep').onclick = P.finish;
+    $('mRe').onclick = () => { if ($('mRe').dataset.sure) { DI.LS.del('di.save.' + sc.id); DI.startScenario(sc.id, true, sc.vi); } else { $('mRe').dataset.sure = 1; $('mRe').textContent = 'Click again to start this variant over'; $('mRe').className = 'hot'; } };
+  };
+  P.status = (st) => ['Edits so far: ' + st.edits, 'Spent: ' + DI.money(Math.max(0, st.spent)), 'Hints used: ' + (st.v.hints.length - st.left) + ' of ' + st.v.hints.length,
+    'Out of service: ' + DI.dur(st.imp) + (st.now.length ? ' (now: ' + st.now.slice(0, 2).join('; ') + ')' : '')].concat(st.v.live ? ['Resets made while the cause was live: ' + st.futile] : [], [st.diag.ok ? 'Diagnosis: given' + (st.diag.tries > 1 ? ' (try ' + st.diag.tries + ')' : '') : st.diag.tries ? 'Diagnosis: ' + st.diag.tries + ' wrong pick(s) so far' : 'Diagnosis: not given yet']);
+
+  // ---------- solved: the scorecard, the progress, the comparison
+  P.finish = function () {
+    const G = g(), S = G.S, sc = G.sc, pz = sc.pz, v = sc.v, sc2 = DI.puzScore(S);
+    const d = G.prog.done[pz.id] || (G.prog.done[pz.id] = { stars: 0, v: {} }); d.v = d.v || {};
+    d.stars = Math.max(d.stars || 0, sc2.stars); d.v[v.key] = Math.max(d.v[v.key] || 0, sc2.stars); DI.LS.set('di.progress', G.prog);
+    S.puz.done = true; DI.saveGame();
+    const right = v.diag.opts.find((o) => o[1]);
+    let h = '<h4>FIELD CALL ' + pz.n + ' · ' + esc(v.name.toUpperCase()) + '</h4><h2>Fault found and fixed</h2><div class="stars">' + stars(sc2.stars) + '</div>' +
+      sc2.lines.map(([ok, t]) => '<div class="goal' + (ok ? ' ok' : '') + '"><i>' + (ok ? '✓' : '•') + '</i><div>' + esc(t) + '</div></div>').join('') +
+      '<h4>THE FAULT</h4><p><b>' + esc(right[0]) + '.</b> ' + esc(right[2].replace(/^Yes\. /, '')) + '</p>' +
+      '<h4>COMPARE THE FIXES</h4><div class="cmp">';
+    const cols = [{ t: 'Your fix', W: S.W, diff: sc2.diff, cost: sc2.spent, steps: null, lesson: '' }];
+    for (const which of ['cheap', 'maint']) { const s = DI.puzSolution(S, which); if (s) cols.push({ t: (which === 'cheap' ? 'Cheapest: ' : 'Easily maintained: ') + s.sol.t, W: s.W, diff: s.diff, cost: s.cost, steps: s.sol.steps, lesson: s.sol.lesson }); }
+    cols.forEach((c, i) => {
+      h += '<div class="cmpc"><b>' + esc(c.t) + '</b><canvas id="pzc' + i + '" width="560" height="300"></canvas><small>' + c.diff.n + ' edit' + (c.diff.n === 1 ? '' : 's') + ' · ' + DI.money(Math.max(0, c.cost)) + '</small>' +
+        (c.diff.n ? '<ul>' + c.diff.items.slice(0, 8).map((x) => '<li>' + esc(x.what) + '</li>').join('') + (c.diff.n > 8 ? '<li>and ' + (c.diff.n - 8) + ' more</li>' : '') + '</ul>' : '<ul><li>no layout change</li></ul>') +
+        (c.steps ? '<ol>' + c.steps.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '') + (c.lesson ? '<p>' + esc(c.lesson) + '</p>' : '') + '</div>';
+    });
+    h += '</div><h4>WHAT THIS CALL TEACHES</h4><ul>' + pz.learn.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>';
+    const nv = pz.variants[sc.vi + 1], np = DI.PUZ[pz.n];
+    h += '<div class="mrow"><button id="mBack" style="margin-right:auto">Back to the plant</button>' + (nv ? '<button id="mNextV">Variant: ' + esc(nv.name) + '</button>' : '') + (np ? '<button id="mNextP" class="go">Next call: ' + esc(np.name) + '</button>' : '<button id="mMenu" class="go">Back to the menu</button>') + '</div>';
+    DI.ui.modal(h, false); $('mbox').classList.add('wide');
+    cols.forEach((c, i) => P.thumb($('pzc' + i), c.W, DI.puzStart(S), v.area, c.diff));
+    $('mBack').onclick = DI.ui.close;
+    if ($('mNextV')) $('mNextV').onclick = () => { DI.LS.del('di.save.' + pz.id); DI.startScenario(pz.id, true, sc.vi + 1); };
+    if ($('mNextP')) $('mNextP').onclick = () => DI.startScenario(np.id);
+    if ($('mMenu')) $('mMenu').onclick = () => DI.ui.showMenu();
+  };
+
+  // ---------- a schematic of the area around the fault: rooms, pipe by size, heads, caps, parts, and every edit
+  // against the starting layout ringed in amber (red where something was taken away)
+  P.thumb = function (cv, W, W0, area, diff) {
+    if (!cv) return; const c = cv.getContext('2d'), cw = cv.width, ch = cv.height, [x0, y0, x1, y1] = area || [0, 0, W.w - 1, W.h - 1];
+    const nx = x1 - x0 + 1, ny = y1 - y0 + 1, s = Math.min(cw / nx, ch / ny), ox = (cw - nx * s) / 2 - x0 * s, oy = (ch - ny * s) / 2 - y0 * s, TAU = Math.PI * 2;
+    c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#0d141b'; c.fillRect(0, 0, cw, ch);
+    c.save(); c.beginPath(); c.rect(ox + x0 * s, oy + y0 * s, nx * s, ny * s); c.clip();
+    for (const r of W.rooms) { c.fillStyle = DI.ROOMS[r.type].col; c.fillRect(ox + r.x * s, oy + r.y * s, r.w * s, r.h * s); c.strokeStyle = 'rgba(190,210,225,0.5)'; c.lineWidth = 1; c.strokeRect(ox + r.x * s + 0.5, oy + r.y * s + 0.5, r.w * s - 1, r.h * s - 1); }
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const k = W.k(x, y); if (!W.pd[k]) continue; const X = ox + (x + 0.5) * s, Y = oy + (y + 0.5) * s;
+      c.strokeStyle = '#3f8fd0'; c.lineWidth = Math.max(1, DI.pipeAt(W, k).id * s * 0.07); c.lineCap = 'round';
+      let n = 0; for (let d = 0; d < 4; d++) if (W.linked(x, y, d)) { n++; c.beginPath(); c.moveTo(X, Y); c.lineTo(X + DI.DX[d] * s * 0.5, Y + DI.DY[d] * s * 0.5); c.stroke(); }
+      if (!n) { c.beginPath(); c.arc(X, Y, c.lineWidth * 0.6, 0, TAU); c.fillStyle = '#3c5567'; c.fill(); }
+      if (W.spk[k] && s >= 5) { c.beginPath(); c.arc(X, Y, Math.max(1, s * 0.12), 0, TAU); c.fillStyle = '#e8eef2'; c.fill(); }
+    }
+    c.strokeStyle = '#ffd24a'; c.lineWidth = Math.max(1.5, s * 0.12); c.lineCap = 'butt'; c.beginPath();
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = W.k(x, y), here = W.pd[k] || W.partAt[k];
+      if (W.cut[k * 2] && here && (W.pd[k + 1] || W.partAt[k + 1])) { c.moveTo(ox + (x + 1) * s, oy + (y + 0.2) * s); c.lineTo(ox + (x + 1) * s, oy + (y + 0.8) * s); }
+      if (W.cut[k * 2 + 1] && here && (W.pd[k + W.w] || W.partAt[k + W.w])) { c.moveTo(ox + (x + 0.2) * s, oy + (y + 1) * s); c.lineTo(ox + (x + 0.8) * s, oy + (y + 1) * s); } }
+    c.stroke();
+    c.setLineDash([3, 4]); c.lineWidth = 1; c.strokeStyle = 'rgba(255,90,70,0.45)';
+    for (const [a, b] of W.wires) { const pa = W.parts.get(a), pb = W.parts.get(b); if (!pa || !pb) continue; c.beginPath(); c.moveTo(ox + (pa.x + 0.5) * s, oy + (pa.y + 0.5) * s); c.lineTo(ox + (pb.x + 0.5) * s, oy + (pb.y + 0.5) * s); c.stroke(); }
+    c.setLineDash([]);
+    for (const p of W.parts.values()) { if (p.x < x0 - 1 || p.x > x1 + 1 || p.y < y0 - 1 || p.y > y1 + 1) continue;
+      c.save(); c.translate(ox + (p.x + 0.5) * s, oy + (p.y + 0.5) * s); c.rotate(p.rot * Math.PI / 2); c.scale(s, s); c.lineCap = 'round'; c.lineJoin = 'round';
+      DI.glyph(c, p.type, { open: p.type === 'gate' ? p.p.open : 1, frac: p.type === 'tank' ? p.p.gal / p.p.cap : 0.8, rot: p.rot, alive: true, on: !!p.p.on }); c.restore(); }
+    // the edits
+    for (const it of (diff && diff.items) || []) { const gone = /removed/.test(it.what); c.strokeStyle = gone ? '#ff4b3a' : '#ffb224'; c.lineWidth = Math.max(2, s * 0.12);
+      c.beginPath(); c.arc(ox + (it.x + 0.5) * s, oy + (it.y + 0.5) * s, s * 0.75, 0, TAU); c.stroke(); }
+    c.restore();
   };
 })();
 
@@ -5894,7 +6896,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const pi = DI.pipeAt(W, k), sid = S.sysd.tileSys[k], ss = sid && S.ss.get(sid); let q = 0;
       if (S.G) q = Math.max(Math.abs(DI.edgeFlow(S.G, k, false)), Math.abs(DI.edgeFlow(S.G, k, true)), tl.x > 0 ? Math.abs(DI.edgeFlow(S.G, k - 1, false)) : 0, tl.y > 0 ? Math.abs(DI.edgeFlow(S.G, k - W.w, true)) : 0);
       const dry = ss && ss.state === 'dry';
-      s = pi.n + ' Sch ' + pi.sch + (W.pk[k] ? ' branch' : ' main') + (W.spk[k] ? ' + sprinkler' : '') + (S.leaks.some((l) => l.k === k && l.a) ? '  BROKEN' : '') + '\n' + (dry ? 'gas ' + DI.fmt(ss.P, 1) + ' psi' : DI.fmt(S.pT[k], 1) + ' psi') + (q > 0.4 ? '  ' + DI.fmt(q) + ' gpm  ' + DI.fmt(0.4085 * q / (pi.id * pi.id), 1) + ' ft/s' : '');
+      s = pi.n + ' Sch ' + pi.sch + (W.pk[k] ? ' branch' : ' main') + (W.spk[k] ? ' + sprinkler' : '') + (S.leaks.some((l) => l.k === k && l.a) ? '  BROKEN' : '') + '\n' + (dry ? 'gas ' + DI.fmt(ss.P, 1) + ' psi' : DI.gaugeText(S.pT[k], 1) + ' psi') + (q > 0.4 ? '  ' + DI.fmt(q) + ' gpm  ' + DI.fmt(0.4085 * q / (pi.id * pi.id), 1) + ' ft/s' : '');
       if (S.dens[k] > 0.005) s += '\napplied ' + DI.fmt(S.dens[k], 2) + ' gpm/ft²';
     } else { const r = W.room(tl.x, tl.y); if (r) s = r.name; }
     if (!s) { el.style.display = 'none'; return; }
@@ -5964,21 +6966,30 @@ var DI = globalThis.DI || (globalThis.DI = {});
     prog: LS.get('di.progress', { done: {} }), goalOk: [], acc: 0, warp: 0, mode: 'menu' };
   DI.LS = LS;
 
-  DI.startScenario = function (id, fresh) {
-    const sc = DI.SCEN.find((s) => s.id === id), sv = fresh ? null : LS.get('di.save.' + id, null);
+  // id: a contract (DI.SCEN) or a field call (DI.PUZ). vi: the field call's variant (default: the saved one, else the first).
+  DI.startScenario = function (id, fresh, vi) {
+    let sv = fresh ? null : LS.get('di.save.' + id, null);
+    const pz = !DI.SCEN.some((s) => s.id === id) && DI.puzFind && DI.puzFind(id);
+    if (pz && sv && vi !== undefined && sv.vi !== vi) sv = null;              // another variant: start it fresh
+    const sc = pz ? DI.puzScenario(id, vi !== undefined ? vi : sv && sv.vi >= 0 ? sv.vi : 0) : DI.SCEN.find((s) => s.id === id);
     let W, S;
     if (sv) { W = DI.World.fromJSON(sv.world); for (const r of W.rooms) { const o = sv.world.rooms.find((q) => q.id === r.id); if (o) { r.exempt = o.exempt; } } S = new DI.Sim(W); S.contract = !sc.sandbox; S.restore(sv.sim); if (sc.start && sv.sim.leaks.length) S.dirty = true; }
     else ({ W, S } = DI.buildScenario(sc));           // fresh map: the contract's fixed site settings (sc.cfg) are merged in
+    // a field call keeps its own state (the starting layout, hints, diagnosis, clocks) beside the world and the sim
+    if (pz) { if (sv && sv.puz) DI.puzLoad(S, sv.puz); else DI.puzInit(S, sc); } else DI.puzActive = null;
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
     S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
     let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0; for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
     for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
     g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
-    DI.ui.onScenario(); if (!sv) DI.ui.showBrief(sc);
+    DI.ui.onScenario();
+    // a field call opens on its records: what the setup put in the event log (the night's alarm, the resets) is shown
+    if (pz) for (const l of S.log) DI.bus.emit('log', l.text, l.cls);
+    if (!sv) DI.ui.showBrief(sc);
     // what the load changed in an old save (the retired site refrigerated flag): shown after the log panel was cleared
     if (S.loadNotes) { for (const t of S.loadNotes) DI.bus.emit('log', t, 'warn'); DI.ui.banner(S.loadNotes[0]); delete S.loadNotes; }
   };
-  DI.saveGame = function () { if (g.mode !== 'play' || (g.S.drill && !g.S.drill.done)) return; LS.set('di.save.' + g.sc.id, { world: g.W.toJSON(), sim: g.S.dump(), drillPassed: g.drillPassed }); };
+  DI.saveGame = function () { if (g.mode !== 'play' || (g.S.drill && !g.S.drill.done)) return; LS.set('di.save.' + g.sc.id, Object.assign({ world: g.W.toJSON(), sim: g.S.dump(), drillPassed: g.drillPassed }, g.sc.puzzle ? { vi: g.sc.vi, puz: DI.puzSave(g.S) } : null)); };
   DI.pushUndo = function () { g.undo.push(JSON.stringify(g.W.toJSON())); if (g.undo.length > 40) g.undo.shift(); };
   DI.undo = function () {
     const j = g.undo.pop(); if (!j) return; const o = JSON.parse(j), W = DI.World.fromJSON(o);
@@ -6021,9 +7032,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
     S.rv = DI.review(S);
     const ids = [...S.sysd.info.keys()]; for (const id of [...S.calc.keys()]) if (!S.sysd.info.has(id)) S.calc.delete(id);
     if (ids.length && !S.fires.length && S.outFlow < 1) { const id = ids[g.calcI++ % ids.length]; if (S.sysd.info.get(id).nSpk) S.calc.set(id, DI.hydCalc(S, id)); else S.calc.delete(id); }
-    g.goalOk = sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });
+    // During a drill the goals are the commissioning record taken when it started (S.drill.goals0): a quiet-operation
+    // run or a refill that the fire then interrupts was still achieved, and the drill report is judged against it.
+    g.goalOk = S.drill && S.drill.goals0 ? S.drill.goals0.slice() : sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });
     const all = g.goalOk.length > 0 && g.goalOk.every(Boolean);
-    if (all && !sc.drill && !g.doneShown) { g.doneShown = true; DI.complete({ pass: true, lines: ['All goals met.'], loss: 0, stats: S.stats }); }
+    if (all && !sc.drill && !g.doneShown) { g.doneShown = true; if (sc.puzzle) { if (!(S.puz && S.puz.done)) DI.puzUI.finish(); } else DI.complete({ pass: true, lines: ['All goals met.'], loss: 0, stats: S.stats }); }
   }
   DI.goalsDone = () => g.goalOk.length > 0 && g.goalOk.every(Boolean);
   DI.complete = function (res) {

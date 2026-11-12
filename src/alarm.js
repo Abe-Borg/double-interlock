@@ -253,7 +253,8 @@ DI.alarmStep = function (S, dt) {
   }
   for (const p of W.parts.values()) {
     const q = p.p;
-    if (p.type === 'gate' && q.open < 0.8) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
+    // a valve with no supervisory switch fitted (q.sw === 0: an old sealed yard valve, the field calls) has nothing to signal with
+    if (p.type === 'gate' && q.open < 0.8 && q.sw !== 0) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
     else if (p.type === 'epump' || p.type === 'dpump') {
       const nm = (p.type === 'dpump' ? 'DIESEL' : 'ELECTRIC') + ' FIRE PUMP #' + p.id;
       if (q.spd > 0.5) add('pr' + p.id, 'pumpRun', nm + ' RUNNING', p);

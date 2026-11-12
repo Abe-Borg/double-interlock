@@ -68,6 +68,52 @@ Every contract is the same three steps.
 Contracts unlock in order ("Unlock all" is on the menu). Stars: finish, finish under par cost, finish the
 drill under half the allowed loss.
 
+**The commissioning record survives the drill.** When the acceptance drill starts, the game records which goals
+were met. During the drill, and in the drill report, the goals read that record instead of the live plant, so what
+was proved before the fire stays proved: Churn's thirty quiet minutes do not un-happen because the fire pump ran in
+the fire, and a passing calc or refill is not lost because a head is open. The report says how many goals the record
+holds. (Before this, a passed drill on Churn, Cold Dock, Double Interlock or Hyperscale could end as "goals
+incomplete".) Churn's thirty quiet minutes are also timed from the last moment a fire pump ran, so a pump that ran
+for half an hour and was then stopped by hand no longer counts as a quiet half hour.
+
+## Field calls (find the fault)
+
+Small puzzles on an installation that already exists, on the same live simulation as the contracts. Each call gives
+you a symptom, the records, a small repair budget and **one central question**. Find the fault, fix it with the
+fewest edits, prove it with the right test, and answer the question with **Diagnose** on the top bar. They are on the
+contracts menu under FIELD CALLS and unlock in order, independently of the contracts.
+
+| # | Call | Starts as | The question | Variants |
+|---|---|---|---|---|
+| 1 | The Narrow Neck | Inherited installation | Where is the water being choked? | A 2 in. tile on the pump discharge (the flow test stalls); a 3 in. tile on the suction of a stronger pump (suction goes negative); a 1½ in. tile on the riser feed past the test header tee (the pump tests fine, the building calc fails) |
+| 2 | Facing the Wrong Way | Nearly finished plant | Why can the pump not draw water from a full tank? | The pump set end for end; a test blank left at the pump inlet after the hydrostatic test; a test blank at the tank nozzle that starves both pumps (two symptoms, one cause) |
+| 3 | The Last Row | Nearly finished plant | Where is the remote branch line cut off? | A cap on the joint to the north-east line; one tile laid north-south in an east-west line; a cap on the cross main that cuts off the whole last row |
+| 4 | Pressure Without Supply | Records-only investigation | Can this system actually deliver water, and if not, what stops it? | A shut yard valve with no tamper switch; the same valve left 10 percent open after a repair; a shut fire pump suction valve hidden by the jockey pump |
+| 5 | The Empty Test Header | Inherited installation | Why does the flow test record almost no flow through a healthy pump? | The header piped from the suction; the header piped off the 2 in. jockey line; a shut, unsupervised valve on the test line (call 4 again). The pump must stay |
+| 6 | The Alarm That Never Left | Records-only investigation | Why did the waterflow alarm never reach the supervising station? | The flow switch not wired; both DACT lines down after a renovation; the flow switch not wired while a DACT trouble on the panel is a red herring |
+| 7 | The Pump That Won't Sleep | Active incident | Why does a small leak keep waking the fire pump? | Jockey settings below the fire pump start; the jockey check valve in backwards; a test blank in the jockey suction plus a 5 psi start / stop band (two faults) |
+| 8 | Reset, Reset, Reset | Active incident | What keeps bringing the indication back? | The air supply left isolated after a head change (P relatches); a manual station left operated; the system drain left open after a trip test |
+
+- **Hints** come one at a time: the system to look at, a measurement to take, then the fault. The camera goes to each.
+- **Scoring:** one star for the fix (every goal, the diagnosis included); one for the fewest edits at no more than
+  the cheapest fix costs (within 10 percent, a game value); one for the diagnosis right the first time, at most one
+  hint, no more time out of service than par (30 min of game time by default, a game value; pausing is free) and, on
+  call 8, no panel reset made while the cause was still live (the recovery order).
+- **An edit** is a change to the layout against the starting state: a pipe tile, a cap, a tile of tubing, a part
+  added, removed, replaced or turned end for end, a wire, or a design setting on a part. Operating the plant (a
+  valve, a pump's mode, a reset, a test) is never an edit.
+- **Variants** move the fault, the supply, the layout or what else is going on; the later ones combine ideas from
+  earlier calls. Switching variant starts it fresh. The menu card shows the stars of each variant.
+- **Afterwards** the report compares three fixes side by side: yours, the cheapest one and an easily maintained one
+  (a supervised valve where one was missing, isolation valves on a jockey pump, a gridded wet system), each drawn
+  with its edits ringed and its cost, with what it teaches.
+
+Two small additions came with the calls and work everywhere: **Turn end for end** (select an inline part: a check
+valve, a pump, a backflow preventer or a control valve) reverses it in place, free; and a control valve can have
+**no tamper switch fitted** (an old sealed yard valve, `sw: 0`): closing it signals nothing until a switch is fitted
+($600, ASSUMED) and wired. A cap is now drawn where a pipe meets a part too, and a pump suction gauge shows a starved
+suction as -14.7 (full vacuum) rather than a number no gauge can read (the network solver has no cavitation).
+
 ## Controls
 
 | Key | Does |
@@ -1020,17 +1066,20 @@ src/
   calc.js       density/area hydraulic calculation
   review.js     plan review rules
   proc.js       test procedures (trip, inspector's, main drain with its baseline and drop, pump, air, churn)
-  scen*.js      scenario toolkit (the drill report lines: tiers, time and gallon lines, main drain follow-up, return-to-normal errors, shared-compressor note) and the seven contracts + sandbox
+  scen*.js      scenario toolkit (the drill report lines: tiers, time and gallon lines, main drain follow-up, return-to-normal errors, shared-compressor note; the commissioning record a drill keeps) and the seven contracts + sandbox
+  puz.js        field calls: variants as scenarios, the edit count against the starting layout, hints, diagnosis, the out-of-service clock and resets made while the cause was live, the scorecard, the cheap and maintained fixes
+  puz1.js puz2.js   the eight field calls, each with two or three variants
   manual.js     the in-game field manual
-  glyphs.js render.js input.js inspect.js ui.js audio.js main.js style.css   the front end
+  glyphs.js render.js input.js inspect.js ui.js puzui.js audio.js main.js style.css   the front end (puzui.js: the field call menu, briefing, hints, diagnosis, report and comparison)
 test/
   solver.test.js  graph.test.js  sim.test.js  proc.test.js   engine tests against hand calcs
   truth-table.js              pins and self-checks the truth-table fixture, then runs it against the engine (used by sim.test.js and review/)
   campaign.test.js  bot.js    plays every contract headlessly with a reference solution and an operator
-  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  ui.c6.js  ui.c7.js  ui.c8.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, and the Cycle 2, 3, 4, 5, 6, 7 and 8 UI checks
+  puzzle.test.js              plays every field call variant: broken at the start, both fixes solve it, edits and diagnosis counted
+  ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  ui.c6.js  ui.c7.js  ui.c8.js  ui.puz.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, the Cycle 2, 3, 4, 5, 6, 7 and 8 UI checks and the field calls
 ```
 
-About 5,000 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
+About 6,800 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
 
 ## Tests
 
@@ -1072,8 +1121,14 @@ node test/sim.test.js         # wet / dry / double interlock / pump behaviour en
                               # shunt, waterflow or door device feeds the release, persistence, docs)
                               # and static greps
 node test/proc.test.js        # commissioning procedures
-node test/campaign.test.js    # all seven contracts: goals met, drill passed, cost reported; then an
-                              # informational what-if with the insurer set to FM (not counted)
+node test/campaign.test.js    # all seven contracts: goals met, drill passed, cost reported, the
+                              # commissioning record kept through the drill; then an informational
+                              # what-if with the insurer set to FM (not counted)
+node test/puzzle.test.js      # every field call variant: the fault is real after the player's proving
+                              # steps, the cheap and the maintained fix both meet every goal, their edit
+                              # counts match the comparison, a wrong diagnosis is counted and the right
+                              # one accepted, the edit rules (a valve in a pipe run is one edit, a valve
+                              # position is none), save / load of the call's state
 node review/truth-table-check.js   # the truth table against the engine, one line per row
 node test/ui.play.js out.png  # needs Playwright: plays contract 1 with real input events
 node test/ui.c2.js out.png    # needs Playwright: Site gate and round-trip, P latch and both reset
@@ -1113,16 +1168,24 @@ node test/ui.c8.js out.png    # needs Playwright: the NAC block on the panel (of
                               # 14 as company practice, and an old save with the NFPA 76 flag on.
                               # Saves out.png plus out-nac.png, -site.png, -report.png, -finish.png,
                               # -comp.png, -room.png, -sched.png, -drain.png
+node test/ui.puz.js out.png   # needs Playwright: the field calls by mouse: the menu and its lock order,
+                              # the briefing, a hint that moves the camera, the flow test before and
+                              # after a repair drawn with the Main tool, a wrong then a right diagnosis,
+                              # the scorecard and the three drawn fixes, Turn end for end, the Cap tool
+                              # on a test blank, save and reload in a call, Unlock all, and the drill
+                              # commissioning record. Saves out-menu.png, -brief.png, -diagnose.png,
+                              # -report.png, -blank.png
 ```
 
-`npm test` runs the five engine suites and `npm run test:ui` the eight browser tests. `sim.test.js`
+`npm test` runs the six engine suites and `npm run test:ui` the nine browser tests. `sim.test.js`
 also checks that `double-interlock.html` is what `build-standalone.js` makes from `src/` as it stands,
 so run `node build-standalone.js` after any change in `src/` and before the tests. Put
 `STANDALONE=1` in front of a browser test to run it against the built `double-interlock.html`. `npm install`
 is needed only for the browser tests (it fetches Playwright); the game itself has no dependencies and
 still runs from `file://`.
 
-`test/bot.js` holds a working layout for every contract. Those are spoilers.
+`test/bot.js` holds a working layout for every contract, and every field call carries its own cheap and
+maintained fix in `src/puz1.js` / `src/puz2.js`. Those are spoilers.
 
 ## Ideas not built
 
