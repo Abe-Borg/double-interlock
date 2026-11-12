@@ -533,6 +533,9 @@ puzui, input, main.
   `filling`, short of `wet`. Do not wait for `wet` in a test or a goal.
 - The toolbar is two rows in the sandbox and contract 7. `ui.fitPanels` keeps the inspector above it; a
   Playwright click on an inspector button still needs the button scrolled into view first.
+- The inspector rebuilds, and grows by the calc rows, when the slow loop (`main.js`, one system per 0.6 s pass, also
+  while paused) delivers the selected valve's hydraulic calc. A browser test that measures or scrolls the inspector of
+  a freshly built layout waits for `DI.game.S.calc.has(id)` first, or it races the rebuild (`test/ui.layout.js`).
 - Two fills of the same zone from 0 psig by the same compressor take exactly the same time: a test that needs
   `s.fill1` and `s.fillTime` to differ must change something between them (A60 changes the compressor).
 - The reference build of contract 5 has its largest zone still filling at the end of `sol.settle`: warp
