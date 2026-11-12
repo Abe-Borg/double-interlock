@@ -15,14 +15,20 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('bGoals').onclick = ui.showGoals; $('bSite').onclick = () => ui.showSite(); $('bReview').onclick = ui.showReview; $('bTests').onclick = ui.showTests; $('bManual').onclick = () => ui.showManual();
     $('bDrill').onclick = ui.askDrill; $('bHint').onclick = () => DI.puzUI.hint(); $('bDiag').onclick = () => DI.puzUI.diagnose(); $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
     $('bSnd').classList.add('on');
+    $('bAnnToggle').onclick = () => { const open = $('ann').classList.toggle('collapsed'); $('bAnnToggle').setAttribute('aria-expanded', String(!open)); ui.fitPanels(); };
+    $('bFocus').onclick = ui.toggleFocus;
+    $('bFit').onclick = () => ui.fitSite();
+    $('bZoomIn').onclick = () => ui.zoom(1.2);
+    $('bZoomOut').onclick = () => ui.zoom(1 / 1.2);
+    $('side').addEventListener('click', (e) => { if (e.target.closest('.inspector-close')) { g().sel = null; DI.inspect.render(true); } });
     document.querySelectorAll('.sp').forEach((b) => { b.onclick = () => DI.setSpeed(+b.dataset.sp); });
-    $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, 44, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
-    $('bInc').onclick = (e) => ui.pop(e.clientX - 100, 44, [
+    $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, e.currentTarget.getBoundingClientRect().bottom + 8, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
+    $('bInc').onclick = (e) => ui.pop(e.clientX - 100, e.currentTarget.getBoundingClientRect().bottom + 8, [
       ['Utility power: toggle', () => { g().W.power = !g().W.power; }], ['Weather: -10 °F', () => { g().W.outTemp = -10; }], ['Weather: 70 °F', () => { g().W.outTemp = 70; }],
       ['False smoke in every room', () => { for (const r of g().W.rooms) g().S.smoke[r.id] = 2.5; }],
       ['Break a pipe', () => { const S = g().S, t = ['hall', 'elec', 'dock', 'stor', 'batt', 'office'].find((q) => DI.G.sysOf(S, q).length); if (!t || !DI.X.pipeBreak(t)(S)) ui.banner('No sprinkler system main to break yet. Or select a pipe tile and break that one.'); }], ['Wipe the map and start over', () => { DI.LS.del('di.save.' + g().sc.id); DI.startScenario(g().sc.id, true); }], ['Tip: select a tile to ignite it or break its sprinkler', () => {}]]);
     $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal') && ui.dismiss) ui.close(); });
-    window.addEventListener('resize', () => ui.fitPanels());
+    window.addEventListener('resize', () => { ui.fitPanels(); if (g().mode === 'play') ui.fitSite(); });
     document.addEventListener('mousedown', (e) => { if (!$('pop').contains(e.target)) $('pop').style.display = 'none'; });
     DI.bus.on('log', (text, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = '<i>' + DI.clock(g().S ? g().S.t : 0).slice(-8) + '</i>' + esc(text); const L = $('log'); L.appendChild(d); while (L.childNodes.length > 80) L.removeChild(L.firstChild); L.scrollTop = 1e6; });
     DI.bus.on('banner', ui.banner);
@@ -30,15 +36,42 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('banner').addEventListener('click', () => { clearTimeout(ui.bt); $('banner').classList.remove('show'); });
     for (const id of ['sigs', 'imp', 'stq']) $(id).addEventListener('click', (e) => { const el = e.target.closest('.sig, .imp, .stq'); if (!el) return; const p = g().W.parts.get(+el.dataset.p); if (p) ui.focus(p.x, p.y, { kind: 'part', id: p.id }); });
   };
+  // Camera coordinates remain in screen space; fit the site into the actual free canvas area.
+  ui.playRect = function () {
+    const focus = document.body.classList.contains('focus-view'), top = $('workspaceBar').getBoundingClientRect().bottom + 76;
+    const bottom = focus ? innerHeight - 44 : $('tools').getBoundingClientRect().top - 48;
+    const side = $('side'), right = side.dataset.selected === 'true' ? side.getBoundingClientRect().left - 20 : innerWidth - 28;
+    const left = !focus && !$('ann').classList.contains('collapsed') ? $('ann').getBoundingClientRect().right + 20 : 28;
+    return { left, top, right, bottom, width: Math.max(120, right - left), height: Math.max(120, bottom - top) };
+  };
+  ui.fitSite = function () {
+    const G = g(); if (!G.W) return;
+    const W = G.W, xs = [], ys = [];
+    for (const r of W.rooms) { xs.push(r.x, r.x + r.w); ys.push(r.y, r.y + r.h); }
+    for (const p of W.parts.values()) { xs.push(p.x, p.x + 1); ys.push(p.y, p.y + 1); }
+    for (let k = 0; k < W.pd.length; k++) if (W.pd[k] || W.air[k]) { xs.push(k % W.w, k % W.w + 1); ys.push(Math.floor(k / W.w), Math.floor(k / W.w) + 1); }
+    const x0 = xs.length ? Math.min(...xs) : 0, x1 = xs.length ? Math.max(...xs) : W.w;
+    const y0 = ys.length ? Math.min(...ys) : 0, y1 = ys.length ? Math.max(...ys) : W.h, r = ui.playRect();
+    G.cam.z = DI.clamp(Math.min(r.width / (x1 - x0 + 3), r.height / (y1 - y0 + 3)), 5, 40);
+    G.cam.x = (x0 + x1) / 2 + (innerWidth / 2 - (r.left + r.right) / 2) / G.cam.z;
+    G.cam.y = (y0 + y1) / 2 + (innerHeight / 2 - (r.top + r.bottom) / 2) / G.cam.z;
+    ui.updateZoom();
+  };
+  ui.zoom = function (factor) { g().cam.z = DI.clamp(g().cam.z * factor, 5, 56); ui.updateZoom(); };
+  ui.updateZoom = function () { $('zoomLevel').textContent = Math.round(g().cam.z / 26 * 100) + '%'; };
+  ui.toggleFocus = function () {
+    const focused = document.body.classList.toggle('focus-view'); $('bFocus').setAttribute('aria-pressed', String(focused));
+    $('bFocus').innerHTML = (focused ? '↙ Exit focus' : '⛶ Focus view') + ' <kbd>F</kbd>'; ui.fitPanels(); ui.fitSite();
+  };
   ui.focus = function (x, y, sel) { const G = g(); G.cam.x = x + 0.5; G.cam.y = y + 0.5; G.mark = { x, y, t: G.now }; if (sel) { G.sel = sel; DI.inspect.render(true); } };
   ui.banner = function (t) { const b = $('banner'); b.textContent = t; b.classList.add('show'); clearTimeout(ui.bt); ui.bt = setTimeout(() => b.classList.remove('show'), 7000); };
   ui.pop = function (x, y, items) { const p = $('pop'); p.innerHTML = ''; for (const [n, fn] of items) { const b = document.createElement('button'); b.textContent = n; b.onclick = () => { p.style.display = 'none'; fn(); }; p.appendChild(b); } p.style.left = Math.max(4, Math.min(innerWidth - 190, x)) + 'px'; p.style.top = y + 'px'; p.style.display = 'block'; };
   ui.modal = function (html, dismiss) { ui.ce = 0; $('mbox').classList.remove('wide'); $('mbox').innerHTML = html; $('modal').classList.add('show'); ui.modalOpen = true; ui.dismiss = dismiss !== false; $('mbox').scrollTop = 0; };
   ui.close = function () { $('modal').classList.remove('show'); ui.modalOpen = false; ui.ce = 0; };
-  ui.setTool = function (type, part) { const G = g(); G.tool.type = type; G.tool.part = part || null; G.ghost = null; G.wireFrom = 0; ui.hintText = type === 'part' ? DI.PARTS[part].name + ' (' + DI.money(DI.partCost(part)) + '): click to place, R rotates. ' + DI.PARTS[part].desc : HINT[type] || ''; ui.toolbar(); DI.cv.style.cursor = type === 'select' ? 'default' : 'crosshair'; };
+  ui.setTool = function (type, part) { const G = g(); G.tool.type = type; G.tool.part = part || null; if (type !== 'select') { G.sel = null; DI.inspect.render(true); } if (part) ui.category = DI.PARTS[part].cat; G.ghost = null; G.wireFrom = 0; ui.hintText = type === 'part' ? DI.PARTS[part].name + ' (' + DI.money(DI.partCost(part)) + '): click to place, R rotates. ' + DI.PARTS[part].desc : HINT[type] || ''; ui.toolbar(); DI.cv.style.cursor = type === 'select' ? 'default' : 'crosshair'; };
 
   ui.toolbar = function () {
-    const G = g(), T0 = $('tools'); T0.innerHTML = '<div id="hint"></div><div class="rowg"></div>'; const T = T0.lastChild; T0.firstChild.textContent = ui.hintText || '';
+    const G = g(), T0 = $('tools'); T0.innerHTML = '<div class="rowg"></div><div id="hint"></div>'; const T = T0.firstChild; T0.lastChild.textContent = ui.hintText || '';
     const grp = (name) => { const d = document.createElement('div'); d.className = 'grp'; d.innerHTML = '<span>' + name + '</span><div class="bs"></div>'; T.appendChild(d); return d.lastChild; };
     const btn = (par, icon, label, key, on, fn, tip) => { const b = document.createElement('button'); b.className = 'tb' + (on ? ' on' : ''); b.appendChild(DI.iconCanvas(icon, 30)); b.insertAdjacentHTML('beforeend', '<kbd>' + key + '</kbd>' + esc(label)); b.onclick = fn; b.title = tip || label; par.appendChild(b); };
     let d = grp('TOOLS');
@@ -46,23 +79,25 @@ var DI = globalThis.DI || (globalThis.DI = {});
     d = grp('SIZE'); const sz = document.createElement('div'); sz.className = 'szs';
     const sk = G.tool.type === 'branch' ? 'bsize' : 'size';
     DI.PIPES.forEach((p, i) => { const b = document.createElement('button'); b.className = 'tb sz' + (G.tool[sk] === i ? ' on' : ''); b.textContent = p.n; b.title = p.n + ' pipe: ' + DI.money(p.cost) + ' per 10 ft'; b.onclick = () => { G.tool[sk] = i; ui.toolbar(); }; sz.appendChild(b); }); d.appendChild(sz);
-    for (const cat of DI.CATS) {
-      const ps = G.sc.parts.filter((p) => DI.PARTS[p].cat === cat.id); if (!ps.length) continue; d = grp(cat.name.toUpperCase());
-      for (const p of ps) btn(d, p, SHORT[p] || DI.PARTS[p].name, '', G.tool.type === 'part' && G.tool.part === p, () => ui.setTool('part', p), DI.PARTS[p].name + ' - ' + DI.money(DI.partCost(p)) + '\n' + DI.PARTS[p].desc);
-    }
+    const cats = DI.CATS.filter((cat) => G.sc.parts.some((p) => DI.PARTS[p].cat === cat.id));
+    if (!cats.some((cat) => cat.id === ui.category)) ui.category = cats.length ? cats[0].id : null;
+    const equipment = document.createElement('div'); equipment.className = 'equipment'; T.appendChild(equipment);
+    const tabs = document.createElement('div'); tabs.className = 'equipment-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Equipment categories'); equipment.appendChild(tabs);
+    for (const cat of cats) { const b = document.createElement('button'); b.dataset.category = cat.id; b.textContent = cat.name; b.className = cat.id === ui.category ? 'on' : ''; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(cat.id === ui.category)); b.onclick = () => { ui.category = cat.id; ui.toolbar(); $('tools').querySelector('[data-category="' + cat.id + '"]').focus(); }; tabs.appendChild(b); }
+    const shelf = document.createElement('div'); shelf.className = 'equipment-shelf bs'; shelf.setAttribute('role', 'tabpanel'); shelf.setAttribute('aria-label', (cats.find((cat) => cat.id === ui.category) || {}).name || 'Equipment'); equipment.appendChild(shelf);
+    for (const p of G.sc.parts.filter((p) => DI.PARTS[p].cat === ui.category)) btn(shelf, p, SHORT[p] || DI.PARTS[p].name, '', G.tool.type === 'part' && G.tool.part === p, () => ui.setTool('part', p), DI.PARTS[p].name + ' - ' + DI.money(DI.partCost(p)) + '\n' + DI.PARTS[p].desc);
     ui.fitPanels();
   };
-  // The toolbar grows with the parts a scenario offers (two rows in the sandbox and contract 7). Keep the
-  // inspector and the annunciator above it, so the last controls of a panel are never hidden behind it.
-  ui.fitPanels = function () { const top = $('tools').getBoundingClientRect().top; if (!(top > 0)) return; for (const id of ['side', 'ann']) $(id).style.maxHeight = Math.max(180, top - 52 - 8) + 'px'; };
+  ui.fitPanels = function () { const focus = document.body.classList.contains('focus-view'), top = focus ? innerHeight - 42 : $('tools').getBoundingClientRect().top; if (!(top > 0)) return; for (const id of ['side', 'ann']) $(id).style.maxHeight = Math.max(120, top - (parseFloat(getComputedStyle($(id)).top) || 0) - 16) + 'px'; document.documentElement.style.setProperty('--dock-height', (focus ? 0 : innerHeight - top) + 'px'); };
   ui.onScenario = function () {
-    const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
+    const G = g(); ui.close(); document.body.classList.add('playing'); ui.lastAlarmCount = 0; $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
     $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
     $('bHint').style.display = $('bDiag').style.display = G.sc.puzzle ? '' : 'none';
     ui.setTool('select'); DI.inspect.render(true);
   };
   ui.tick = function () {
     const G = g(), S = G.S, W = G.W;
+    ui.updateZoom();
     $('clock').textContent = (G.warp > 0 ? '⏩ ' : '') + DI.clock(S.t);
     $('money').textContent = G.sc.sandbox ? '∞' : DI.money(W.money); $('money').classList.toggle('neg', W.money < 0);
     $('goalN').textContent = G.goalOk.filter(Boolean).length + '/' + G.goalOk.length;
@@ -73,6 +108,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // Impairment tags are riser tags, not signals: listed above the signals, and still shown with a dead panel.
     const imps = DI.impairments(S), ih = imps.length ? '<div class="hd3">IMPAIRMENT TAGS</div>' + imps.map((x) => '<div class="imp" data-p="' + x.id + '">' + esc(x.text) + '</div>').join('') : '';
     if ($('imp').dataset.h !== ih) { $('imp').innerHTML = ih; $('imp').dataset.h = ih; }
+    // Impairments are tags, not alarm signals. Keep their presence visible with the log collapsed.
+    const tagSummary = imps.length ? imps.length + ' IMPAIRMENT' + (imps.length === 1 ? '' : 'S') : '';
+    if ($('annTags').textContent !== tagSummary) $('annTags').textContent = tagSummary;
     // Annunciator: alarm, then OPEN (release input, class not elected), then supervisory, then trouble. A detector
     // stage that a higher stage has superseded stays listed as the record of the crossing and is not counted.
     // A dead panel is dark: its own signals (o.dark) are not listed. What the supervising station reports about it
@@ -98,13 +136,16 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // ASSUMED presentation: the banner reads OPEN ITEM only when nothing but OPEN is present
     const st = $('annState'), sil = (al || sv || tr || op) && !loud;       // SILENCED only when every active signal's own panel is silenced
     st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : deadP || lost ? 'PANEL DEAD - DISPLAY DARK' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr || lost || deadP ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
+    // A new alarm reveals its location; the compact monitor remains present even in Focus view.
+    if (al > (ui.lastAlarmCount || 0)) { $('ann').classList.remove('collapsed'); $('bAnnToggle').setAttribute('aria-expanded', 'true'); }
+    ui.lastAlarmCount = al;
     DI.inspect.render(false);
     if (ui.modalOpen && ui.ce) ui.showCE(ui.ce, true);          // the matrix marks what is active now
   };
 
   // ---------- modals
   ui.showMenu = function () {
-    const G = g(); G.mode = 'menu'; let unlocked = true, h = '<h1>DOUBLE <span>INTERLOCK</span></h1><div class="sub">A FIRE PROTECTION SIM FOR HYPERSCALE DATA CENTERS</div>' +
+    const G = g(); G.mode = 'menu'; document.body.classList.remove('playing'); let unlocked = true, h = '<h1>DOUBLE <span>INTERLOCK</span></h1><div class="sub">A FIRE PROTECTION SIM FOR HYPERSCALE DATA CENTERS</div>' +
       '<p>Design, build, commission and operate the systems that keep a data center from burning down or drowning. The hydraulics are solved live, the air leaks, the pumps follow their curves, and the valves trip when physics says so.</p><div class="cards">';
     DI.SCEN.forEach((sc, i) => {
       const d = G.prog.done[sc.id], open = unlocked || sc.sandbox, sv = DI.LS.get('di.save.' + sc.id, null);
