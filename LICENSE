@@ -1,0 +1,100 @@
+DOUBLE INTERLOCK - PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 Abraham Borg. All rights reserved.
+
+This license applies to Double Interlock (the "Software"): its source code, the self-contained HTML game
+(double-interlock.html), the Windows desktop app and its installer, and all graphics, icons, sounds, text,
+scenarios, contracts, field calls, the in-game manual, documentation, data, tests and game design that are part
+of it, in any form. The Software is licensed, not sold. By installing, copying or using the Software you agree
+to this license. If you do not agree, do not install, copy or use it.
+
+1. LIMITED LICENSE
+
+   If you obtained a copy of the Software from its official release page
+   (https://github.com/Abe-Borg/double-interlock/releases), the copyright holder grants you a personal, revocable,
+   non-exclusive, non-transferable, non-sublicensable license to install and run that copy, unmodified, on
+   devices you own or control, for your own personal, non-commercial use. No other right is granted.
+
+2. RESTRICTIONS
+
+   Except as expressly allowed in section 1, you may not, and may not allow anyone else to:
+
+   a. copy the Software, except as needed to install and run it under section 1;
+   b. distribute, share, publish, upload, host, mirror, sell, resell, rent, lease, lend or otherwise make the
+      Software, or any part of it, available to anyone else, in any form or by any means;
+   c. modify, translate, adapt or create derivative works of the Software or any part of it, including its
+      code, scenarios, contracts, field calls, text, graphics, sounds or game design;
+   d. decompile, disassemble or reverse engineer the desktop app or installer, except to the extent applicable
+      law expressly permits it notwithstanding this restriction;
+   e. use the Software, or any part of it, for any commercial purpose, including in paid training, courses,
+      certification, consulting, or as part of any product or service;
+   f. use the Software, or any part of it, to train, fine-tune, evaluate or build any machine learning or
+      artificial intelligence model or dataset, or collect it by scraping or other automated means for that
+      purpose;
+   g. remove, alter or obscure any copyright, trademark or license notice in the Software; or
+   h. use the name "Double Interlock" or its icon for any product, service, project or fork.
+
+3. PUBLIC SOURCE CODE IS NOT A LICENSE
+
+   The source code may be visible to the public. Being able to read it does not grant any right to use, copy,
+   modify or distribute it. To the extent the repository is public on GitHub, GitHub users receive only the
+   rights that GitHub's Terms of Service require (to view the repository and fork it within GitHub). A fork,
+   and any copy made from it, remains subject to this license, and those rights do not include any right
+   granted by section 1 or any exception to section 2.
+
+4. CONTRIBUTIONS AND FEEDBACK
+
+   Contributions are not accepted without a separate written agreement with the copyright holder. If you send
+   suggestions, bug reports or other feedback, the copyright holder may use it for any purpose without
+   obligation to you.
+
+5. THIRD-PARTY COMPONENTS
+
+   The Windows desktop app includes third-party components (the Tauri framework and the Rust libraries it uses)
+   and its installer embeds Microsoft's WebView2 bootstrapper. Those components are listed in
+   THIRD_PARTY_NOTICES.txt and are licensed under their own terms, reproduced there. This license does not
+   restrict any right you have under those terms for those components, and those terms grant no right to the
+   Software itself.
+
+6. NOT ENGINEERING ADVICE
+
+   The Software is a simulation game. Its physics, alarm logic, code references, setpoints and procedures are
+   simplified, include assumed values, and may not match NFPA 13, NFPA 25, NFPA 72, NFPA 76, NFPA 70 or any
+   other code, standard, listing, manufacturer instruction or authority having jurisdiction, in any edition.
+   It must not be used to design, install, inspect, test, maintain or approve any fire protection, fire alarm
+   or life safety system, or to make any life safety decision. Use the applicable codes and standards and a
+   qualified licensed professional for that work.
+
+7. TRADEMARKS
+
+   NFPA, NFPA 13, NFPA 25, NFPA 70, NFPA 72, NFPA 76, National Electrical Code and NEC are trademarks of the
+   National Fire Protection Association. Other company, product and standard names mentioned in the Software
+   are the property of their owners. They are used only to identify the subject matter. The Software is not
+   affiliated with, endorsed by or sponsored by any of them.
+
+8. TERMINATION
+
+   This license ends automatically, without notice, if you breach any of its terms. The copyright holder may
+   also revoke it at any time. When it ends you must stop using the Software and delete every copy you have.
+   Sections 2 through 10 survive termination.
+
+9. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF ANY KIND, EXPRESS, IMPLIED OR
+   STATUTORY, INCLUDING ANY WARRANTY OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, ACCURACY,
+   NON-INFRINGEMENT, OR THAT THE SOFTWARE WILL BE ERROR-FREE OR UNINTERRUPTED.
+
+10. LIMITATION OF LIABILITY
+
+   TO THE MAXIMUM EXTENT PERMITTED BY LAW, IN NO EVENT WILL THE COPYRIGHT HOLDER OR ANY CONTRIBUTOR BE LIABLE
+   FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY OR PUNITIVE DAMAGES, OR FOR ANY LOSS
+   OF DATA, PROFITS, PROPERTY OR LIFE, PERSONAL INJURY, OR BUSINESS INTERRUPTION, ARISING OUT OF OR IN
+   CONNECTION WITH THE SOFTWARE OR THIS LICENSE, HOWEVER CAUSED AND UNDER ANY THEORY OF LIABILITY, EVEN IF
+   ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+11. GENERAL
+
+   All rights not expressly granted in this license are reserved by the copyright holder. If any provision of
+   this license is held unenforceable, it will be enforced to the maximum extent permissible and the remaining
+   provisions stay in effect. A failure to enforce any provision is not a waiver of it. For any permission not
+   granted here, contact the copyright holder through https://github.com/Abe-Borg/double-interlock.

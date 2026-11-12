@@ -32,6 +32,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - name: Check third-party notices
+        run: node scripts/third-party-notices.js --check
       - run: npm ci
       - name: Build game and verify release versions
         shell: pwsh

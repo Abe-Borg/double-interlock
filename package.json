@@ -2,6 +2,7 @@
   "name": "double-interlock",
   "version": "1.0.0",
   "private": true,
+  "license": "UNLICENSED",
   "scripts": {
     "build": "node build-standalone.js && node scripts/prepare-desktop.js",
     "desktop:dev": "tauri dev",

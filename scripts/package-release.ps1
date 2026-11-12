@@ -10,6 +10,8 @@ New-Item -ItemType Directory -Force dist/release | Out-Null
 $name = "Double-Interlock-$version-windows-x64-setup.exe"
 Copy-Item $installers[0].FullName "dist/release/$name"
 Copy-Item double-interlock.html dist/release/double-interlock.html
+Copy-Item LICENSE dist/release/LICENSE.txt
+Copy-Item THIRD_PARTY_NOTICES.txt dist/release/THIRD_PARTY_NOTICES.txt
 $lines = Get-ChildItem dist/release -File | Sort-Object Name | ForEach-Object {
   "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower())  $($_.Name)"
 }
