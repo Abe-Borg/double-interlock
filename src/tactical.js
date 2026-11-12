@@ -26,36 +26,24 @@ var DI = globalThis.DI || (globalThis.DI = {});
   const nav = DI.tactical = {};
   nav.init = function () {
     root = document.createElement('div'); root.id = 'tactical'; root.hidden = true;
-    root.innerHTML = '<div id="viewControls" aria-label="Map controls"><span class="view-live"><i></i><span id="viewState">LIVE SYSTEMS</span></span><span class="view-scale">5 ft guides <b>·</b> 10 ft build</span><button id="vGrid" aria-pressed="true" title="Toggle 5-foot detail guides">Grid</button><button id="vFit" title="Fit campus (F)">Fit <kbd>F</kbd></button><button id="vOut" aria-label="Zoom out">−</button><button id="vIn" aria-label="Zoom in">+</button><button id="vPhoto" title="Hide interface (H)" aria-label="Hide interface">Hide</button></div>' +
+    root.innerHTML = '<div id="tacticalControls" aria-label="Map controls"><span class="view-live"><i></i><span id="viewState">LIVE SYSTEMS</span></span><span class="view-scale">5 ft guides <b>·</b> 10 ft build</span><button id="vGrid" aria-pressed="true" title="Toggle 5-foot detail guides">Grid</button><button id="vFit" title="Fit campus (Home)">Fit <kbd>Home</kbd></button><button id="vOut" aria-label="Zoom out">−</button><button id="vIn" aria-label="Zoom in">+</button><button id="vPhoto" title="Hide interface (H)" aria-label="Hide interface">Hide</button></div>' +
       '<aside id="campusNav"><div class="nav-head"><span>CAMPUS OVERVIEW</span><span id="navZoom"></span></div><canvas id="campusMap" width="544" height="224" tabindex="0" role="button" aria-label="Campus minimap. Click to move the camera. Arrow keys pan; Enter fits the campus."></canvas><div class="map-key"><span><i class="water"></i> Water</span><span><i class="gas"></i> Air / N₂</span><span><i class="alarm"></i> Fire</span><span>CLICK TO NAVIGATE</span></div><div id="fieldCoach"><div class="coach-tag">FIELD NOTE <span id="coachNumber">01</span></div><h3 id="coachTitle"></h3><p id="coachText"></p><button id="coachMore">Explore the principle <span>&gt;</span></button></div><div class="mission-progress"><span id="missionPhase"></span><span id="missionCount"></span><div class="mission-track"><i id="missionFill"></i></div></div></aside>' +
       '<button id="restoreHud" hidden>Show interface <kbd>H</kbd></button>';
-    document.body.appendChild(root); mini = $('campusMap'); map = mini.getContext('2d'); view = $('viewControls');
+    document.body.appendChild(root); mini = $('campusMap'); map = mini.getContext('2d'); view = $('tacticalControls');
     $('vGrid').onclick = () => { const g = DI.game; g.viewGrid = g.viewGrid === false; $('vGrid').setAttribute('aria-pressed', String(g.viewGrid)); };
     $('vFit').onclick = nav.fit;
     $('vOut').onclick = () => nav.zoom(1 / 1.2); $('vIn').onclick = () => nav.zoom(1.2);
     $('vPhoto').onclick = $('restoreHud').onclick = nav.photo;
     mini.addEventListener('click', (e) => { const r = mini.getBoundingClientRect(), g = DI.game; g.cam.x = DI.clamp((e.clientX - r.left) / r.width * g.W.w, 0, g.W.w); g.cam.y = DI.clamp((e.clientY - r.top) / r.height * g.W.h, 0, g.W.h); nav.drawMap(); });
     mini.addEventListener('keydown', (e) => { const g = DI.game; if (e.key === 'Enter' || e.key === ' ') nav.fit(); else if (e.key === 'ArrowLeft') g.cam.x -= 3; else if (e.key === 'ArrowRight') g.cam.x += 3; else if (e.key === 'ArrowUp') g.cam.y -= 3; else if (e.key === 'ArrowDown') g.cam.y += 3; else return; e.preventDefault(); e.stopPropagation(); nav.drawMap(); });
-    window.addEventListener('keydown', (e) => { if (DI.game.mode !== 'play' || DI.ui.modalOpen || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)) return; if (e.key.toLowerCase() === 'f') nav.fit(); else if (e.key.toLowerCase() === 'h') nav.photo(); });
+    window.addEventListener('keydown', (e) => { if (DI.game.mode !== 'play' || DI.ui.modalOpen || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)) return; if (e.key.toLowerCase() === 'h') nav.photo(); });
     window.addEventListener('resize', () => { lastLayout = ''; if (DI.game.mode === 'play') nav.tick(); });
   };
   nav.visible = function (on) { if (root && root.hidden === on) root.hidden = !on; };
   nav.onScenario = function () { nav.visible(true); document.body.classList.remove('cinematic'); $('restoreHud').hidden = true; lastNote = ''; lastLayout = ''; $('vGrid').setAttribute('aria-pressed', String(DI.game.viewGrid !== false)); nav.tick(); };
   nav.photo = function () { const on = document.body.classList.toggle('cinematic'); $('restoreHud').hidden = !on; $('tip').style.display = 'none'; };
   nav.zoom = function (factor) { DI.game.cam.z = DI.clamp(Math.round(DI.game.cam.z * factor), 5, 56); nav.drawMap(); };
-  nav.fit = function () {
-    const g = DI.game, W = g.W; if (!W) return;
-    let x0 = W.w, y0 = W.h, x1 = 0, y1 = 0;
-    for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
-    for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + 1); y1 = Math.max(y1, p.y + 1); }
-    for (let k = 0; k < W.pd.length; k++) if (W.pd[k] || W.air[k]) { const x = k % W.w, y = Math.floor(k / W.w); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); }
-    if (x1 <= x0) { x0 = y0 = 0; x1 = W.w; y1 = W.h; }
-    const cinematic = document.body.classList.contains('cinematic'), left = cinematic ? 28 : innerWidth > 1050 ? 324 : 20, right = cinematic ? 28 : innerWidth > 1050 ? 348 : 20, top = cinematic ? 28 : 105;
-    const bottom = cinematic ? innerHeight - 28 : $('tools').getBoundingClientRect().top - 24;
-    const cx = (left + innerWidth - right) / 2, cy = (top + bottom) / 2;
-    const z = g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - left - right) / (x1 - x0 + 3), (bottom - top) / (y1 - y0 + 3))), 5, 38);
-    g.cam.x = (x0 + x1) / 2 - (cx - innerWidth / 2) / z; g.cam.y = (y0 + y1) / 2 - (cy - innerHeight / 2) / z; nav.drawMap();
-  };
+  nav.fit = function () { DI.ui.fitSite(); nav.drawMap(); };
   nav.drawMap = function () {
     const g = DI.game, W = g.W, S = g.S; if (!W || !map) return;
     const w = 272, h = 112, sx = w / W.w, sy = h / W.h;

@@ -22,7 +22,7 @@ const { chromium } = require('playwright');
     await page.click('#mGo');
     await page.evaluate(() => DI.setSpeed(0));
     await waitHud();
-    check('map controls and minimap are available in play', await page.locator('#viewControls').isVisible() && await page.locator('#campusMap').isVisible());
+    check('map controls and minimap are available in play', await page.locator('#tacticalControls').isVisible() && await page.locator('#campusMap').isVisible());
     check('grid scale distinguishes visual guides from building cells', /5 ft guides.*10 ft build/.test(await page.locator('.view-scale').innerText()));
 
     const original = await plant();
@@ -44,10 +44,10 @@ const { chromium } = require('playwright');
     // A remote pipe is a fixture: Fit must include player construction outside the original building envelope.
     await page.evaluate(() => { DI.game.W.setPipe(42, 24, 6, 0); DI.game.S.sync(); });
     const extended = await plant();
-    await key('f');
+    await key('Home');
     const fitted = await page.evaluate(() => {
       const g = DI.game, x = innerWidth / 2 + (42.5 - g.cam.x) * g.cam.z, y = innerHeight / 2 + (24.5 - g.cam.y) * g.cam.z;
-      return x > document.getElementById('ann').getBoundingClientRect().right && x < document.getElementById('side').getBoundingClientRect().left && y > 100 && y < document.getElementById('tools').getBoundingClientRect().top;
+      return x >= DI.ui.playRect().left && x <= DI.ui.playRect().right && y >= DI.ui.playRect().top && y < document.getElementById('tools').getBoundingClientRect().top;
     });
     check('Fit campus includes remote construction in the playable area', fitted);
     check('camera fitting does not edit the plant', await plant() === extended);
@@ -81,7 +81,7 @@ const { chromium } = require('playwright');
     if (await page.locator('#mGo').isVisible()) await page.click('#mGo');
     await page.evaluate(() => DI.setSpeed(0));
     await waitHud();
-    check('a saved game resumes with its HUD intact', await page.locator('#viewControls').isVisible());
+    check('a saved game resumes with its HUD intact', await page.locator('#tacticalControls').isVisible());
     await page.screenshot({ path: process.argv[2] || '/tmp/di-visual.png' });
     // The all-parts toolbar wraps onto more rows on smaller screens. Navigation must sit above it.
     for (const height of [768, 600]) {

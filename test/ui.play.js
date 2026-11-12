@@ -9,7 +9,11 @@ const { chromium } = require('playwright'); const path = require('path');
   const xy = (x, y) => p.evaluate(([x, y]) => { const G = DI.game; return [innerWidth / 2 + (x + 0.5 - G.cam.x) * G.cam.z, innerHeight / 2 + (y + 0.5 - G.cam.y) * G.cam.z]; }, [x, y]);
   const drag = async (x0, y0, x1, y1) => { const a = await xy(x0, y0), c = await xy(x1, y1); await p.mouse.move(a[0], a[1]); await p.mouse.down(); await p.mouse.move((a[0] + c[0]) / 2, (a[1] + c[1]) / 2, { steps: 3 }); await p.mouse.move(c[0], c[1], { steps: 3 }); await p.mouse.up(); };
   const click = async (x, y) => { const a = await xy(x, y); await p.mouse.move(a[0], a[1]); await p.mouse.down(); await p.mouse.up(); };
-  const part = async (name, x, y) => { await p.click('.tb[title^="' + name + '"]'); await click(x, y); };
+  const part = async (name, x, y) => {
+    const category = await p.evaluate((n) => Object.values(DI.PARTS).find((q) => q.name.startsWith(n)).cat, name);
+    await p.click('[data-category="' + category + '"]');
+    await p.click('.tb[title^="' + name + '"]'); await click(x, y);
+  };
   const size = async (n) => { await p.click('.tb.sz >> text="' + n + '"'); };
   await p.keyboard.press('1'); await size('4"'); await drag(3, 12, 4, 12); await part('Backflow Preventer', 5, 12);
   await p.keyboard.press('1'); await drag(6, 12, 6, 12); await part('Control Valve', 7, 12); await part('Wet Riser', 8, 12);
@@ -36,4 +40,6 @@ const { chromium } = require('playwright'); const path = require('path');
   console.log('report:', (await p.evaluate(() => document.getElementById('mbox').innerText)).replace(/\n+/g, ' | ').slice(0, 400));
   await p.screenshot({ path: (process.argv[2] || 'ui.png').replace('.png', '-report.png') });
   console.log(errs.length ? errs.join('\n') : 'no errors'); await b.close();
+  if (!g1.goals.every(Boolean)) { console.error('Contract 1 build did not meet every goal; check for controls covering the canvas.'); process.exitCode = 1; }
+  if (errs.length) process.exitCode = 1;
 })();

@@ -41,7 +41,7 @@ server, no network. Progress saves in the browser.
 - `index.html` is the same game loading the readable sources from `src/`. It also runs from `file://`.
 - After editing anything in `src/`, rebuild the single file with `node build-standalone.js`.
 
-Mouse and keyboard, desktop. A 1600 x 900 window or larger is comfortable.
+Mouse and keyboard, desktop. The workspace adapts to the window, with a fitted site view, equipment category tabs, and an inspector that opens when you select a device. Press `F` for Focus view and `Home` to fit the whole site. A 1600 x 900 window or larger shows more detail.
 
 ## The loop
 
@@ -129,10 +129,14 @@ suction as -14.7 (full vacuum) rather than a number no gauge can read (the netwo
 | `[` `]` | Pipe size |
 | `R` | Rotate the part being placed |
 | `Space` | Pause. Speeds 1x / 4x / 20x / 120x and a Skip menu (10 min to 5 years) are on the top bar |
+| `F` | Toggle Focus view to expand the play area; the system monitor stays available |
+| `Home` | Fit the entire site into the available play area |
 | `Ctrl+Z` | Undo |
 | Right-drag, `WASD`, wheel | Pan and zoom |
 | `G` / `M` / `Del` | Goals / field manual / remove the selected part |
-| `F` / `H` | Fit the campus / hide or restore the interface |
+| `H` | Hide or restore the whole interface |
+
+Equipment is grouped into category tabs along the bottom. Click the system monitor to expand signals and the event log; a new alarm opens it automatically. Select a part or floor tile to open its inspector, and close it with × when finished. The Fit site and + / − controls sit above the equipment dock. Visual effects respect your system’s reduced-motion preference.
 
 Rules of the grid: one tile is 10 ft and one sprinkler tile protects 100 sq ft. Mains join everything
 they touch. Branch lines join only end to end and to a main beside them, and never through a wall.

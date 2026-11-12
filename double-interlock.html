@@ -249,16 +249,16 @@ button.hot { background:linear-gradient(135deg,#46241d,#2e1919); border-color:#b
 
 /* Tactical navigation and contextual teaching, sized around the live tool dock. */
 #tactical[hidden], #fieldCoach[hidden], #restoreHud[hidden] { display:none !important; }
-#viewControls { position:fixed; z-index:3; top:55px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:4px; padding:5px 7px 5px 13px; border:1px solid #344c57; border-radius:4px; background:linear-gradient(115deg,#10252feF,#0b1820ed); box-shadow:0 7px 25px #0004; white-space:nowrap; }
+#tacticalControls { position:fixed; z-index:3; top:55px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:4px; padding:5px 7px 5px 13px; border:1px solid #344c57; border-radius:4px; background:linear-gradient(115deg,#10252feF,#0b1820ed); box-shadow:0 7px 25px #0004; white-space:nowrap; }
 .view-live { font:8px var(--mono); letter-spacing:.12em; color:#b0c7cf; display:flex; gap:6px; align-items:center; padding-right:11px; }
 .view-live i { width:5px; height:5px; border-radius:50%; background:#82d9bf; box-shadow:0 0 8px #82d9bf70; }
 .view-scale { font:9px var(--mono); color:#819eae; padding-right:10px; }
 .view-scale b { color:#d3ab7d; margin:0 3px; }
-#viewControls button { font:10px var(--mono); padding:4px 7px; border-color:transparent; background:transparent; color:#9fbcc9; }
-#viewControls button:hover { background:#233c49; color:#fff; }
-#viewControls #vGrid[aria-pressed=true] { color:#d5b189; background:#293732; border-color:#655b46; }
-#viewControls kbd { font:8px var(--mono); color:#627e8d; margin-left:3px; }
-#viewControls.compact .view-live { display:none; }
+#tacticalControls button { font:10px var(--mono); padding:4px 7px; border-color:transparent; background:transparent; color:#9fbcc9; }
+#tacticalControls button:hover { background:#233c49; color:#fff; }
+#tacticalControls #vGrid[aria-pressed=true] { color:#d5b189; background:#293732; border-color:#655b46; }
+#tacticalControls kbd { font:8px var(--mono); color:#627e8d; margin-left:3px; }
+#tacticalControls.compact .view-live { display:none; }
 #campusNav { position:fixed; z-index:3; left:10px; width:292px; border:1px solid #344c57; border-radius:4px; background:linear-gradient(140deg,#142832f5,#0b1821fa); box-shadow:0 8px 25px #0004; overflow:hidden; }
 .nav-head { padding:9px 10px 7px; display:flex; justify-content:space-between; color:#8eafbd; font:8px var(--mono); letter-spacing:.12em; }
 #navZoom { color:#d6b48f; }
@@ -281,26 +281,181 @@ button.hot { background:linear-gradient(135deg,#46241d,#2e1919); border-color:#b
 #missionFill { display:block; height:3px; background:#c4ab7d; transition:width .4s; }
 #restoreHud { position:fixed; bottom:20px; right:20px; z-index:6; padding:9px 13px; background:#0e212cdd; color:#a4bdc8; font-size:11px; border-color:#385765; }
 #restoreHud kbd { padding-left:12px; color:#cfb088; }
-body.cinematic #top, body.cinematic #ann, body.cinematic #side, body.cinematic #tools, body.cinematic #viewControls, body.cinematic #campusNav { visibility:hidden; pointer-events:none; }
-@media (max-width:1050px) { #viewControls { top:auto; bottom:180px; } .view-live { display:none; } }
+body.cinematic #top, body.cinematic #ann, body.cinematic #side, body.cinematic #tools, body.cinematic #tacticalControls, body.cinematic #campusNav { visibility:hidden; pointer-events:none; }
+@media (max-width:1050px) { #tacticalControls { top:auto; bottom:180px; } .view-live { display:none; } }
 @media (prefers-reduced-motion:reduce) { #missionFill { transition:none; } }
+
+/* Workspace shell: a quiet instrument frame around an expansive live site. */
+:root { --pan:#101c26; --pan2:#172733; --line:#2a3e4c; --ink:#e2ebf1; --dim:#8ca5b6; --dock-height:146px; }
+button { border-radius:6px; transition:background .16s, border-color .16s, box-shadow .16s; }
+button:focus-visible { outline:2px solid #81d6ff; outline-offset:3px; }
+button.on { background:linear-gradient(140deg,#204b63,#153246); border-color:#5dbee8; }
+button.hot { background:linear-gradient(135deg,#77352a,#48221d); border-color:#c6674d; color:#fff0e8; }
+button.go { background:linear-gradient(135deg,#164f3b,#103829); }
+#top { height:70px; padding:0 24px; gap:24px; background:linear-gradient(180deg,#16232d,#101a23); box-shadow:0 4px 24px #0003; }
+#top > div { gap:8px; }
+#top .tl { min-width:0; flex:1; }
+#scName { font-size:14px; letter-spacing:.11em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#scName small { font-size:11px; color:#8ea7b7; letter-spacing:.02em; margin-top:3px; overflow:hidden; text-overflow:ellipsis; }
+#bMenu { width:36px; height:36px; margin-right:6px; flex:none; border-color:#3b5869; color:#9cdcff; background:linear-gradient(135deg,#27495b,#152633); font-size:18px; }
+#bGoals { margin-left:10px; flex:none; font-size:11px; padding:6px 10px; border-color:#3b5260; }
+#goalN { margin-left:4px; color:#9fd7ed; font-family:var(--mono); }
+#top .tc { padding:7px 9px; border:1px solid #293c48; border-radius:8px; background:#09141b; gap:4px; }
+#clock { min-width:88px; font-size:16px; text-align:center; margin-right:7px; letter-spacing:.02em; }
+#top .sp { padding:5px 7px; background:transparent; border-color:transparent; }
+#top .sp.on { background:#214358; border-color:#426a81; }
+#bSkip { margin-left:4px; background:none; font-size:11px; border:0; }
+#top .tr { gap:8px; }
+#top .tr > button { padding:8px 13px; font-size:12px; }
+.budget { margin-right:14px; }
+.budget small { color:var(--dim); font:9px var(--mono); letter-spacing:.09em; }
+#money { font-size:17px; margin-top:2px; }
+#workspaceBar { position:fixed; z-index:5; top:70px; left:0; right:0; height:40px; padding:0 24px; display:flex; justify-content:space-between; align-items:center; gap:12px; background:#0d1820ed; border-bottom:1px solid #253844; }
+.site-label { display:flex; align-items:center; gap:9px; font:10px var(--mono); color:#b1c7d4; letter-spacing:.1em; white-space:nowrap; }
+.live-dot { width:5px; height:5px; border-radius:50%; background:#3ddc91; box-shadow:0 0 10px #3ddc9150; }
+.bar-divider { height:15px; width:1px; background:#30434f; margin:0 10px; flex:none; }
+#wx { font-size:10px; margin:0; letter-spacing:0; }
+.workspace-actions { display:flex; align-items:center; gap:6px; }
+.workspace-actions button { border-color:transparent; background:transparent; padding:4px 9px; color:#a7bdcb; font-size:11px; }
+.workspace-actions button:hover { background:#223541; color:#fff; }
+#bFocus { color:#d6e9f3; }
+kbd { font:10px var(--mono); }
+#bFocus kbd { margin-left:8px; opacity:.55; }
+#bFocus[aria-pressed=true] { background:#1b3d4f; color:#b6e8ff; border-color:#3c6d83; }
+#ann, #side { top:130px; border:1px solid #334854; background:linear-gradient(150deg,#14232ef5,#0c1821f5); box-shadow:0 12px 40px #0005, inset 0 1px #ffffff06; border-radius:10px; }
+#ann { left:24px; width:292px; }
+#ann .hd { width:100%; align-items:center; text-align:left; padding:13px 15px; border:0; border-bottom:1px solid #2c414f; border-radius:0; background:linear-gradient(110deg,#192c37,#12222c); }
+#ann .hd > span:first-child { display:flex; align-items:center; justify-content:space-between; flex:1; gap:10px; }
+#ann .hd small { font:9px var(--mono); letter-spacing:.1em; color:#9ab2c1; }
+.monitor-label { display:flex; flex-direction:column; gap:5px; }
+#ann .hd #annTags { color:var(--amb); font-size:8px; letter-spacing:.03em; }
+#annTags:empty { display:none; }
+#annState { font:600 10px var(--mono); letter-spacing:.03em; text-align:right; }
+.ann-chevron { margin-left:10px; color:#87a4b5; transform:rotate(180deg); }
+#ann.collapsed > :not(.hd) { display:none; }
+#ann.collapsed .hd { border-bottom:0; }
+#ann.collapsed .ann-chevron { transform:none; }
+#ann .hd2 { padding:9px 14px; font-size:9px; background:#0d1820; }
+#sigs { max-height:210px; }
+.sig { padding:8px 14px; gap:8px; line-height:1.55; font-size:11px; border-color:#233743; }
+#log { min-height:70px; max-height:170px; padding:7px 0; font-size:10px; line-height:1.65; }
+#log div { padding:2px 14px; }
+#side { right:24px; width:340px; }
+#side:not([data-selected=true]) { display:none; }
+#side h3 { padding:15px 16px; gap:8px; background:#152732; font-size:12px; border-color:#304652; }
+#side h3 small { margin-left:auto; font-size:10px; }
+.inspector-close { border:0; background:transparent; font-size:20px; line-height:18px; padding:0 3px; color:#8ca5b6; }
+#side .row { padding:4px 16px; gap:12px; }
+#side .row b { font-size:11px; }
+#side p { margin:10px 16px; line-height:1.6; }
+#side .sec { margin:12px 0 5px; padding:9px 16px 3px; font-size:9px; }
+#side .btns { padding:8px 16px 2px; gap:7px; }
+#side .btns button { padding:6px 9px; font-size:11px; }
+#side .res { margin:9px 16px; line-height:1.55; }
+#tools { bottom:24px; left:24px; right:24px; width:auto; max-width:none; margin:0; gap:10px; padding:12px 14px 0; border:1px solid #344b59; border-radius:12px; background:linear-gradient(160deg,#182a36f5,#0e1b25fa); box-shadow:0 16px 55px #0008, inset 0 1px #ffffff08; }
+#tools .rowg { flex-wrap:nowrap; justify-content:flex-start; gap:18px; align-items:stretch; }
+#tools .grp { flex:none; padding-right:18px; gap:8px; }
+#tools .grp > span { font-size:9px; color:#9bb1c0; letter-spacing:.12em; height:14px; padding-top:2px; }
+#tools .bs { gap:5px; }
+.tb { width:48px; height:51px; border:1px solid transparent; background:#12212d; border-radius:6px; color:#b7cbd8; font-size:9px; padding-bottom:4px; gap:2px; }
+.tb:hover { background:#203b4c; border-color:#47677a; }
+.tb.on { color:#e7f8ff; box-shadow:0 0 18px #49b5e41c,inset 0 1px #ffffff12; background:#23465d; }
+.tb canvas { width:27px; height:27px; }
+.tb kbd { top:3px; left:4px; color:#9cb9cd; font-size:8px; }
+.tb.sz { width:31px; height:24px; font-size:10px; background:#142632; border-color:#293e4d; }
+.tb.sz.on { background:#28536e; border-color:#6cb8dd; }
+.szs { grid-template-columns:repeat(6,31px); gap:3px; }
+.equipment { min-width:0; flex:1; display:flex; flex-direction:column; gap:8px; }
+.equipment-tabs { display:flex; gap:14px; overflow-x:auto; scrollbar-width:thin; align-items:start; min-height:14px; }
+.equipment-tabs button { flex:none; white-space:nowrap; padding:0 0 4px; font-size:10px; background:none; border:0; border-bottom:1px solid transparent; border-radius:0; color:#8da7b8; line-height:12px; }
+.equipment-tabs button.on { color:#c1ebff; border-bottom-color:#6fc9f0; background:none; }
+.equipment-shelf { overflow-x:auto; scrollbar-width:thin; }
+.equipment-shelf .tb { width:66px; flex:none; background:#192f3e; }
+#hint { border-top:1px solid #2a404f; margin:0 -14px; padding:7px 14px 8px; min-height:31px; font-size:11px; color:#99b0c0; }
+#viewControls { position:fixed; z-index:4; right:26px; bottom:calc(var(--dock-height) + 12px); display:flex; align-items:center; gap:2px; padding:4px; background:#101e28e8; border:1px solid #304552; border-radius:7px; }
+#viewControls button { background:transparent; border:0; height:27px; padding:2px 10px; font-size:15px; }
+#viewControls #bFit { border-left:1px solid #304552; border-radius:0; font-size:11px; }
+#zoomLevel { color:#9db4c4; font:10px var(--mono); min-width:43px; text-align:center; }
+#canvasGuide { position:fixed; bottom:calc(var(--dock-height) + 21px); left:28px; display:flex; align-items:center; gap:6px; color:#93adbd; font:9px var(--mono); pointer-events:none; text-shadow:0 1px 3px #000; }
+#canvasGuide > span:not(.guide-help) { display:inline-block; width:14px; height:2px; margin-left:13px; }
+#canvasGuide > span:first-child { margin-left:0; }
+.guide-water { background:#3aa6ff; }.guide-air { background:#e9d8a0; }.guide-wire { background:#ee8570; }
+.guide-help { margin-left:22px; opacity:.65; }
+#banner { top:122px; font-size:13px; background:#48251ded; box-shadow:0 8px 36px #0006; }
+#pop { padding:8px; border-color:#3c5667; box-shadow:0 10px 40px #0009; }
+#pop button { padding:7px 10px; }
+#mbox { border-radius:14px; background:linear-gradient(140deg,#1a2b38,#101c26 70%); padding:30px 34px; border-color:#3b5260; }
+#modal { background:#030a10bd; backdrop-filter:blur(7px); }
+#mbox h1 { letter-spacing:.12em; font-size:36px; }
+#mbox h2 { letter-spacing:.03em; }
+.card { padding:17px; background:linear-gradient(135deg,#213848,#182a37); border-color:#344e5f; }
+.card:hover { background:#2a4659; border-color:#7199b0; }
+.card em { font-size:9px; color:#9bb6c8; }
+.card b { margin-top:7px; font-size:14px; }
+.card small { margin-top:5px; font-size:11px; }
+.focus-view #tools, .focus-view #canvasGuide .guide-help { display:none; }
+.focus-view #viewControls { bottom:20px; }
+.focus-view #canvasGuide { bottom:32px; }
+body:not(.playing) #top, body:not(.playing) #workspaceBar, body:not(.playing) #ann, body:not(.playing) #side, body:not(.playing) #tools, body:not(.playing) #canvasGuide, body:not(.playing) #viewControls { visibility:hidden; }
+* { scrollbar-color:#3d596b #101d27; scrollbar-width:thin; }
+@media (max-width:1400px) {
+  #top { gap:14px; padding:0 18px; }
+  #scName { font-size:12px; }
+  #top .tr > button { padding:8px 10px; }
+  .budget { margin-right:3px; }
+  #tools .rowg { gap:12px; }
+  #tools .grp { padding-right:12px; }
+  .tb { width:43px; }
+  .equipment-tabs { gap:9px; }
+  .equipment-tabs button { font-size:9px; }
+}
+@media (max-width:1100px) {
+  #top { height:100px; flex-wrap:wrap; align-content:center; gap:8px; }
+  #top .tl { flex:1; min-width:48%; }
+  #top .tc { order:3; padding:3px 6px; margin-left:auto; }
+  #top .tr { margin-left:auto; }
+  #top .tr > button { padding:6px 8px; }
+  .budget small { display:none; }
+  #workspaceBar { top:100px; }
+  #ann, #side { top:156px; }
+  #tools { left:16px; right:16px; bottom:16px; }
+  #tools .rowg { overflow-x:auto; padding-bottom:4px; }
+  .equipment { flex:none; width:360px; }
+  #side { width:310px; right:16px; }
+  #ann { left:16px; width:270px; }
+  #canvasGuide .guide-help { display:none; }
+  #banner { top:150px; }
+}
+@media (prefers-reduced-motion:reduce) {
+  *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
+}
+
+/* The learning overlay composes with the expanded workspace. */
+#tacticalControls { top:122px; right:auto; bottom:auto; }
+#campusNav { left:24px; }
+body.cinematic #workspaceBar, body.cinematic #viewControls, body.cinematic #canvasGuide { visibility:hidden; pointer-events:none; }
+body.focus-view #campusNav { display:none !important; }
+@media (max-width:1100px) { #tacticalControls { top:150px; } #campusNav { left:16px; } }
+@media (max-width:1050px) { #tacticalControls { top:auto; } }
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
 <div id="top">
-  <div class="tl"><button id="bMenu" title="Contracts">&#9776;</button><div id="scName"></div><button id="bGoals" class="pill">Goals <span id="goalN"></span></button></div>
+  <div class="tl"><button id="bMenu" title="Contracts" aria-label="Open contracts">&#9776;</button><div id="scName"></div><button id="bGoals" class="pill">Goals <span id="goalN"></span></button></div>
   <div class="tc">
     <div id="clock">00:00:00</div>
     <button class="sp" data-sp="0" title="Pause (Space)">&#10073;&#10073;</button><button class="sp on" data-sp="1">1&times;</button><button class="sp" data-sp="4">4&times;</button><button class="sp" data-sp="20">20&times;</button><button class="sp" data-sp="120">120&times;</button>
     <button id="bSkip" title="Skip ahead">Skip &#9662;</button>
-    <div id="wx"></div>
   </div>
-  <div class="tr"><div id="money"></div><button id="bSite" title="Site settings: enforced edition, pipe size cut, water delivery, detection thresholds, signal classes, company rules. Read-only in a contract">Site</button><button id="bReview">Review</button><button id="bTests">Tests</button><button id="bInc">Incident</button><button id="bDrill" class="hot">Run drill</button><button id="bHint" title="Graduated hints: the system, a measurement, the fault">Hint</button><button id="bDiag" title="Answer the call's central question">Diagnose</button><button id="bManual" title="Field manual (M)">Manual</button><button id="bSnd" title="Sound">&#9835;</button></div>
+  <div class="tr"><div class="budget"><small>AVAILABLE BUDGET</small><div id="money"></div></div><button id="bReview">Plan review</button><button id="bTests">Tests</button><button id="bDrill" class="hot">Run drill</button></div>
 </div>
-<div id="ann"><div class="hd">FIRE ALARM ANNUNCIATOR <span id="annState">NORMAL</span></div><div id="imp"></div><div id="sigs"></div><div id="stq"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
+<div id="workspaceBar"><div class="site-label"><span class="live-dot"></span> LIVE SITE <span class="bar-divider"></span><span id="wx"></span></div><div class="workspace-actions"><button id="bSite" title="Site settings and company rules">Site</button><button id="bInc">Incident</button><button id="bHint" title="Graduated hints: the system, a measurement, the fault">Hint</button><button id="bDiag" title="Answer the call’s central question">Diagnose</button><button id="bManual" title="Field manual (M)">Field manual</button><button id="bSnd" title="Sound" aria-label="Toggle sound">&#9835;</button><span class="bar-divider"></span><button id="bFocus" title="Expand the play area (F)" aria-pressed="false">&#x26F6; Focus view <kbd>F</kbd></button></div></div>
+<div id="ann" class="collapsed"><button id="bAnnToggle" class="hd" aria-expanded="false" title="Show or hide signals and event log"><span><span class="monitor-label"><small>SYSTEM MONITOR</small><small id="annTags"></small></span><span id="annState">NORMAL</span></span><span class="ann-chevron" aria-hidden="true">⌄</span></button><div id="imp"></div><div id="sigs"></div><div id="stq"></div><div class="hd2">EVENT LOG</div><div id="log"></div></div>
 <div id="side"></div>
 <div id="tools"></div>
+<div id="viewControls"><span id="zoomLevel">100%</span><button id="bZoomOut" aria-label="Zoom out" title="Zoom out">−</button><button id="bZoomIn" aria-label="Zoom in" title="Zoom in">+</button><button id="bFit" title="Fit the whole site (Home)">Fit site</button></div>
+<div id="canvasGuide"><span class="guide-water"></span> Water <span class="guide-air"></span> Air / N₂ <span class="guide-wire"></span> Signal <span class="guide-help">WASD pan · Scroll zoom</span></div>
 <div id="banner"></div>
 <div id="tip"></div>
 <div id="pop"></div>
@@ -6558,9 +6713,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
   DI.inspect = { render(force) {
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }
     const S = G.S, W = G.W, sel = G.sel, p = sel && sel.kind === 'part' ? W.parts.get(sel.id) : null; if (sel && sel.kind === 'part' && !p) G.sel = null;
+    el.dataset.selected = String(!!G.sel);
     const s = p && S.ss.get(p.id);
     const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length, s.ret ? (DI.returnStep(S, p.id) || {}).mode : 0, DI.refilling(S, p.id), !!W.cfg.nfpa76Adopted, highGas(S, p), p.type === 'prev' ? drillScored(S, p.id) : 0] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0), p && p.type === 'prev' ? !!DI.recoveryScore(S, p.id) : 0, p && p.type === 'vesda' ? [DI.n76Flags(W).length, !!W.cfg.nfpa76Adopted] : 0, S.puz ? [S.puz.hints, S.puz.diag.ok, S.puz.diag.tries] : 0], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
-    if (force || sig !== lastSig) { lastSig = sig; acts = []; upd = []; B.h = ''; if (p) partPanel(S, W, p); else if (sel && sel.kind === 'tile') tilePanel(S, W, sel.k); else homePanel(G); el.innerHTML = B.h; }
+    if (force || sig !== lastSig) { lastSig = sig; acts = []; upd = []; B.h = ''; if (p) partPanel(S, W, p); else if (sel && sel.kind === 'tile') tilePanel(S, W, sel.k); else homePanel(G); el.innerHTML = B.h; if (G.sel) { const close = document.createElement('button'); close.className = 'inspector-close'; close.textContent = '×'; close.title = 'Close inspector'; close.setAttribute('aria-label', 'Close inspector'); el.querySelector('h3').appendChild(close); } }
     for (let i = 0; i < upd.length; i++) { const v = upd[i](); if (v === null) continue; const e = document.getElementById('iv' + i); if (!e) continue; const t = Array.isArray(v) ? v[0] : v, c = Array.isArray(v) ? v[1] : ''; if (e.textContent !== t) e.textContent = t; if (e.className !== c) e.className = c; }
   } };
   window.addEventListener('load', () => { document.getElementById('side').addEventListener('mousedown', (e) => { const b = e.target.closest('button[data-a]'); if (!b || b.disabled) return; e.preventDefault(); const fn = acts[+b.dataset.a]; if (fn) { fn(); DI.audio.play('click'); DI.inspect.render(true); } }); });
@@ -6630,14 +6786,20 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('bGoals').onclick = ui.showGoals; $('bSite').onclick = () => ui.showSite(); $('bReview').onclick = ui.showReview; $('bTests').onclick = ui.showTests; $('bManual').onclick = () => ui.showManual();
     $('bDrill').onclick = ui.askDrill; $('bHint').onclick = () => DI.puzUI.hint(); $('bDiag').onclick = () => DI.puzUI.diagnose(); $('bSnd').onclick = () => { const on = DI.audio.toggle(); $('bSnd').classList.toggle('on', on); };
     $('bSnd').classList.add('on');
+    $('bAnnToggle').onclick = () => { const open = $('ann').classList.toggle('collapsed'); $('bAnnToggle').setAttribute('aria-expanded', String(!open)); ui.fitPanels(); };
+    $('bFocus').onclick = ui.toggleFocus;
+    $('bFit').onclick = () => ui.fitSite();
+    $('bZoomIn').onclick = () => ui.zoom(1.2);
+    $('bZoomOut').onclick = () => ui.zoom(1 / 1.2);
+    $('side').addEventListener('click', (e) => { if (e.target.closest('.inspector-close')) { g().sel = null; DI.inspect.render(true); } });
     document.querySelectorAll('.sp').forEach((b) => { b.onclick = () => DI.setSpeed(+b.dataset.sp); });
-    $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, 44, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
-    $('bInc').onclick = (e) => ui.pop(e.clientX - 100, 44, [
+    $('bSkip').onclick = (e) => ui.pop(e.clientX - 60, e.currentTarget.getBoundingClientRect().bottom + 8, [['10 minutes', 600], ['1 hour', 3600], ['1 day', 86400], ['1 week', 604800], ['1 year', DI.YEAR], ['5 years', 5 * DI.YEAR]].map(([n, s]) => [n, () => DI.skip(s)]));
+    $('bInc').onclick = (e) => ui.pop(e.clientX - 100, e.currentTarget.getBoundingClientRect().bottom + 8, [
       ['Utility power: toggle', () => { g().W.power = !g().W.power; }], ['Weather: -10 °F', () => { g().W.outTemp = -10; }], ['Weather: 70 °F', () => { g().W.outTemp = 70; }],
       ['False smoke in every room', () => { for (const r of g().W.rooms) g().S.smoke[r.id] = 2.5; }],
       ['Break a pipe', () => { const S = g().S, t = ['hall', 'elec', 'dock', 'stor', 'batt', 'office'].find((q) => DI.G.sysOf(S, q).length); if (!t || !DI.X.pipeBreak(t)(S)) ui.banner('No sprinkler system main to break yet. Or select a pipe tile and break that one.'); }], ['Wipe the map and start over', () => { DI.LS.del('di.save.' + g().sc.id); DI.startScenario(g().sc.id, true); }], ['Tip: select a tile to ignite it or break its sprinkler', () => {}]]);
     $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal') && ui.dismiss) ui.close(); });
-    window.addEventListener('resize', () => ui.fitPanels());
+    window.addEventListener('resize', () => { ui.fitPanels(); if (g().mode === 'play') ui.fitSite(); });
     document.addEventListener('mousedown', (e) => { if (!$('pop').contains(e.target)) $('pop').style.display = 'none'; });
     DI.bus.on('log', (text, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.innerHTML = '<i>' + DI.clock(g().S ? g().S.t : 0).slice(-8) + '</i>' + esc(text); const L = $('log'); L.appendChild(d); while (L.childNodes.length > 80) L.removeChild(L.firstChild); L.scrollTop = 1e6; });
     DI.bus.on('banner', ui.banner);
@@ -6645,15 +6807,42 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('banner').addEventListener('click', () => { clearTimeout(ui.bt); $('banner').classList.remove('show'); });
     for (const id of ['sigs', 'imp', 'stq']) $(id).addEventListener('click', (e) => { const el = e.target.closest('.sig, .imp, .stq'); if (!el) return; const p = g().W.parts.get(+el.dataset.p); if (p) ui.focus(p.x, p.y, { kind: 'part', id: p.id }); });
   };
+  // Camera coordinates remain in screen space; fit the site into the actual free canvas area.
+  ui.playRect = function () {
+    const focus = document.body.classList.contains('focus-view'), top = $('workspaceBar').getBoundingClientRect().bottom + 76;
+    const bottom = focus ? innerHeight - 44 : $('tools').getBoundingClientRect().top - 48;
+    const side = $('side'), right = side.dataset.selected === 'true' ? side.getBoundingClientRect().left - 20 : innerWidth - 28;
+    const left = !focus && !$('ann').classList.contains('collapsed') ? $('ann').getBoundingClientRect().right + 20 : 28;
+    return { left, top, right, bottom, width: Math.max(120, right - left), height: Math.max(120, bottom - top) };
+  };
+  ui.fitSite = function () {
+    const G = g(); if (!G.W) return;
+    const W = G.W, xs = [], ys = [];
+    for (const r of W.rooms) { xs.push(r.x, r.x + r.w); ys.push(r.y, r.y + r.h); }
+    for (const p of W.parts.values()) { xs.push(p.x, p.x + 1); ys.push(p.y, p.y + 1); }
+    for (let k = 0; k < W.pd.length; k++) if (W.pd[k] || W.air[k]) { xs.push(k % W.w, k % W.w + 1); ys.push(Math.floor(k / W.w), Math.floor(k / W.w) + 1); }
+    const x0 = xs.length ? Math.min(...xs) : 0, x1 = xs.length ? Math.max(...xs) : W.w;
+    const y0 = ys.length ? Math.min(...ys) : 0, y1 = ys.length ? Math.max(...ys) : W.h, r = ui.playRect();
+    G.cam.z = DI.clamp(Math.min(r.width / (x1 - x0 + 3), r.height / (y1 - y0 + 3)), 5, 40);
+    G.cam.x = (x0 + x1) / 2 + (innerWidth / 2 - (r.left + r.right) / 2) / G.cam.z;
+    G.cam.y = (y0 + y1) / 2 + (innerHeight / 2 - (r.top + r.bottom) / 2) / G.cam.z;
+    ui.updateZoom();
+  };
+  ui.zoom = function (factor) { g().cam.z = DI.clamp(g().cam.z * factor, 5, 56); ui.updateZoom(); };
+  ui.updateZoom = function () { $('zoomLevel').textContent = Math.round(g().cam.z / 26 * 100) + '%'; };
+  ui.toggleFocus = function () {
+    const focused = document.body.classList.toggle('focus-view'); $('bFocus').setAttribute('aria-pressed', String(focused));
+    $('bFocus').innerHTML = (focused ? '↙ Exit focus' : '⛶ Focus view') + ' <kbd>F</kbd>'; ui.fitPanels(); ui.fitSite();
+  };
   ui.focus = function (x, y, sel) { const G = g(); G.cam.x = x + 0.5; G.cam.y = y + 0.5; G.mark = { x, y, t: G.now }; if (sel) { G.sel = sel; DI.inspect.render(true); } };
   ui.banner = function (t) { const b = $('banner'); b.textContent = t; b.classList.add('show'); clearTimeout(ui.bt); ui.bt = setTimeout(() => b.classList.remove('show'), 7000); };
   ui.pop = function (x, y, items) { const p = $('pop'); p.innerHTML = ''; for (const [n, fn] of items) { const b = document.createElement('button'); b.textContent = n; b.onclick = () => { p.style.display = 'none'; fn(); }; p.appendChild(b); } p.style.left = Math.max(4, Math.min(innerWidth - 190, x)) + 'px'; p.style.top = y + 'px'; p.style.display = 'block'; };
   ui.modal = function (html, dismiss) { ui.ce = 0; $('mbox').classList.remove('wide', 'menu-box', 'brief-box'); $('modal').classList.remove('menu-mode'); $('mbox').innerHTML = html; $('modal').classList.add('show'); ui.modalOpen = true; ui.dismiss = dismiss !== false; $('mbox').scrollTop = 0; };
   ui.close = function () { $('modal').classList.remove('show'); ui.modalOpen = false; ui.ce = 0; };
-  ui.setTool = function (type, part) { const G = g(); G.tool.type = type; G.tool.part = part || null; G.ghost = null; G.wireFrom = 0; ui.hintText = type === 'part' ? DI.PARTS[part].name + ' (' + DI.money(DI.partCost(part)) + '): click to place, R rotates. ' + DI.PARTS[part].desc : HINT[type] || ''; ui.toolbar(); DI.cv.style.cursor = type === 'select' ? 'default' : 'crosshair'; };
+  ui.setTool = function (type, part) { const G = g(); G.tool.type = type; G.tool.part = part || null; if (type !== 'select') { G.sel = null; DI.inspect.render(true); } if (part) ui.category = DI.PARTS[part].cat; G.ghost = null; G.wireFrom = 0; ui.hintText = type === 'part' ? DI.PARTS[part].name + ' (' + DI.money(DI.partCost(part)) + '): click to place, R rotates. ' + DI.PARTS[part].desc : HINT[type] || ''; ui.toolbar(); DI.cv.style.cursor = type === 'select' ? 'default' : 'crosshair'; };
 
   ui.toolbar = function () {
-    const G = g(), T0 = $('tools'); T0.innerHTML = '<div id="hint"></div><div class="rowg"></div>'; const T = T0.lastChild; T0.firstChild.textContent = ui.hintText || '';
+    const G = g(), T0 = $('tools'); T0.innerHTML = '<div class="rowg"></div><div id="hint"></div>'; const T = T0.firstChild; T0.lastChild.textContent = ui.hintText || '';
     const grp = (name) => { const d = document.createElement('div'); d.className = 'grp'; d.innerHTML = '<span>' + name + '</span><div class="bs"></div>'; T.appendChild(d); return d.lastChild; };
     const btn = (par, icon, label, key, on, fn, tip) => { const b = document.createElement('button'); b.className = 'tb' + (on ? ' on' : ''); b.appendChild(DI.iconCanvas(icon, 30)); b.insertAdjacentHTML('beforeend', '<kbd>' + key + '</kbd>' + esc(label)); b.onclick = fn; b.title = tip || label; par.appendChild(b); };
     let d = grp('TOOLS');
@@ -6661,23 +6850,25 @@ var DI = globalThis.DI || (globalThis.DI = {});
     d = grp('SIZE'); const sz = document.createElement('div'); sz.className = 'szs';
     const sk = G.tool.type === 'branch' ? 'bsize' : 'size';
     DI.PIPES.forEach((p, i) => { const b = document.createElement('button'); b.className = 'tb sz' + (G.tool[sk] === i ? ' on' : ''); b.textContent = p.n; b.title = p.n + ' pipe: ' + DI.money(p.cost) + ' per 10 ft'; b.onclick = () => { G.tool[sk] = i; ui.toolbar(); }; sz.appendChild(b); }); d.appendChild(sz);
-    for (const cat of DI.CATS) {
-      const ps = G.sc.parts.filter((p) => DI.PARTS[p].cat === cat.id); if (!ps.length) continue; d = grp(cat.name.toUpperCase());
-      for (const p of ps) btn(d, p, SHORT[p] || DI.PARTS[p].name, '', G.tool.type === 'part' && G.tool.part === p, () => ui.setTool('part', p), DI.PARTS[p].name + ' - ' + DI.money(DI.partCost(p)) + '\n' + DI.PARTS[p].desc);
-    }
+    const cats = DI.CATS.filter((cat) => G.sc.parts.some((p) => DI.PARTS[p].cat === cat.id));
+    if (!cats.some((cat) => cat.id === ui.category)) ui.category = cats.length ? cats[0].id : null;
+    const equipment = document.createElement('div'); equipment.className = 'equipment'; T.appendChild(equipment);
+    const tabs = document.createElement('div'); tabs.className = 'equipment-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Equipment categories'); equipment.appendChild(tabs);
+    for (const cat of cats) { const b = document.createElement('button'); b.dataset.category = cat.id; b.textContent = cat.name; b.className = cat.id === ui.category ? 'on' : ''; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', String(cat.id === ui.category)); b.onclick = () => { ui.category = cat.id; ui.toolbar(); $('tools').querySelector('[data-category="' + cat.id + '"]').focus(); }; tabs.appendChild(b); }
+    const shelf = document.createElement('div'); shelf.className = 'equipment-shelf bs'; shelf.setAttribute('role', 'tabpanel'); shelf.setAttribute('aria-label', (cats.find((cat) => cat.id === ui.category) || {}).name || 'Equipment'); equipment.appendChild(shelf);
+    for (const p of G.sc.parts.filter((p) => DI.PARTS[p].cat === ui.category)) btn(shelf, p, SHORT[p] || DI.PARTS[p].name, '', G.tool.type === 'part' && G.tool.part === p, () => ui.setTool('part', p), DI.PARTS[p].name + ' - ' + DI.money(DI.partCost(p)) + '\n' + DI.PARTS[p].desc);
     ui.fitPanels();
   };
-  // The toolbar grows with the parts a scenario offers (two rows in the sandbox and contract 7). Keep the
-  // inspector and the annunciator above it, so the last controls of a panel are never hidden behind it.
-  ui.fitPanels = function () { const top = $('tools').getBoundingClientRect().top; if (!(top > 0)) return; for (const id of ['side', 'ann']) $(id).style.maxHeight = Math.max(180, top - 52 - 8) + 'px'; };
+  ui.fitPanels = function () { const focus = document.body.classList.contains('focus-view'), top = focus ? innerHeight - 42 : $('tools').getBoundingClientRect().top; if (!(top > 0)) return; for (const id of ['side', 'ann']) $(id).style.maxHeight = Math.max(120, top - (parseFloat(getComputedStyle($(id)).top) || 0) - 16) + 'px'; document.documentElement.style.setProperty('--dock-height', (focus ? 0 : innerHeight - top) + 'px'); };
   ui.onScenario = function () {
-    const G = g(); ui.close(); $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
+    const G = g(); ui.close(); document.body.classList.add('playing'); ui.lastAlarmCount = 0; $('log').innerHTML = ''; $('scName').innerHTML = esc(G.sc.name) + '<small>' + esc(G.sc.tag) + '</small>';
     $('bInc').style.display = G.sc.sandbox ? '' : 'none'; $('bSite').style.display = ''; $('bDrill').style.display = G.sc.drill ? '' : 'none'; $('bGoals').style.display = G.sc.goals.length ? '' : 'none';
     $('bHint').style.display = $('bDiag').style.display = G.sc.puzzle ? '' : 'none';
     ui.setTool('select'); DI.inspect.render(true);
   };
   ui.tick = function () {
     const G = g(), S = G.S, W = G.W;
+    ui.updateZoom();
     $('clock').textContent = (G.warp > 0 ? '⏩ ' : '') + DI.clock(S.t);
     $('money').textContent = G.sc.sandbox ? '∞' : DI.money(W.money); $('money').classList.toggle('neg', W.money < 0);
     $('goalN').textContent = G.goalOk.filter(Boolean).length + '/' + G.goalOk.length;
@@ -6688,6 +6879,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // Impairment tags are riser tags, not signals: listed above the signals, and still shown with a dead panel.
     const imps = DI.impairments(S), ih = imps.length ? '<div class="hd3">IMPAIRMENT TAGS</div>' + imps.map((x) => '<div class="imp" data-p="' + x.id + '">' + esc(x.text) + '</div>').join('') : '';
     if ($('imp').dataset.h !== ih) { $('imp').innerHTML = ih; $('imp').dataset.h = ih; }
+    // Impairments are tags, not alarm signals. Keep their presence visible with the log collapsed.
+    const tagSummary = imps.length ? imps.length + ' IMPAIRMENT' + (imps.length === 1 ? '' : 'S') : '';
+    if ($('annTags').textContent !== tagSummary) $('annTags').textContent = tagSummary;
     // Annunciator: alarm, then OPEN (release input, class not elected), then supervisory, then trouble. A detector
     // stage that a higher stage has superseded stays listed as the record of the crossing and is not counted.
     // A dead panel is dark: its own signals (o.dark) are not listed. What the supervising station reports about it
@@ -6713,6 +6907,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // ASSUMED presentation: the banner reads OPEN ITEM only when nothing but OPEN is present
     const st = $('annState'), sil = (al || sv || tr || op) && !loud;       // SILENCED only when every active signal's own panel is silenced
     st.textContent = (al ? 'ALARM' : sv ? 'SUPERVISORY' : tr ? 'TROUBLE' : op ? 'OPEN ITEM' : deadP || lost ? 'PANEL DEAD - DISPLAY DARK' : 'NORMAL') + (sil ? ' · SILENCED' : ''); st.className = (al ? 'al' : sv ? 'sv' : tr || lost || deadP ? 'tr' : op ? 'op' : '') + (sil ? ' sil' : '');
+    // A new alarm reveals its location; the compact monitor remains present even in Focus view.
+    if (al > (ui.lastAlarmCount || 0)) { $('ann').classList.remove('collapsed'); $('bAnnToggle').setAttribute('aria-expanded', 'true'); }
+    ui.lastAlarmCount = al;
     DI.inspect.render(false);
     if (ui.modalOpen && ui.ce) ui.showCE(ui.ce, true);          // the matrix marks what is active now
   };
@@ -6748,7 +6945,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     return art;
   }
   ui.showMenu = function () {
-    const G = g(); G.mode = 'menu';
+    const G = g(); G.mode = 'menu'; document.body.classList.remove('playing');
     const contracts = DI.SCEN.filter((sc) => !sc.sandbox), won = contracts.filter((sc) => G.prog.done[sc.id] && G.prog.done[sc.id].stars > 0).length;
     let unlocked = true, h = '<div class="menu-mast"><span class="di-mark" aria-hidden="true">Ⅱ</span><span>CRITICAL INFRASTRUCTURE / OPERATIONS DIVISION</span><span class="menu-status"><i></i> SIMULATION ONLINE</span></div><section class="menu-hero"><div class="hero-copy"><div class="eyebrow">A FIRE PROTECTION STRATEGY GAME</div><h1>DOUBLE<br><span>INTERLOCK</span></h1><p class="hero-line">Build with purpose.<br>Protect under pressure.</p><p class="hero-description">Engineer the systems that stand between a data center and disaster. Learn the physics. Master the response.</p><div class="hero-tags"><span>LIVE HYDRAULICS</span><span>REAL CONSEQUENCES</span><span>HANDS-ON LEARNING</span></div></div>' + menuArt() + '</section><div class="campaign-heading"><div><span class="eyebrow">BUILD. COMMISSION. SURVIVE.</span><h2>Choose your contract</h2></div><div class="campaign-progress"><strong>' + String(won).padStart(2, '0') + '</strong><span>/ ' + String(contracts.length).padStart(2, '0') + ' CONTRACTS CLEARED</span></div></div><div class="cards campaign-cards">';
     DI.SCEN.forEach((sc, i) => {
@@ -7217,7 +7414,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cost = DI.partCost(type, def.props) - W.pipeCost(tl.x, tl.y);
     if (!rich(cost)) { DI.ui.banner('Not enough budget: ' + def.name + ' costs ' + DI.money(cost) + '.'); return; }
     DI.pushUndo(); W.erasePipe(tl.x, tl.y); const p = W.addPart(type, tl.x, tl.y, rot); if (!p) return;
-    W.money -= cost; DI.edited(); DI.audio.play('place'); G.sel = { kind: 'part', id: p.id }; DI.inspect.render(true);
+    // Keep construction clear of inspector overlays; Select opens a placed device's controls.
+    W.money -= cost; DI.edited(); DI.audio.play('place'); G.sel = null; DI.inspect.render(true);
   }
   function ghostFor(tl) {
     const G = g(), W = G.W, t = G.tool;
@@ -7284,6 +7482,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
       else if (k === ' ') { e.preventDefault(); DI.setSpeed(G.speed ? 0 : 1); }
       else if (k === 'm') DI.ui.showManual();
       else if (k === 'g') DI.ui.showGoals();
+      else if (k === 'f') DI.ui.toggleFocus();
+      else if (k === 'home') { e.preventDefault(); DI.ui.fitSite(); }
       else if (k === 'delete' || k === 'backspace') { if (G.sel && G.sel.kind === 'part') { const p = G.W.parts.get(G.sel.id); if (p && !p.p.fixed) { DI.pushUndo(); G.W.money += DI.partCost(p.type, p.p); G.W.removePart(p.id); G.sel = null; DI.edited(); DI.inspect.render(true); } } }
       else keys.add(k);
     });
@@ -7324,36 +7524,24 @@ var DI = globalThis.DI || (globalThis.DI = {});
   const nav = DI.tactical = {};
   nav.init = function () {
     root = document.createElement('div'); root.id = 'tactical'; root.hidden = true;
-    root.innerHTML = '<div id="viewControls" aria-label="Map controls"><span class="view-live"><i></i><span id="viewState">LIVE SYSTEMS</span></span><span class="view-scale">5 ft guides <b>·</b> 10 ft build</span><button id="vGrid" aria-pressed="true" title="Toggle 5-foot detail guides">Grid</button><button id="vFit" title="Fit campus (F)">Fit <kbd>F</kbd></button><button id="vOut" aria-label="Zoom out">−</button><button id="vIn" aria-label="Zoom in">+</button><button id="vPhoto" title="Hide interface (H)" aria-label="Hide interface">Hide</button></div>' +
+    root.innerHTML = '<div id="tacticalControls" aria-label="Map controls"><span class="view-live"><i></i><span id="viewState">LIVE SYSTEMS</span></span><span class="view-scale">5 ft guides <b>·</b> 10 ft build</span><button id="vGrid" aria-pressed="true" title="Toggle 5-foot detail guides">Grid</button><button id="vFit" title="Fit campus (Home)">Fit <kbd>Home</kbd></button><button id="vOut" aria-label="Zoom out">−</button><button id="vIn" aria-label="Zoom in">+</button><button id="vPhoto" title="Hide interface (H)" aria-label="Hide interface">Hide</button></div>' +
       '<aside id="campusNav"><div class="nav-head"><span>CAMPUS OVERVIEW</span><span id="navZoom"></span></div><canvas id="campusMap" width="544" height="224" tabindex="0" role="button" aria-label="Campus minimap. Click to move the camera. Arrow keys pan; Enter fits the campus."></canvas><div class="map-key"><span><i class="water"></i> Water</span><span><i class="gas"></i> Air / N₂</span><span><i class="alarm"></i> Fire</span><span>CLICK TO NAVIGATE</span></div><div id="fieldCoach"><div class="coach-tag">FIELD NOTE <span id="coachNumber">01</span></div><h3 id="coachTitle"></h3><p id="coachText"></p><button id="coachMore">Explore the principle <span>&gt;</span></button></div><div class="mission-progress"><span id="missionPhase"></span><span id="missionCount"></span><div class="mission-track"><i id="missionFill"></i></div></div></aside>' +
       '<button id="restoreHud" hidden>Show interface <kbd>H</kbd></button>';
-    document.body.appendChild(root); mini = $('campusMap'); map = mini.getContext('2d'); view = $('viewControls');
+    document.body.appendChild(root); mini = $('campusMap'); map = mini.getContext('2d'); view = $('tacticalControls');
     $('vGrid').onclick = () => { const g = DI.game; g.viewGrid = g.viewGrid === false; $('vGrid').setAttribute('aria-pressed', String(g.viewGrid)); };
     $('vFit').onclick = nav.fit;
     $('vOut').onclick = () => nav.zoom(1 / 1.2); $('vIn').onclick = () => nav.zoom(1.2);
     $('vPhoto').onclick = $('restoreHud').onclick = nav.photo;
     mini.addEventListener('click', (e) => { const r = mini.getBoundingClientRect(), g = DI.game; g.cam.x = DI.clamp((e.clientX - r.left) / r.width * g.W.w, 0, g.W.w); g.cam.y = DI.clamp((e.clientY - r.top) / r.height * g.W.h, 0, g.W.h); nav.drawMap(); });
     mini.addEventListener('keydown', (e) => { const g = DI.game; if (e.key === 'Enter' || e.key === ' ') nav.fit(); else if (e.key === 'ArrowLeft') g.cam.x -= 3; else if (e.key === 'ArrowRight') g.cam.x += 3; else if (e.key === 'ArrowUp') g.cam.y -= 3; else if (e.key === 'ArrowDown') g.cam.y += 3; else return; e.preventDefault(); e.stopPropagation(); nav.drawMap(); });
-    window.addEventListener('keydown', (e) => { if (DI.game.mode !== 'play' || DI.ui.modalOpen || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)) return; if (e.key.toLowerCase() === 'f') nav.fit(); else if (e.key.toLowerCase() === 'h') nav.photo(); });
+    window.addEventListener('keydown', (e) => { if (DI.game.mode !== 'play' || DI.ui.modalOpen || e.ctrlKey || e.metaKey || e.altKey || /INPUT|TEXTAREA|SELECT|BUTTON/.test(e.target.tagName)) return; if (e.key.toLowerCase() === 'h') nav.photo(); });
     window.addEventListener('resize', () => { lastLayout = ''; if (DI.game.mode === 'play') nav.tick(); });
   };
   nav.visible = function (on) { if (root && root.hidden === on) root.hidden = !on; };
   nav.onScenario = function () { nav.visible(true); document.body.classList.remove('cinematic'); $('restoreHud').hidden = true; lastNote = ''; lastLayout = ''; $('vGrid').setAttribute('aria-pressed', String(DI.game.viewGrid !== false)); nav.tick(); };
   nav.photo = function () { const on = document.body.classList.toggle('cinematic'); $('restoreHud').hidden = !on; $('tip').style.display = 'none'; };
   nav.zoom = function (factor) { DI.game.cam.z = DI.clamp(Math.round(DI.game.cam.z * factor), 5, 56); nav.drawMap(); };
-  nav.fit = function () {
-    const g = DI.game, W = g.W; if (!W) return;
-    let x0 = W.w, y0 = W.h, x1 = 0, y1 = 0;
-    for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
-    for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x + 1); y1 = Math.max(y1, p.y + 1); }
-    for (let k = 0; k < W.pd.length; k++) if (W.pd[k] || W.air[k]) { const x = k % W.w, y = Math.floor(k / W.w); x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x + 1); y1 = Math.max(y1, y + 1); }
-    if (x1 <= x0) { x0 = y0 = 0; x1 = W.w; y1 = W.h; }
-    const cinematic = document.body.classList.contains('cinematic'), left = cinematic ? 28 : innerWidth > 1050 ? 324 : 20, right = cinematic ? 28 : innerWidth > 1050 ? 348 : 20, top = cinematic ? 28 : 105;
-    const bottom = cinematic ? innerHeight - 28 : $('tools').getBoundingClientRect().top - 24;
-    const cx = (left + innerWidth - right) / 2, cy = (top + bottom) / 2;
-    const z = g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - left - right) / (x1 - x0 + 3), (bottom - top) / (y1 - y0 + 3))), 5, 38);
-    g.cam.x = (x0 + x1) / 2 - (cx - innerWidth / 2) / z; g.cam.y = (y0 + y1) / 2 - (cy - innerHeight / 2) / z; nav.drawMap();
-  };
+  nav.fit = function () { DI.ui.fitSite(); nav.drawMap(); };
   nav.drawMap = function () {
     const g = DI.game, W = g.W, S = g.S; if (!W || !map) return;
     const w = 272, h = 112, sx = w / W.w, sy = h / W.h;
@@ -7417,10 +7605,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if (pz) { if (sv && sv.puz) DI.puzLoad(S, sv.puz); else DI.puzInit(S, sc); } else DI.puzActive = null;
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
     S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
-    let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0; for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
-    for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
-    g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
-    DI.ui.onScenario();
+    DI.ui.onScenario(); DI.ui.fitSite();
     if (DI.tactical) DI.tactical.onScenario();
     // a field call opens on its records: what the setup put in the event log (the night's alarm, the resets) is shown
     if (pz) for (const l of S.log) DI.bus.emit('log', l.text, l.cls);
