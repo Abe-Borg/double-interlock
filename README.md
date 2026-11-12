@@ -134,6 +134,7 @@ suction as -14.7 (full vacuum) rather than a number no gauge can read (the netwo
 | `Ctrl+Z` | Undo |
 | Right-drag, `WASD`, wheel | Pan and zoom |
 | `G` / `M` / `Del` | Goals / field manual / remove the selected part |
+| `H` | Hide or restore the whole interface |
 
 Equipment is grouped into category tabs along the bottom. Click the system monitor to expand signals and the event log; a new alarm opens it automatically. Select a part or floor tile to open its inspector, and close it with × when finished. The Fit site and + / − controls sit above the equipment dock. Visual effects respect your system’s reduced-motion preference.
 
@@ -141,6 +142,13 @@ Rules of the grid: one tile is 10 ft and one sprinkler tile protects 100 sq ft. 
 they touch. Branch lines join only end to end and to a main beside them, and never through a wall.
 Pipes cannot cross, so plan the trunk first. Pipe colour is its contents: blue water (brighter is higher
 pressure), sand compressed air, teal nitrogen. White dashes are flow. Hover any pipe for psi, gpm, ft/s.
+
+The detailed view adds 5 ft visual guides inside the 10 ft construction cells; the Grid button toggles
+those guides. Building still snaps to 10 ft, so pipe lengths, costs and sprinkler coverage remain consistent.
+Click the campus minimap to navigate, or focus it and use the arrow keys. The field note explains the
+selected equipment and opens the relevant manual chapter. Dimensional rooms, illuminated racks,
+metal pipe fittings and active fire/water effects make the live system easier to read. Reduced-motion
+preferences freeze decorative animation while the simulation continues normally.
 
 ## What is simulated
 

@@ -95,6 +95,188 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .card small.vs { font:11px var(--mono); color:var(--amb); margin-top:3px; }
 button.dg { text-align:left; width:100%; }
 
+/* Operations edition: restrained instrument panels around a luminous game world. */
+:root { --bg:#080f15; --pan:#101d27; --pan2:#182b37; --line:#2b414e; --ink:#e0ebef; --dim:#91a7b4; --grn:#74dcc0; --wat:#66c9f2; --accent:#efa16b; }
+body { -webkit-font-smoothing:antialiased; }
+button { transition:background .15s,border-color .15s,box-shadow .15s,color .15s; background:linear-gradient(180deg,#1a2d39,#13222d); border-color:#304651; border-radius:3px; box-shadow:inset 0 1px 0 #ffffff04; }
+button:hover:not(:disabled) { background:#213c49; border-color:#779eaa; color:#f3fbff; }
+button:focus-visible { outline:2px solid #f0ad75; outline-offset:3px; }
+button:active:not(:disabled) { box-shadow:inset 0 2px 7px #0006; }
+button.on { background:linear-gradient(180deg,#254657,#193344); border-color:#78cfe7; box-shadow:inset 0 0 12px #60c5eb10; }
+button.go { background:linear-gradient(135deg,#244a3e,#16342d); border-color:#65b49c; color:#d7fff0; }
+button.hot { background:linear-gradient(135deg,#46241d,#2e1919); border-color:#bd6653; }
+#top { background:linear-gradient(180deg,#172733f5,#0d1822fc); border-bottom:1px solid #3d5663; box-shadow:0 5px 20px #0006,inset 0 1px 0 #9dc7d00c; }
+#bMenu { border-color:#84664d; color:#edb083; min-width:30px; }
+#scName { color:#eef7fa; letter-spacing:.11em; }
+#scName small { color:#8faab8; }
+#clock { color:#d5eef0; letter-spacing:-.04em; }
+#money { color:#9fe2c4; text-shadow:0 0 18px #65b59b25; }
+#bGoals { border-radius:3px; border-color:#486675; }
+#goalN { color:#e9b686; padding-left:4px; font:11px var(--mono); }
+#ann,#side { background:linear-gradient(135deg,#152530f5,#0b171ff5); border-color:#344e5b; border-radius:4px; box-shadow:0 8px 28px #0006,inset 0 1px 0 #bdd7df10; backdrop-filter:blur(12px); }
+#ann .hd,#side h3 { background:linear-gradient(90deg,#223946b0,#10212b); border-bottom:1px solid #3a5460; }
+#ann .hd { font-size:9px; letter-spacing:.05em; padding:9px 8px; align-items:center; }
+#annState { font-size:8px; letter-spacing:.03em; border:1px solid currentColor; border-radius:2px; padding:2px 4px; background:#0c1b20; }
+#ann .hd2 { font-size:9px; letter-spacing:.17em; color:#9ab5c1; background:#0b1821; padding-top:6px; padding-bottom:6px; }
+#sigs .sig { padding-top:7px; padding-bottom:7px; font-size:11px; }
+#log { padding:6px 0; }
+#log div { padding-top:3px; padding-bottom:3px; line-height:1.45; }
+#side h3 { padding-top:10px; padding-bottom:9px; color:#e4f0f4; font-size:12px; }
+#side .sec { color:#bdcfd5; background:#1527307a; padding-top:6px; padding-bottom:5px; }
+#side .row { padding-top:3px; padding-bottom:3px; }
+#side .row:nth-of-type(even) { background:#8daeb504; }
+#side .res { background:#09161eb3; border-radius:0 3px 3px 0; line-height:1.55; }
+#tools { background:linear-gradient(180deg,#182b37f7,#0c1923fa); border-color:#3c5662; border-radius:6px; box-shadow:0 -4px 28px #0006,inset 0 1px 0 #aac6ce10; backdrop-filter:blur(12px); }
+#hint { color:#a8c0cc; font-size:11px; padding-bottom:4px; border-bottom:1px solid #2c414d; }
+#tools .grp > span { color:#d0ad89; letter-spacing:.14em; }
+.tb { background:linear-gradient(160deg,#203440,#12232d); border-color:#314955; border-radius:3px; }
+.tb:hover:not(:disabled) { box-shadow:0 0 14px #85d8ed12,inset 0 1px 0 #8ed9e127; }
+.tb.on { border-color:#8ad2e3; background:linear-gradient(160deg,#2b5364,#1c3848); color:#fff; box-shadow:inset 0 -2px 0 #78cbdc; }
+.tb kbd { background:#07151c75; padding:1px 3px; border-radius:2px; color:#9eb8c6; left:2px; top:2px; }
+.tb.sz.on { border-color:#e6ad79; color:#f3c598; box-shadow:inset 0 -1px 0 #dfa165; background:#45372c; }
+#tip,#pop { box-shadow:0 8px 30px #0008; border-color:#4a6673; background:#0d1c26; }
+#banner { box-shadow:0 6px 25px #0007; border-radius:3px; }
+#modal { background:rgba(3,10,16,.78); backdrop-filter:blur(7px); }
+#mbox { border-radius:5px; border-color:#45606d; background:linear-gradient(135deg,#172b37,#0d1b25 70%); box-shadow:0 24px 100px #000a,inset 0 1px 0 #a3c9d51c; }
+#mbox h2 { font-size:24px; letter-spacing:.02em; }
+#mbox h4 { color:#b8ae94; margin-top:20px; }
+#mbox p { color:#b1c5cf; }
+#mbox .sub { color:#8faebc; font-size:11px; }
+.goal { padding:9px 0; border-color:#2c414c; }
+.goal i { width:22px; color:#c4a27b; }
+.goal.ok i { color:#84dfbc; }
+.goal.ok { color:#a3c8bc; }
+.mrow { border-top:1px solid #304651; padding-top:15px; }
+.mrow button.go { padding-left:24px; padding-right:24px; }
+.learning-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; padding:0; list-style:none; }
+#mbox .learning-grid li { margin:0; padding:12px; background:#0b1921a0; border:1px solid #2b424f; border-radius:3px; display:flex; gap:12px; font-size:12px; line-height:1.5; }
+.learning-grid li > span { color:#cfac82; font:12px var(--mono); padding-top:2px; }
+.brief-heading { border-bottom:1px solid #3b5460; padding-bottom:13px; margin-bottom:16px; }
+.brief-heading .eyebrow { display:block; margin-bottom:9px; }
+#mbox .brief-heading h2 { font-size:30px; text-transform:none; letter-spacing:-.03em; }
+#mbox .brief-heading .sub { margin-bottom:0; margin-top:6px; }
+.brief-tip { margin-right:auto; color:#7e9eae; font-size:12px; }
+.eyebrow { color:#d3aa80; font:10px/1.5 var(--mono); letter-spacing:.16em; }
+
+/* The campaign screen keeps all cards in the document for keyboard access and resume. */
+#modal.menu-mode { background:radial-gradient(ellipse at 75% 20%,#183b43 0,transparent 45%),linear-gradient(135deg,#0b1c27,#040b10); backdrop-filter:none; }
+#mbox.menu-box { width:min(1240px,96vw); max-height:96vh; padding:18px 32px 24px; background:linear-gradient(120deg,#142731f5,#0b1821f5); border-color:#2b4652; box-shadow:0 20px 90px #0008; }
+.menu-mast { display:flex; align-items:center; gap:12px; padding-bottom:13px; border-bottom:1px solid #39505a80; color:#81a0ae; font:9px var(--mono); letter-spacing:.13em; }
+.di-mark { display:inline-flex; width:24px; height:24px; align-items:center; justify-content:center; color:#efb17f; border:1px solid #b57f53; font-size:14px; font-weight:700; transform:rotate(-8deg); }
+.menu-status { margin-left:auto; color:#86bba9; display:flex; gap:7px; align-items:center; font-size:9px; }
+.menu-status i { width:5px; height:5px; background:#87d6b9; box-shadow:0 0 9px #65d9ad7a; border-radius:50%; }
+.menu-hero { min-height:318px; display:grid; grid-template-columns:1fr 1.1fr; align-items:center; position:relative; isolation:isolate; border-bottom:1px solid #2e4652; }
+.menu-hero::before { content:""; position:absolute; inset:0 -32px; z-index:-1; background:radial-gradient(ellipse at 72% 40%,#2a6b7433,transparent 65%),linear-gradient(90deg,transparent,#50788705); pointer-events:none; }
+.hero-copy { padding:26px 0 24px 12px; position:relative; z-index:1; }
+#mbox .menu-hero h1 { font-size:clamp(36px,4.4vw,63px); font-weight:850; letter-spacing:-.055em; line-height:.95; margin:12px 0 15px; color:#f2f7f8; }
+#mbox .menu-hero h1 span { color:#efac79; }
+#mbox .hero-line { font-size:22px; color:#e2edf0; font-weight:500; line-height:1.2; letter-spacing:-.025em; margin:0 0 10px; }
+#mbox .hero-description { font-size:12px; line-height:1.6; color:#94b0be; max-width:360px; margin:0 0 17px; }
+.hero-tags { display:flex; flex-wrap:wrap; gap:14px; color:#7996a4; font:7.5px var(--mono); letter-spacing:.1em; }
+.hero-tags span::before { content:"+"; color:#dcab77; padding-right:5px; }
+.facility-art { width:100%; max-height:370px; overflow:visible; filter:drop-shadow(0 16px 18px #0005); }
+.campaign-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:20px 0 13px; }
+#mbox .campaign-heading h2 { font-size:21px; text-transform:none; font-weight:600; letter-spacing:-.02em; margin:3px 0 0; }
+.campaign-progress { display:flex; align-items:baseline; gap:7px; color:#92b5c0; }
+.campaign-progress strong { font:26px var(--mono); color:#d5ebe8; }
+.campaign-progress span { font:9px var(--mono); letter-spacing:.08em; }
+.cards { gap:10px; }
+.campaign-cards { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:0; }
+.card { background:linear-gradient(130deg,#1a303d,#12232d); border-color:#3b5360; border-radius:3px; padding:14px 14px 10px; position:relative; overflow:hidden; }
+.card::before { content:""; width:3px; position:absolute; top:15px; bottom:15px; left:0; background:#7faeb9; opacity:.5; }
+.card-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:6px; }
+.card em { color:#92adba; font-size:8px; letter-spacing:.1em; }
+.card-state { font:8px var(--mono); color:#cead89; letter-spacing:.06em; }
+.card b { font-size:12.5px; letter-spacing:0; text-transform:none; font-weight:650; }
+.card small { font-size:10px; color:#8ba6b5; line-height:1.5; margin-top:4px; }
+.card.available { border-color:#627c82; }
+.card.available:not(.sandbox-card)::before { background:#ecb073; opacity:1; }
+.card.available:not(.sandbox-card) { background:linear-gradient(120deg,#39413c,#172a32 60%); border-color:#91785c; }
+.card.available:hover { border-color:#dfad7d; background:linear-gradient(120deg,#45473d,#1e3540 80%); box-shadow:0 0 22px #d8a6630d; }
+.card.lock:disabled { opacity:.6; }
+.card.lock .card-state { color:#728b9a; font-size:7px; }
+.card-rule { display:block; height:2px; margin-top:12px; background:#6e8c971b; }
+.card-rule > span { display:block; height:100%; background:#c9aa75; }
+.sandbox-card .card-state { color:#83c8c0; }
+.card.puz { min-height:118px; }
+.card.puz > em { display:block; margin-bottom:9px; }
+.card.puz i { font-size:10px; }
+.card.puz small.vs { font-size:9px; color:#b99d78; }
+.menu-box > h4 { border-top:1px solid #304751; padding-top:20px; }
+.menu-box > .cards:not(.campaign-cards) { grid-template-columns:repeat(4,minmax(0,1fr)); }
+#mbox.menu-box > .mrow > span { font-size:10px !important; line-height:1.65; color:#76919e !important; max-width:730px; }
+#mbox.menu-box > .mrow > button { font-size:11px; padding:6px 10px; white-space:nowrap; }
+::-webkit-scrollbar { width:6px; height:6px; }
+::-webkit-scrollbar-thumb { background:#3e5a67; border-radius:6px; }
+::-webkit-scrollbar-track { background:#08141c; }
+@media (max-width:1100px) {
+  #top { gap:6px; padding-left:6px; padding-right:6px; }
+  #top > div { gap:3px; }
+  #top button { padding-left:5px; padding-right:5px; font-size:11px; }
+  #clock { min-width:90px; font-size:12px; }
+  #scName { font-size:10px; letter-spacing:.05em; }
+  #scName small { font-size:9px; }
+  #wx { font-size:9px; margin-left:3px; }
+  #money { font-size:12px; margin-right:2px; }
+  .hero-copy { padding-left:0; }
+  .hero-tags { gap:8px; font-size:6.5px; }
+  .campaign-cards,.menu-box > .cards:not(.campaign-cards) { grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (max-width:760px) {
+  #mbox.menu-box { padding-left:18px; padding-right:18px; }
+  .menu-mast { font-size:7px; }
+  .menu-status { font-size:7px; }
+  .menu-hero { min-height:0; grid-template-columns:1fr; }
+  .facility-art { position:absolute; right:-50px; bottom:0; width:65%; opacity:.28; z-index:0; }
+  .hero-copy { padding-top:22px; padding-bottom:26px; }
+  #mbox .menu-hero h1 { font-size:48px; }
+  .hero-description { max-width:290px !important; }
+  .campaign-cards,.menu-box > .cards:not(.campaign-cards) { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .campaign-progress { gap:4px; }
+  .campaign-progress span { font-size:7px; }
+  .learning-grid { grid-template-columns:1fr; }
+  .brief-tip { font-size:10px; }
+}
+@media (prefers-reduced-motion:reduce) { button { transition:none; } #annState.al { animation:none; } }
+
+/* Tactical navigation and contextual teaching, sized around the live tool dock. */
+#tactical[hidden], #fieldCoach[hidden], #restoreHud[hidden] { display:none !important; }
+#tacticalControls { position:fixed; z-index:3; top:55px; left:50%; transform:translateX(-50%); display:flex; align-items:center; gap:4px; padding:5px 7px 5px 13px; border:1px solid #344c57; border-radius:4px; background:linear-gradient(115deg,#10252feF,#0b1820ed); box-shadow:0 7px 25px #0004; white-space:nowrap; }
+.view-live { font:8px var(--mono); letter-spacing:.12em; color:#b0c7cf; display:flex; gap:6px; align-items:center; padding-right:11px; }
+.view-live i { width:5px; height:5px; border-radius:50%; background:#82d9bf; box-shadow:0 0 8px #82d9bf70; }
+.view-scale { font:9px var(--mono); color:#819eae; padding-right:10px; }
+.view-scale b { color:#d3ab7d; margin:0 3px; }
+#tacticalControls button { font:10px var(--mono); padding:4px 7px; border-color:transparent; background:transparent; color:#9fbcc9; }
+#tacticalControls button:hover { background:#233c49; color:#fff; }
+#tacticalControls #vGrid[aria-pressed=true] { color:#d5b189; background:#293732; border-color:#655b46; }
+#tacticalControls kbd { font:8px var(--mono); color:#627e8d; margin-left:3px; }
+#tacticalControls.compact .view-live { display:none; }
+#campusNav { position:fixed; z-index:3; left:10px; width:292px; border:1px solid #344c57; border-radius:4px; background:linear-gradient(140deg,#142832f5,#0b1821fa); box-shadow:0 8px 25px #0004; overflow:hidden; }
+.nav-head { padding:9px 10px 7px; display:flex; justify-content:space-between; color:#8eafbd; font:8px var(--mono); letter-spacing:.12em; }
+#navZoom { color:#d6b48f; }
+#campusMap { display:block; width:272px; height:112px; margin:0 9px; cursor:crosshair; border:1px solid #2d4958; }
+.map-key { padding:7px 10px 9px; display:flex; gap:9px; font:7px var(--mono); color:#819eac; }
+.map-key span { display:flex; align-items:center; gap:4px; }
+.map-key span:last-child { margin-left:auto; font-size:6px; color:#567382; }
+.map-key i { width:4px; height:4px; border-radius:50%; }.map-key .water { background:#48aee3; }.map-key .gas { background:#c9c08d; }.map-key .alarm { background:#ff714f; }
+#fieldCoach { padding:13px 14px 10px; border-top:1px solid #304652; background:linear-gradient(125deg,#3a3b2b35,transparent); }
+.coach-tag { display:flex; justify-content:space-between; color:#d0ab80; font:8px var(--mono); letter-spacing:.14em; }
+#coachNumber { color:#6b909e; font-size:7px; }
+#coachTitle { margin:9px 0 6px; font-size:15px; color:#e0ebed; font-weight:550; line-height:1.2; letter-spacing:-.025em; }
+#coachText { margin:0 0 9px; font-size:11px; line-height:1.6; color:#91adbc; }
+#coachMore { width:100%; padding:5px 0; border:0; background:transparent; text-align:left; font-size:10px; color:#d6b48f; }
+#coachMore span { float:right; color:#8da7af; }
+#coachMore:hover { color:#ffe0b8; }
+.mission-progress { padding:10px 12px 12px; border-top:1px solid #304652; color:#89a9b6; font:8px var(--mono); letter-spacing:.06em; }
+#missionCount { float:right; color:#d9c1a1; }
+.mission-track { background:#263c46; height:3px; margin-top:8px; }
+#missionFill { display:block; height:3px; background:#c4ab7d; transition:width .4s; }
+#restoreHud { position:fixed; bottom:20px; right:20px; z-index:6; padding:9px 13px; background:#0e212cdd; color:#a4bdc8; font-size:11px; border-color:#385765; }
+#restoreHud kbd { padding-left:12px; color:#cfb088; }
+body.cinematic #top, body.cinematic #ann, body.cinematic #side, body.cinematic #tools, body.cinematic #tacticalControls, body.cinematic #campusNav { visibility:hidden; pointer-events:none; }
+@media (max-width:1050px) { #tacticalControls { top:auto; bottom:180px; } .view-live { display:none; } }
+@media (prefers-reduced-motion:reduce) { #missionFill { transition:none; } }
+
 /* Workspace shell: a quiet instrument frame around an expansive live site. */
 :root { --pan:#101c26; --pan2:#172733; --line:#2a3e4c; --ink:#e2ebf1; --dim:#8ca5b6; --dock-height:146px; }
 button { border-radius:6px; transition:background .16s, border-color .16s, box-shadow .16s; }
@@ -239,3 +421,11 @@ body:not(.playing) #top, body:not(.playing) #workspaceBar, body:not(.playing) #a
 @media (prefers-reduced-motion:reduce) {
   *, *::before, *::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
 }
+
+/* The learning overlay composes with the expanded workspace. */
+#tacticalControls { top:122px; right:auto; bottom:auto; }
+#campusNav { left:24px; }
+body.cinematic #workspaceBar, body.cinematic #viewControls, body.cinematic #canvasGuide { visibility:hidden; pointer-events:none; }
+body.focus-view #campusNav { display:none !important; }
+@media (max-width:1100px) { #tacticalControls { top:150px; } #campusNav { left:16px; } }
+@media (max-width:1050px) { #tacticalControls { top:auto; } }
