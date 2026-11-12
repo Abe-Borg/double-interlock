@@ -19,6 +19,9 @@ DI.clock = (s) => {
   const p = (n) => String(n).padStart(2, '0');
   return (d ? 'D' + (d + 1) + ' ' : '') + p(h) + ':' + p(m) + ':' + p(x);
 };
+// A pressure gauge reading. The network solver has no cavitation: a starved pump suction can solve far below a full
+// vacuum. A gauge cannot read lower than -14.7 psi, so below that the reading says vacuum (display only).
+DI.gaugeText = (p, d) => (p < -DI.ATM ? '-' + DI.ATM + ' (full vacuum)' : DI.fmt(p, d || 0));
 DI.dur = (s) => (s < 90 ? DI.fmt(s, s < 10 ? 1 : 0) + ' s' : s < 5400 ? DI.fmt(s / 60, 1) + ' min' : DI.fmt(s / 3600, 1) + ' h');
 
 DI.rng = function (seed) {           // mulberry32

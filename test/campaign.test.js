@@ -34,9 +34,14 @@ for (const sc of DI.SCEN) {
   // recoveries after the commissioning tests are practice: printed, never counted. Only the c5 drill incident is scored.
   for (const id of S.sysd.info.keys()) { const r = DI.recoveryScore(S, id); if (r) console.log('   recovery #' + id + (sc.id === 'c6' ? ' (not scored in c6): ' : ' (practice): ') + r.done + '/' + r.total + (r.inOrder ? ' in order' : ' OUT OF ORDER') + (r.time !== null ? ' in ' + DI.dur(r.time) + ', of which air refill ' + DI.dur(r.refill) : '')); }
   if (sc.drill) {
-    DI.startDrill(S, sc.drill); let guard = 0;
+    const g0 = DI.goalState(S, sc); DI.startDrill(S, sc.drill, g0); let guard = 0;
     while (!S.drill.done && guard++ < 400000) { S.step(S.fires.length || S.outFlow > 1 ? 0.25 : 1); DI.drillStep(S); if (sol.ops) sol.ops(S); }
     const r = S.drill.result; if (!r || !r.pass) fail++;
+    // the commissioning record survives the drill: every goal met before it is still recorded as met after it, even
+    // where the live goal reads otherwise now (Churn's quiet half hour after its fire pump ran in the fire)
+    const live = DI.botCheck(S, sc);
+    if (!S.drill.goals0 || !S.drill.goals0.every(Boolean)) { fail++; console.log('   UNEXPECTED: the commissioning record taken at the drill start should hold every goal'); }
+    else console.log('   commissioning record kept through the drill: ' + S.drill.goals0.length + ' of ' + S.drill.goals0.length + ' goals (live after the drill: ' + live.map((v) => (v ? 'Y' : 'n')).join('') + ')');
     if (sc.id === 'c5') {      // the one scored recovery: the drill's broken-sprinkler incident, 14 of 14 in order by the reference operator (step 14 is the main drain test, drill only)
       const a = S.acts.find((q) => q.kind === 'incident' && q.t >= S.drill.t0), q = a && DI.recoveryScore(S, a.id, S.drill.t0), L = DI.refillLimit(S.W);
       if (!q || !q.complete || !q.inOrder || q.total !== 14) { fail++; console.log('   UNEXPECTED: the c5 drill recovery should be 14 of 14 in order'); }

@@ -164,13 +164,15 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.row('Zone behind it', () => { if (q.target > 0.5) return q.open > 0.98 ? ['in service', 'good'] : 'opening'; const c = DI.reopenCheck(S, p.id); return c.msg ? [c.msg, 'warn'] : c.items.length ? [c.items.length + ' item(s) still open', 'warn'] : ['ready to reopen', 'good']; });
       // opening is refused only in the scored incident of a running drill; anywhere else it opens and the warning lists what is still open
       B.btns([[q.target > 0.5 ? 'Close valve' : 'Open valve', () => { const opening = !(q.target > 0.5), chk = opening ? DI.reopenCheck(S, p.id) : null, m = DI.setGate(S, p.id, opening ? 1 : 0); if (m) say(m); else { if (chk && chk.items.length) say(DI.reopenWarn(p.id, chk.items)); DI.audio.play('valve'); } },
-        q.target > 0.5 ? 'hot' : 'go', false, 'In the scored incident of a drill the valve reopens only when the zone behind it will hold: panel reset, clapper reset, P clear, air above low air. Anywhere else it opens, and warns about what is still open.']]); }
+        q.target > 0.5 ? 'hot' : 'go', false, 'In the scored incident of a drill the valve reopens only when the zone behind it will hold: panel reset, clapper reset, P clear, air above low air. Anywhere else it opens, and warns about what is still open.']]);
+      // a valve with no supervisory switch fitted (an old sealed yard valve in a field call): closing it signals nothing
+      if (q.sw === 0) { B.row('Tamper switch', () => ['none fitted: nothing reports this valve', 'warn']); B.btns([['Fit a tamper switch (' + DI.money(DI.TAMPER_SW_COST) + ')', () => reprice(p, () => { q.sw = 1; }), '', false, 'A supervisory switch: wired to a panel, the valve reports off normal (below 80 percent open) as a supervisory signal.']]); } }
     else if (p.type === 'city') { B.row('Flow test', () => q.stat + ' static, ' + q.resid + ' @ ' + q.flow + ' gpm'); B.row('Flowing now', () => gpm(S.flowOf(p.id))); B.row('Pressure at tap', () => psi(S.pout(p.id))); }
     else if (p.type === 'tank') { B.pick('Capacity (gal)', [60000, 120000, 240000, 360000, 500000], () => q.cap, (v) => reprice(p, () => { q.cap = v; q.gal = v; }), (v) => v / 1000 + 'k'); B.row('Level', () => DI.fmt(100 * q.gal / q.cap, 1) + '%  (' + Math.round(q.gal).toLocaleString() + ' gal)'); B.row('Draw', () => gpm(S.flowOf(p.id))); B.row('Lasts at this rate', () => S.flowOf(p.id) > 5 ? DI.dur(q.gal / S.flowOf(p.id) * 60) : '-'); }
     else if (p.type === 'epump' || p.type === 'dpump') {
       B.canvas(296, 150, pumpChart(p));
       B.row('Status', () => q.spd > 0.9 ? ['RUNNING', 'good'] : q.on ? [q.failed ? 'FAILED TO START' : p.type === 'dpump' ? 'cranking' : 'no power', 'bad'] : 'standby');
-      B.row('Flow', () => gpm(S.flowOf(p.id)) + ' (' + DI.fmt(100 * S.flowOf(p.id) / q.gpm) + '%)'); B.row('Suction / discharge', () => DI.fmt(S.pin(p.id)) + ' / ' + DI.fmt(S.pout(p.id)) + ' psi'); B.row('System pressure (sensing line)', () => psi(S.pout(q.sense || p.id)));
+      B.row('Flow', () => gpm(S.flowOf(p.id)) + ' (' + DI.fmt(100 * S.flowOf(p.id) / q.gpm) + '%)'); B.row('Suction / discharge', () => DI.gaugeText(S.pin(p.id)) + ' / ' + DI.fmt(S.pout(p.id)) + ' psi'); B.row('System pressure (sensing line)', () => psi(S.pout(q.sense || p.id)));
       B.sec('CONTROLLER'); B.pick('Mode', ['off', 'auto', 'hand'], () => q.mode, (v) => { q.mode = v; if (v === 'off') q.on = false; }, (v) => v.toUpperCase());
       B.btns([['Stop pump', () => { q.on = false; }, 'hot', !q.on || q.mode === 'hand', 'Fire pumps are stopped by hand once the emergency is over']]);
       B.step('Start pressure', () => q.start, (v) => { q.start = v; }, 5, 30, 220, ' psi');
@@ -249,9 +251,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
         [q.battDisc ? 'Reconnect battery' : 'Disconnect battery', () => { q.battDisc = !q.battDisc; }, q.battDisc ? 'hot' : '', false, 'Sandbox only. BATTERY DISCONNECTED is modelled as a trouble (PRACTICE, not code). With no battery the panel dies as soon as AC is lost.']]);
       // Sandbox only, DACT path only: fail one or both of the two DACT channels. One down is a trouble sent on the
       // other channel within 4 minutes; both down, nothing can be sent and the station reports a missed test.
-      if (g().sc.sandbox && DI.commPath(W) === 'dact') { const ch = () => (Array.isArray(q.chan) ? q.chan : [1, 1]), setCh = (a, b) => { q.chan = [a, b]; };
+      if ((g().sc.sandbox || (g().sc.puzzle && !(Array.isArray(q.chan) && q.chan[0] && q.chan[1]))) && DI.commPath(W) === 'dact') { const ch = () => (Array.isArray(q.chan) ? q.chan : [1, 1]), setCh = (a, b) => { q.chan = [a, b]; };
         B.row('DACT channels', () => { const c = ch(); return ['1 ' + (c[0] ? 'up' : 'DOWN') + ', 2 ' + (c[1] ? 'up' : 'DOWN'), c[0] && c[1] ? 'good' : 'warn']; }, 'One channel down: a trouble at the panel at once, sent on the other channel within ' + DI.delayText(DI.DACT_CHAN_S) + ' [' + DI.ref72(W).dactChan + ']; every other signal goes on the surviving channel at once. Both down: the panel cannot send anything, alarms included, so nothing is transmitted and the fire department is not dispatched from it. It tries each signal ' + DI.DACT_TRIES + ' times, ' + DI.DACT_ATTEMPT_S + ' s each (CODE bounds, count ASSUMED; ' + DI.ref72(W).dactTry + '), then shows DACT TRANSMISSION FAILED. When a channel is back every signal that is still active is sent, with its original event time, in priority order (alarm, supervisory, trouble, then a class not elected), then the restorals. Hold and send (site setting, PRACTICE) decides only what happens to a signal that restored inside the outage: ON sends it late with its restoral, OFF drops it. If the panel dies with signals queued none of them is sent: the hazard case. The supervising station reports a missed test after ' + DI.delayText(DI.commDelay(W)) + ' (ASSUMED).');
-        B.btns([['Fail DACT channel 1', () => setCh(0, ch()[1]), 'hot', !ch()[0], 'Sandbox only.'], ['Fail DACT channel 2', () => setCh(ch()[0], 0), 'hot', !ch()[1], 'Sandbox only.'], ['Restore DACT channels', () => setCh(1, 1), 'go', !!(ch()[0] && ch()[1])]]); }
+        B.btns([g().sc.sandbox ? ['Fail DACT channel 1', () => setCh(0, ch()[1]), 'hot', !ch()[0], 'Sandbox only.'] : null, g().sc.sandbox ? ['Fail DACT channel 2', () => setCh(ch()[0], 0), 'hot', !ch()[1], 'Sandbox only.'] : null, ['Restore DACT channels', () => setCh(1, 1), 'go', !!(ch()[0] && ch()[1]), g().sc.sandbox ? '' : 'The telephone company puts the lines back.']]); }
       // one read-only cause-and-effect matrix per preaction zone wired to this panel
       const zones = W.wires.filter((w) => w[0] === p.id).map((w) => W.parts.get(w[1])).filter((d) => d && d.type === 'prev' && S.sysd.info.has(d.id));
       if (zones.length) B.btns(zones.map((z) => ['Cause and effect matrix: #' + z.id, () => DI.ui.showCE(z.id), '', false, DI.sysName(S, z.id) + '. Read-only.']));
@@ -289,6 +291,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.row('Operates', () => { const z = zone(); return z.length ? 'valve ' + z.map((v) => '#' + v.id + ' (' + DI.stationType(W, v) + ')').join(', ') : ['no preaction valve protects this room', 'warn']; });
       B.btns([q.on ? ['Reset station', () => { q.on = false; S.say('Manual station #' + p.id + ' reset. Reset the panel to clear the alarm.', ''); }, 'go'] : ['Operate station', () => { q.on = true; DI.audio.play('valve'); }, 'hot', false, 'An alarm, and the manual input of the valves listed above.']]);
       B.p('Typed DETECTION: operating it is the detection leg D, and water still needs P. It stays operated until it is reset here, so a panel reset alone brings the alarm straight back. With the Manual Release zone bypass ON (site setting, NEEDS PE REVIEW) it is typed MANUAL RELEASE on an electric / electric trim and releases without P.'); }
+    // a two-port part can be turned end for end in place (free): a check valve, a pump or a backflow preventer set the
+    // wrong way round is a fault of its own (the field calls). The glyph shows which way the water is meant to go.
+    if (!q.fixed && DI.PARTS[p.type].ports === 2 && !DI.SYSV[p.type]) B.btns([['Turn end for end', () => { DI.pushUndo(); p.rot = (p.rot + 2) % 4; W.ver++; S.touch(); DI.edited(); }, '', false, 'Reverse the part in place: inlet and outlet swap. The glyph points the way the water goes.']]);
     if (!q.fixed) B.btns([['Remove (refund ' + DI.money(DI.partCost(p.type, q)) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.partCost(p.type, q) + (q.vent ? 3200 : 0); W.removePart(p.id); G.sel = null; DI.edited(); }]]);
   }
   function tilePanel(S, W, k) {
@@ -320,15 +325,29 @@ var DI = globalThis.DI || (globalThis.DI = {});
       B.btns([['Send technician', () => say(DI.sendTech(S, room.id))], G.sc.sandbox ? ['Start a fire here', () => DI.ignite(S, k, 0, 1), 'hot'] : null, G.sc.sandbox ? ['Smouldering fault here', () => DI.ignite(S, k, 240, 1), 'hot'] : null]); }
   }
   function homePanel(G) {
+    if (G.sc.puzzle) return puzPanel(G);
     B.title(G.sc.name, G.sc.sandbox ? 'sandbox' : 'goals'); if (!G.sc.goals.length) { B.p('Free build. Select a floor tile to start a fire there or break a sprinkler. The Incident menu cuts power and changes the weather.'); return; }
     G.sc.goals.forEach((q, i) => B.add('<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '" style="margin:0 10px;font-size:12.5px"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + '</div></div>'));
     const nx = G.sc.goals.find((q, i) => !G.goalOk[i]); if (nx && nx.hint) B.p('Next: ' + nx.hint); else if (!nx && G.sc.drill) B.p('All goals met. Run the acceptance drill.');
+  }
+  // a field call: the question, the goals, the running scorecard and the hints shown so far
+  function puzPanel(G) {
+    const S = G.S, st = DI.puzStatus(S); B.title(G.sc.name, 'field call ' + G.sc.pz.n + ' · ' + G.sc.v.key); if (!st) return;
+    B.p(st.v.diag.q);
+    G.sc.goals.forEach((q, i) => B.add('<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '" style="margin:0 10px;font-size:12.5px"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + '</div></div>'));
+    B.sec('SO FAR');
+    B.row('Edits', () => String(DI.puzStatus(S).edits)); B.row('Spent', () => DI.money(Math.max(0, DI.puzSpent(S))) + ' of ' + DI.money(G.sc.money));
+    B.row('Out of service', () => { const x = DI.puzStatus(S); return x.now.length ? [DI.dur(x.imp) + ' (now)', 'warn'] : DI.dur(x.imp); });
+    if (st.v.live) B.row('Resets while the cause was live', () => { const n = S.puz.futile; return n ? [String(n), 'warn'] : '0'; });
+    B.row('Hints used', () => (st.v.hints.length - DI.puzStatus(S).left) + ' of ' + st.v.hints.length);
+    if (st.hints.length) { B.sec('HINTS'); st.hints.forEach((x, i) => B.p((i + 1) + '. ' + x[0])); }
+    B.btns([[st.left ? 'Hint (' + st.left + ' left)' : 'Hints', () => DI.puzUI.hint()], [S.puz.diag.ok ? 'Diagnosed' : 'Diagnose', () => DI.puzUI.diagnose(), S.puz.diag.ok ? '' : 'go'], ['Goals and records', () => DI.puzUI.goals()]]);
   }
   DI.inspect = { render(force) {
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }
     const S = G.S, W = G.W, sel = G.sel, p = sel && sel.kind === 'part' ? W.parts.get(sel.id) : null; if (sel && sel.kind === 'part' && !p) G.sel = null;
     const s = p && S.ss.get(p.id);
-    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length, s.ret ? (DI.returnStep(S, p.id) || {}).mode : 0, DI.refilling(S, p.id), !!W.cfg.nfpa76Adopted, highGas(S, p), p.type === 'prev' ? drillScored(S, p.id) : 0] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0), p && p.type === 'prev' ? !!DI.recoveryScore(S, p.id) : 0, p && p.type === 'vesda' ? [DI.n76Flags(W).length, !!W.cfg.nfpa76Adopted] : 0], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
+    const sig = JSON.stringify([G.sc.id, sel, p ? p.p : 0, s ? [s.state, s.set, s.holes, s.openK && s.openK.length, s.ret ? (DI.returnStep(S, p.id) || {}).mode : 0, DI.refilling(S, p.id), !!W.cfg.nfpa76Adopted, highGas(S, p), p.type === 'prev' ? drillScored(S, p.id) : 0] : 0, S.leaks.length, S.procs.length, S.results.length, sel ? 0 : G.goalOk, p ? S.calc.get(p.id) && S.calc.get(p.id).minQ : 0, W.ver, !!W.panelOf(p ? p.id : 0), p && p.type === 'prev' ? !!DI.recoveryScore(S, p.id) : 0, p && p.type === 'vesda' ? [DI.n76Flags(W).length, !!W.cfg.nfpa76Adopted] : 0, S.puz ? [S.puz.hints, S.puz.diag.ok, S.puz.diag.tries] : 0], (k, v) => (typeof v === 'number' && k !== 'id' && k !== 'k' ? Math.round(v) : v));
     if (force || sig !== lastSig) { lastSig = sig; acts = []; upd = []; B.h = ''; if (p) partPanel(S, W, p); else if (sel && sel.kind === 'tile') tilePanel(S, W, sel.k); else homePanel(G); el.innerHTML = B.h; }
     for (let i = 0; i < upd.length; i++) { const v = upd[i](); if (v === null) continue; const e = document.getElementById('iv' + i); if (!e) continue; const t = Array.isArray(v) ? v[0] : v, c = Array.isArray(v) ? v[1] : ''; if (e.textContent !== t) e.textContent = t; if (e.className !== c) e.className = c; }
   } };

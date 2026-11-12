@@ -6,21 +6,30 @@ var DI = globalThis.DI || (globalThis.DI = {});
     prog: LS.get('di.progress', { done: {} }), goalOk: [], acc: 0, warp: 0, mode: 'menu' };
   DI.LS = LS;
 
-  DI.startScenario = function (id, fresh) {
-    const sc = DI.SCEN.find((s) => s.id === id), sv = fresh ? null : LS.get('di.save.' + id, null);
+  // id: a contract (DI.SCEN) or a field call (DI.PUZ). vi: the field call's variant (default: the saved one, else the first).
+  DI.startScenario = function (id, fresh, vi) {
+    let sv = fresh ? null : LS.get('di.save.' + id, null);
+    const pz = !DI.SCEN.some((s) => s.id === id) && DI.puzFind && DI.puzFind(id);
+    if (pz && sv && vi !== undefined && sv.vi !== vi) sv = null;              // another variant: start it fresh
+    const sc = pz ? DI.puzScenario(id, vi !== undefined ? vi : sv && sv.vi >= 0 ? sv.vi : 0) : DI.SCEN.find((s) => s.id === id);
     let W, S;
     if (sv) { W = DI.World.fromJSON(sv.world); for (const r of W.rooms) { const o = sv.world.rooms.find((q) => q.id === r.id); if (o) { r.exempt = o.exempt; } } S = new DI.Sim(W); S.contract = !sc.sandbox; S.restore(sv.sim); if (sc.start && sv.sim.leaks.length) S.dirty = true; }
     else ({ W, S } = DI.buildScenario(sc));           // fresh map: the contract's fixed site settings (sc.cfg) are merged in
+    // a field call keeps its own state (the starting layout, hints, diagnosis, clocks) beside the world and the sim
+    if (pz) { if (sv && sv.puz) DI.puzLoad(S, sv.puz); else DI.puzInit(S, sc); } else DI.puzActive = null;
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
     S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
     let x0 = 1e9, y0 = 1e9, x1 = 0, y1 = 0; for (const r of W.rooms) { x0 = Math.min(x0, r.x); y0 = Math.min(y0, r.y); x1 = Math.max(x1, r.x + r.w); y1 = Math.max(y1, r.y + r.h); }
     for (const p of W.parts.values()) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x + 1); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y + 1); }
     g.cam.x = (x0 + x1) / 2; g.cam.y = (y0 + y1) / 2 + 1; g.cam.z = DI.clamp(Math.floor(Math.min((innerWidth - 660) / (x1 - x0 + 4), (innerHeight - 190) / (y1 - y0 + 4))), 9, 26);
-    DI.ui.onScenario(); if (!sv) DI.ui.showBrief(sc);
+    DI.ui.onScenario();
+    // a field call opens on its records: what the setup put in the event log (the night's alarm, the resets) is shown
+    if (pz) for (const l of S.log) DI.bus.emit('log', l.text, l.cls);
+    if (!sv) DI.ui.showBrief(sc);
     // what the load changed in an old save (the retired site refrigerated flag): shown after the log panel was cleared
     if (S.loadNotes) { for (const t of S.loadNotes) DI.bus.emit('log', t, 'warn'); DI.ui.banner(S.loadNotes[0]); delete S.loadNotes; }
   };
-  DI.saveGame = function () { if (g.mode !== 'play' || (g.S.drill && !g.S.drill.done)) return; LS.set('di.save.' + g.sc.id, { world: g.W.toJSON(), sim: g.S.dump(), drillPassed: g.drillPassed }); };
+  DI.saveGame = function () { if (g.mode !== 'play' || (g.S.drill && !g.S.drill.done)) return; LS.set('di.save.' + g.sc.id, Object.assign({ world: g.W.toJSON(), sim: g.S.dump(), drillPassed: g.drillPassed }, g.sc.puzzle ? { vi: g.sc.vi, puz: DI.puzSave(g.S) } : null)); };
   DI.pushUndo = function () { g.undo.push(JSON.stringify(g.W.toJSON())); if (g.undo.length > 40) g.undo.shift(); };
   DI.undo = function () {
     const j = g.undo.pop(); if (!j) return; const o = JSON.parse(j), W = DI.World.fromJSON(o);
@@ -63,9 +72,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
     S.rv = DI.review(S);
     const ids = [...S.sysd.info.keys()]; for (const id of [...S.calc.keys()]) if (!S.sysd.info.has(id)) S.calc.delete(id);
     if (ids.length && !S.fires.length && S.outFlow < 1) { const id = ids[g.calcI++ % ids.length]; if (S.sysd.info.get(id).nSpk) S.calc.set(id, DI.hydCalc(S, id)); else S.calc.delete(id); }
-    g.goalOk = sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });
+    // During a drill the goals are the commissioning record taken when it started (S.drill.goals0): a quiet-operation
+    // run or a refill that the fire then interrupts was still achieved, and the drill report is judged against it.
+    g.goalOk = S.drill && S.drill.goals0 ? S.drill.goals0.slice() : sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });
     const all = g.goalOk.length > 0 && g.goalOk.every(Boolean);
-    if (all && !sc.drill && !g.doneShown) { g.doneShown = true; DI.complete({ pass: true, lines: ['All goals met.'], loss: 0, stats: S.stats }); }
+    if (all && !sc.drill && !g.doneShown) { g.doneShown = true; if (sc.puzzle) { if (!(S.puz && S.puz.done)) DI.puzUI.finish(); } else DI.complete({ pass: true, lines: ['All goals met.'], loss: 0, stats: S.stats }); }
   }
   DI.goalsDone = () => g.goalOk.length > 0 && g.goalOk.every(Boolean);
   DI.complete = function (res) {

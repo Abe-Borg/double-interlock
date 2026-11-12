@@ -31,6 +31,10 @@ DI.buildScenario = function (sc, cfg) {
 // are fixed, and a Manual Release zone bypass shows as an impairment.
 DI.simFlags = function (S, sc) { S.live = !!sc.sandbox; S.contract = !sc.sandbox; };
 
+// How long the fire pumps have been quiet: seconds since the last automatic start, the last edit, the last pump test
+// and the last moment any fire pump was running (q.lastRun), whichever is latest. t0: an earliest start, optional.
+DI.quietFor = (S, t0) => S.t - Math.max(S.lastAuto || 0, S.editT || 0, S.lastTestT || 0, t0 || 0,
+  ...[...S.W.parts.values()].filter((p) => (p.type === 'epump' || p.type === 'dpump') && p.p.lastRun > 0).map((p) => p.p.lastRun));
 // --- goal helpers (all read live state)
 DI.G = {
   covered: (S, types) => S.W.rooms.filter((r) => !types || types.includes(r.type)).every((r) => (r.cov === undefined ? 0 : r.cov) >= 0.999),
@@ -181,8 +185,13 @@ DI.drillRecovery = function (S, what) {
 };
 
 // --- drills: timed scripts of incidents. step = [secondsFromStart, fn(S), optional banner]
-DI.startDrill = function (S, d) {
+// goals0: the commissioning record, the scenario's goals as they stood when the drill started (DI.goalState). The game
+// reads the goals from it for the whole drill, so what was proved before the fire (Churn's thirty quiet minutes, a
+// refill, a passing calc) stays proved while the drill runs the plant hard. Optional: without it nothing is recorded.
+DI.goalState = (S, sc) => sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });
+DI.startDrill = function (S, d, goals0) {
   S.drill = { name: d.name, steps: d.steps(S).sort((a, b) => a[0] - b[0]), i: 0, t0: S.t, len: d.len, judge: d.judge, done: false };
+  if (Array.isArray(goals0)) S.drill.goals0 = goals0.slice();
   S.stats = { fireLoss: 0, waterLoss: 0, smokeLoss: 0, gallons: 0 }; S.drillLog0 = S.log.length;
   S.say('ACCEPTANCE DRILL: ' + d.name, 'warn'); DI.bus.emit('drill', S.drill);
 };

@@ -88,3 +88,9 @@ button.pill { border-radius:12px; padding:3px 10px; }
 #mbox.wide { width:min(1280px,96vw); } #mbox p.impTag { border-left:3px solid var(--amb); padding-left:10px; color:#ffd590; }
 .ce { border-collapse:collapse; width:100%; margin:10px 0; font:11.5px/1.35 var(--mono); } .ce th, .ce td { border:1px solid var(--line); padding:4px 6px; text-align:left; vertical-align:top; color:#b6c6d2; } .ce th { color:#fff; background:#0f1820; position:sticky; top:-22px; }
 .ce tr.off td { color:#566878; } .ce tr.live td { background:#2a1d0c; color:#ffe2b0; } .ce .now { display:block; color:var(--amb); font-weight:700; letter-spacing:.06em; }
+/* field calls: the comparison of fixes after a call is solved, and the variant line on a menu card */
+.cmp { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-top:6px; } .cmpc { background:#0f1820; border:1px solid var(--line); border-radius:6px; padding:8px 10px; }
+.cmpc > b { display:block; font-size:13px; color:#fff; margin-bottom:6px; } .cmpc canvas { width:100%; height:auto; display:block; border-radius:4px; background:#0d141b; }
+.cmpc small { display:block; font:12px var(--mono); color:var(--amb); margin:6px 0 2px; } .cmpc ul, .cmpc ol { margin:4px 0; padding-left:18px; } .cmpc li { font-size:12.5px !important; } .cmpc p { font-size:12.5px !important; margin:6px 0 0 !important; }
+.card small.vs { font:11px var(--mono); color:var(--amb); margin-top:3px; }
+button.dg { text-align:left; width:100%; }

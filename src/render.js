@@ -75,9 +75,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
     }
     // capped joints
     if (z >= 7) { c.strokeStyle = '#ffd24a'; c.lineWidth = Math.max(2, z * 0.11); c.lineCap = 'butt'; c.beginPath();
-      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = y * w + x; if (!W.pd[k]) continue;
-        if (W.cut[k * 2] && W.pd[k + 1]) { c.moveTo(ox + (x + 1) * z, oy + (y + 0.28) * z); c.lineTo(ox + (x + 1) * z, oy + (y + 0.72) * z); }
-        if (W.cut[k * 2 + 1] && W.pd[k + w]) { c.moveTo(ox + (x + 0.28) * z, oy + (y + 1) * z); c.lineTo(ox + (x + 0.72) * z, oy + (y + 1) * z); } }
+      // a cap between a pipe and a part (a test blank at a pump inlet) is drawn too
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const k = y * w + x; if (!W.pd[k] && !W.partAt[k]) continue;
+        if (W.cut[k * 2] && (W.pd[k + 1] || W.partAt[k + 1]) && x < w - 1) { c.moveTo(ox + (x + 1) * z, oy + (y + 0.28) * z); c.lineTo(ox + (x + 1) * z, oy + (y + 0.72) * z); }
+        if (W.cut[k * 2 + 1] && (W.pd[k + w] || W.partAt[k + w])) { c.moveTo(ox + (x + 0.28) * z, oy + (y + 1) * z); c.lineTo(ox + (x + 0.72) * z, oy + (y + 1) * z); } }
       c.stroke(); c.lineCap = 'round'; }
     // flow animation
     if (G && z >= 8) {

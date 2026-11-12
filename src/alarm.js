@@ -253,7 +253,8 @@ DI.alarmStep = function (S, dt) {
   }
   for (const p of W.parts.values()) {
     const q = p.p;
-    if (p.type === 'gate' && q.open < 0.8) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
+    // a valve with no supervisory switch fitted (q.sw === 0: an old sealed yard valve, the field calls) has nothing to signal with
+    if (p.type === 'gate' && q.open < 0.8 && q.sw !== 0) add('tm' + p.id, 'tamper', 'VALVE TAMPER - control valve #' + p.id + (q.open < 0.02 ? ' CLOSED' : ' off normal'), p);
     else if (p.type === 'epump' || p.type === 'dpump') {
       const nm = (p.type === 'dpump' ? 'DIESEL' : 'ELECTRIC') + ' FIRE PUMP #' + p.id;
       if (q.spd > 0.5) add('pr' + p.id, 'pumpRun', nm + ' RUNNING', p);
@@ -527,6 +528,7 @@ DI.panelReset = function (S, panelId) {
     }
   }
   if (pn) pn.p.silenced = false;
+  DI.bus.emit('panelReset', S, panelId);        // read at once by a field call: was the cause still live at this reset?
   S.say((held ? 'Panel reset, but ' + held + ' detector(s), manual station(s) or waterflow switch(es) are still in alarm.' : 'Panel reset.' + (atTrim ? '' : ' Normal.')) +
     (atTrim ? ' P is still latched at the actuator of ' + atTrim + ' electric / pneumatic valve(s): reset it at the trim.' : ''), held || atTrim ? 'warn' : 'good');
   return '';

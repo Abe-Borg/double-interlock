@@ -125,7 +125,7 @@ DI.testStep = function (S, dt) {
           if (pr.stage === 3) {
             const [a, b, c] = pr.pts, net = (p) => p.pd - p.ps, R = v.p.psi;
             const ok1 = net(a) <= 1.4 * R + 0.5, ok2 = b.q >= 0.98 * v.p.gpm && net(b) >= 0.95 * R, ok3 = c.q >= 0.98 * 1.5 * v.p.gpm && net(c) >= 0.95 * 0.65 * R, ok4 = c.ps >= -3;
-            const row = (n, p, lim) => n + ': ' + DI.fmt(p.q) + ' gpm, suction ' + DI.fmt(p.ps) + ', discharge ' + DI.fmt(p.pd) + ', net ' + DI.fmt(net(p)) + ' psi ' + lim;
+            const row = (n, p, lim) => n + ': ' + DI.fmt(p.q) + ' gpm, suction ' + DI.gaugeText(p.ps) + ', discharge ' + DI.fmt(p.pd) + ', net ' + DI.fmt(net(p)) + ' psi ' + lim;
             res = { pass: ok1 && ok2 && ok3 && ok4, title: 'Fire pump flow test (' + v.p.gpm + ' gpm @ ' + R + ' psi)', pts: pr.pts, lines: [
               row('Churn', a, '(max ' + DI.fmt(1.4 * R) + ')'), row('100%', b, '(min ' + DI.fmt(0.95 * R) + ')'), row('150%', c, '(min ' + DI.fmt(0.95 * 0.65 * R) + ')'),
               !ok2 || !ok3 ? 'Could not reach the required flow/pressure: the suction supply or piping is the limit.' : ok4 ? 'Suction stayed positive at 150%.' : 'SUCTION WENT NEGATIVE at 150%: supply cannot feed this pump.'] };

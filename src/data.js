@@ -421,6 +421,7 @@ DI.OWNER_REFILL = [0, 10, 15, 20, 25];
 DI.ownerRefill = (W) => { const m = W && W.cfg ? W.cfg.ownerRefill : undefined; return typeof m === 'number' && isFinite(m) && m > 0 ? m : 0; };
 DI.N2_SCFM = [1, 2.5, 5];
 DI.SPK_K = 5.6;                     // standard spray sprinkler K-factor (gpm/psi^0.5)
+DI.TAMPER_SW_COST = 600;            // ASSUMED: a supervisory (tamper) switch fitted to a control valve that has none
 DI.SPK_COST = 140;                  // $ per sprinkler tile (head + branch pipe is priced separately)
 
 DI.pumpHp = (p) => Math.ceil((p.gpm * 1.5 * p.psi * 0.65) / (1714 * 0.7) / 5) * 5;   // driver sized for 150% point
@@ -436,6 +437,8 @@ DI.partCost = (type, props) => {
   if (type === 'comp') return 1800 + (props ? props.scfm : 5) * 320;
   if (type === 'n2') return 19000 + (props ? props.scfm : 2.5) * 4000;
   if (type === 'dryv') return d.cost + (props && props.qod ? 2800 : 0);
+  // a control valve with no supervisory switch fitted (sw === 0) costs the switch less (ASSUMED)
+  if (type === 'gate' && props && props.sw === 0) return d.cost - DI.TAMPER_SW_COST;
   // panel: the battery by Ah against the default pick, plus the charger by its amperes (both ASSUMED)
   if (type === 'panel' && props) return d.cost + Math.round(((props.ah > 0 ? props.ah : DI.PANEL_LOADS.ah) - DI.PANEL_LOADS.ah) * DI.BATT_COST_PER_AH) + (DI.CHG_COST[props.chgA] || 0);
   return d.cost;

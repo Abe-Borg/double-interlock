@@ -8,7 +8,7 @@ Read README.md first for what the game is.
 - Open `index.html` (loads `src/*.js` as plain scripts, works from `file://`).
 - `node build-standalone.js` regenerates `double-interlock.html`. Do this after any change in `src/`.
 - Run all of these before calling a change done (`npm test` is the same line):
-  `node test/solver.test.js && node test/graph.test.js && node test/sim.test.js && node test/proc.test.js && node test/campaign.test.js`
+  `node test/solver.test.js && node test/graph.test.js && node test/sim.test.js && node test/proc.test.js && node test/campaign.test.js && node test/puzzle.test.js`
 - `node test/ui.play.js out.png` plays contract 1 with real mouse events (Playwright). It has caught
   bugs the headless tests cannot (state created by incremental building).
 - `node test/ui.c2.js out.png` runs the Cycle 2 UI checks (Playwright): the Site gate, both P reset paths,
@@ -44,6 +44,10 @@ Read README.md first for what the game is.
   station queue footnote on a 2019 site, INVESTIGATE, step 14 as company practice, and an old save with the NFPA
   76 flag on. Run it after a change to `ui.js`, `inspect.js`, `scen.js`, `review.js`, the NAC calculation, the
   NFPA 76 room logic or `World.fromJSON`.
+- `node test/ui.puz.js out.png` runs the field call checks (Playwright): the menu and its lock order, the briefing, a
+  hint, a repair with the Main tool and the flow test, the diagnosis, the scorecard and the three drawn fixes, Turn end
+  for end, the Cap tool on a test blank, save / reload in a call, and the drill commissioning record. Run it after a
+  change to `puz*.js`, `puzui.js`, `ui.js`, `inspect.js` or `main.js`.
 - `sim.test.js` (A112) checks that `double-interlock.html` is what `build-standalone.js` makes from `src/` as it
   stands: build first, then test.
 - `package.json` provides tests and desktop builds. Playwright and the Tauri CLI are development-only
@@ -60,7 +64,8 @@ Everything hangs off one global, `DI`. Each file starts with
 Load order is the script order in `index.html`.
 
 Engine (no DOM, testable in Node): core, juris, data, world, solver, systems, graph, links, gas, fire,
-alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, glyphs, render, inspect, ui, input, main.
+alarm, cause, sim, calc, review, proc, scen, scen1-3, puz, puz1-2. Front end: manual, audio, glyphs, render, inspect, ui,
+puzui, input, main.
 
 - `DI.World` is the map. Any topology change must bump `W.ver`; `Sim.step` then calls `sync()`.
 - `DI.Sim` owns dynamic state. `S.ss` is per system valve: `state` is `dry | filling | wet`.
@@ -150,6 +155,47 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
   multi-year skip with a drain left open would then run in 0.1 s pieces.
 - `DI.Sim.prototype.warp(sec, maxMs, until)` and `DI.skip(sec, until)` take an optional stop predicate (the
   "Skip the refill" button). It is the same time-skip as the clock menu.
+
+## Field calls (puzzles)
+
+- `DI.PUZ` (puz.js) is the list; the calls are in puz1.js (1-4) and puz2.js (5-8). A call is `{ id: 'pN', n, name,
+  kind, question, learn, w, h, parts, variants }`; a variant is `{ key, name, money, symptom, records, build(W, b),
+  setup(S), area, hints: [[text, x, y] x 3], diag: { q, opts: [[text, ok, why]] }, goals, prove(S), cheap, maint,
+  live?, impPar?, cfg? }`. `cheap` / `maint` are `{ t, steps, edit(W, b)?, op(S)?, lesson }`: `edit` changes the
+  layout (the comparison applies it to a copy of the starting layout), `op` operates the live plant (tests only).
+  `prove(S)` is what a player does to demonstrate the fix (run the flow test, the main drain test, thirty quiet
+  minutes): the tests run it on the broken start and after each fix. `records` may be a function of the start state.
+- `DI.puzScenario(id, vi)` turns a variant into an ordinary scenario object (`puzzle: true`, no drill, goals plus a
+  diagnosis goal appended), so `DI.buildScenario`, the toolbar and the Site gate (read-only: `S.contract`) apply as in a
+  contract. `DI.puzBuild` = build + `DI.puzInit`. Every variant must stay solvable with the default site settings, and
+  each one must be broken at the start: `test/puzzle.test.js` plays all of them. Add a variant there by adding it to
+  the list; the test picks it up.
+- `S.puz` is the running call's state: `w0` (the starting layout as JSON), `rec`, `hints`, `diag`, `imp` (seconds out of
+  service), `futile` / `resets` (panel resets made while `live(S)` held), `flags`. It is saved by main.js beside the world
+  and the sim (`vi`, `puz` in the save record), never in `Sim.dump`; keys starting with `_` are caches and are not
+  saved. `DI.puzTick` (the scenario's `tick`, called by the frame loop and the tests) runs the out-of-service clock.
+  Panel resets are counted when they are made: `DI.panelReset` emits `panelReset` on the bus and puz.js judges it against
+  `live(S)` at once (the frame loop does not tick while paused). The quiet-operation clock (`DI.quietFor`, scen.js) reads
+  `S.lastAuto` and each fire pump's `lastRun`: `Sim.dump` saves `lastAuto` and `Sim.restore` puts both back after its
+  settle, which stops every pump.
+- Edits (`DI.puzDiff`) compare the layout with `w0`, one per changed thing: a pipe tile, a cap edge, a tubing tile, a
+  part (added, removed, replaced, turned, or a key of `DI.PUZ_KEYS` changed), a wire (by tile positions). A tile with a
+  part in either layout is judged as a part only. Operation (a valve position, a pump mode, resets, tests) is never an
+  edit: keep operational props out of `DI.PUZ_KEYS`.
+- "The station got it" is the `signal` bus event of a new waterflow signal that was transmitted at once
+  (`DI.puzActive` is the running call's sim; `startScenario` clears it for a contract). A waterflow still latched from an
+  earlier flow is not a new signal: reset the panel before the inspector's test.
+- Scoring (`DI.puzScore`): stars = fix + (edits <= par and cost within `DI.PUZ_COST_SLACK` of the cheap fix) +
+  (diagnosis first try, at most one hint, `imp` <= par, no futile reset). Par edits and cost come from the cheap fix.
+  These numbers are game values, not code values.
+- Two engine additions came with the calls: a control valve may carry `sw: 0` (no tamper switch fitted: no `tm`
+  signal, costs `DI.TAMPER_SW_COST` less; `undefined` = fitted, as before), and `DI.gaugeText` shows a pressure below
+  a full vacuum as -14.7 (full vacuum) in the pump test report, the pump inspector and the pipe tooltip (display only:
+  the solver has no cavitation). The inspector's "Turn end for end" reverses an inline part (not a system valve) in
+  place, free, as an undoable edit.
+- Drills keep a commissioning record: `DI.startDrill(S, d, goals0)` stores the goals as they stood at the start
+  (`DI.goalState`), and `main.js` reads `S.drill.goals0` instead of the live goals while a drill exists, so a passed
+  drill is judged on what was proved before it. The campaign test checks the record holds every goal.
 
 ## Company locks (do not relax these without a Lead decision)
 
@@ -445,6 +491,13 @@ alarm, cause, sim, calc, review, proc, scen, scen1-3. Front end: manual, audio, 
 - UI text: plain, specific, no exclamation marks. Explain the why in one sentence.
 
 ## Pitfalls already hit
+
+- In a field call the report opens from the slow loop as soon as every goal is met, also while paused: it replaces
+  whatever dialog is open (the Diagnose dialog, when the diagnosis is the last goal). A test must wait for it, not
+  close the dialog after the right pick.
+- Field call setups run the sim (a baseline test, the night's event, three resets) before `DI.puzInit` takes `t0`: a
+  goal that needs a fresh result reads `DI.PZ.since`, and the setup's log lines are replayed into the event log by
+  `startScenario`.
 
 - Coarse time steps: anything with a pressure switch (jockey, compressor) overshoots on a large `dt`
   unless it is clamped the way a regulator would. Long skips set `S.coarse` and freeze hydraulics.
