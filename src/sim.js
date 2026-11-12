@@ -308,7 +308,7 @@ DI.Sim.prototype.warp = function (sec, maxMs, until) {
 DI.SS_KEYS = ['state', 'wat', 'G', 'o2g', 'P', 'set', 'corr', 'holes', 'moist', 'fillTime', 'fillT0', 'fill1', 'n2T', 'vol', 'ref', 'armed', 'inc', 'airLost', 'nOpen', 'sdr', 'dz', 'av', 'det', 'dT', 'pDark', 'zf', 'rfill', 'ret', 'floodW', 'floodK', 'rtErr', 'rtEv', 'rtDr', 'rtMin', 'rtP0', 'rtPress', 'rtLast'];
 DI.Sim.prototype.dump = function () {
   const ss = []; for (const [id, s] of this.ss) { const o = {}; for (const k of DI.SS_KEYS) o[k] = s[k]; ss.push([id, o]); }
-  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, burn: null,
+  return { t: this.t, ss, results: this.results.slice(-60), acts: this.acts.slice(), leaks: this.leaks, editT: this.editT || 0, lastTestT: this.lastTestT || 0, lastAuto: this.lastAuto || 0, burn: null,
     sig: [...this.sig].map(([k, o]) => [k, { t0: o.t0, tx: o.tx, test: o.test, had: o.had }]), dq: this.dq.map((e) => Object.assign({}, e)), dqSeq: this.dqSeq, genT: this.genT };
 };
 DI.Sim.prototype.restore = function (j) {
@@ -330,7 +330,12 @@ DI.Sim.prototype.restore = function (j) {
   // The settle is not game time, so it must not run a panel's battery down (S.settling): with utility power off
   // and seconds of standby left, the panel would die inside the settle and drop every latch it holds.
   const panels = j.sig ? this.W.byType('panel').map((p) => [p, p.p.silenced]) : [];
-  this.settling = true; this.commission(j.t || 0.001); this.settling = false; this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = 0;
+  // The quiet-operation clock (DI.quietFor) reads the last automatic fire pump start and each fire pump's last run. The
+  // settle stops every pump and would stamp a pump that was running at the save with a time near 0, so both are put
+  // back after it (a save from before lastAuto was stored reads 0, as before).
+  const runs = [...this.W.parts.values()].filter((p) => p.type === 'epump' || p.type === 'dpump').map((p) => [p, p.p.lastRun]);
+  this.settling = true; this.commission(j.t || 0.001); this.settling = false; this.editT = j.editT || 0; this.lastTestT = j.lastTestT || 0; this.lastAuto = j.lastAuto || 0;
+  for (const [p, r] of runs) p.p.lastRun = r;
   this.dq = Array.isArray(j.dq) ? j.dq.map((e) => Object.assign({}, e)) : []; this.dqSeq = j.dqSeq || 0;       // after the settle, which makes no entries (DI.dactStep)
   // The outage clock, after the settle (which restarts it near 0). A save from before it was stored, made with the
   // power off, reads as an outage that began just long enough ago for the generator to be running.

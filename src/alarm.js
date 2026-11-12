@@ -528,6 +528,7 @@ DI.panelReset = function (S, panelId) {
     }
   }
   if (pn) pn.p.silenced = false;
+  DI.bus.emit('panelReset', S, panelId);        // read at once by a field call: was the cause still live at this reset?
   S.say((held ? 'Panel reset, but ' + held + ' detector(s), manual station(s) or waterflow switch(es) are still in alarm.' : 'Panel reset.' + (atTrim ? '' : ' Normal.')) +
     (atTrim ? ' P is still latched at the actuator of ' + atTrim + ' electric / pneumatic valve(s): reset it at the trim.' : ''), held || atTrim ? 'warn' : 'good');
   return '';

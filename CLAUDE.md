@@ -173,7 +173,11 @@ puzui, input, main.
 - `S.puz` is the running call's state: `w0` (the starting layout as JSON), `rec`, `hints`, `diag`, `imp` (seconds out of
   service), `futile` / `resets` (panel resets made while `live(S)` held), `flags`. It is saved by main.js beside the world
   and the sim (`vi`, `puz` in the save record), never in `Sim.dump`; keys starting with `_` are caches and are not
-  saved. `DI.puzTick` (the scenario's `tick`, called by the frame loop and the tests) runs the clocks.
+  saved. `DI.puzTick` (the scenario's `tick`, called by the frame loop and the tests) runs the out-of-service clock.
+  Panel resets are counted when they are made: `DI.panelReset` emits `panelReset` on the bus and puz.js judges it against
+  `live(S)` at once (the frame loop does not tick while paused). The quiet-operation clock (`DI.quietFor`, scen.js) reads
+  `S.lastAuto` and each fire pump's `lastRun`: `Sim.dump` saves `lastAuto` and `Sim.restore` puts both back after its
+  settle, which stops every pump.
 - Edits (`DI.puzDiff`) compare the layout with `w0`, one per changed thing: a pipe tile, a cap edge, a tubing tile, a
   part (added, removed, replaced, turned, or a key of `DI.PUZ_KEYS` changed), a wire (by tile positions). A tile with a
   part in either layout is judged as a part only. Operation (a valve position, a pump mode, resets, tests) is never an

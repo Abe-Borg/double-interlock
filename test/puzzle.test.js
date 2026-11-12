@@ -77,5 +77,19 @@ if (!only || only === 'p7') {
   const fp = S.W.byType('epump')[0], ran = fp.p.spd > 0.9; fp.p.on = false; S.warp(20);
   ok('quiet: a fire pump stopped by hand after running half an hour is not a quiet half hour', ran && !DI.PZ.sleeps(S) && DI.quietFor(S) < 60, DI.fmt(DI.quietFor(S)));
   S.warp(1800); ok('quiet: thirty minutes after it stopped, it is', DI.PZ.sleeps(S));
+  // a save and load while the pump runs stops it (the settle does), but the clock still starts from that moment
+  const b = DI.puzBuild('p7', 0); b.sc.v.cheap.edit(b.S.W, DI.mk(b.S.W)); b.S.sync(); b.S.warp(2600 - b.S.t);
+  const ran2 = b.S.W.byType('epump')[0].p.spd > 0.9, sv = JSON.parse(JSON.stringify({ world: b.S.W.toJSON(), sim: b.S.dump(), puz: DI.puzSave(b.S) }));
+  const W2 = DI.World.fromJSON(sv.world), S2 = new DI.Sim(W2); S2.restore(sv.sim); DI.puzLoad(S2, sv.puz);
+  ok('quiet: a save and load while the fire pump runs does not count the running time as quiet', ran2 && !DI.PZ.sleeps(S2) && DI.quietFor(S2) < 60 && S2.lastAuto === b.S.lastAuto, DI.fmt(DI.quietFor(S2)) + ' s, lastAuto ' + S2.lastAuto);
+  S2.warp(1850); ok('quiet: thirty minutes after the load, it is', DI.PZ.sleeps(S2));
+}
+// a panel reset is judged when it is made: reset while paused, then clear the cause, and the reset still counts as made
+// while the cause was live (call 8, variant B: the manual station)
+if (!only || only === 'p8') {
+  const { S } = DI.puzBuild('p8', 1); DI.panelReset(S, S.W.byType('panel')[0].id); S.W.byType('mstn')[0].p.on = false; DI.puzTick(S);
+  ok('resets: a reset made before the station is reset counts as made while the cause was live, paused or not', S.puz.resets === 1 && S.puz.futile === 1, S.puz.resets + ' / ' + S.puz.futile);
+  DI.panelReset(S, S.W.byType('panel')[0].id); DI.puzTick(S);
+  ok('resets: the reset after the cause is cleared does not', S.puz.resets === 2 && S.puz.futile === 1);
 }
 console.log(fail ? fail + ' of ' + n + ' FAILED' : 'all ' + n + ' puzzle checks passed'); process.exit(fail ? 1 : 0);

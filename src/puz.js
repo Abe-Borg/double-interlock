@@ -99,12 +99,12 @@ DI.puzBuild = function (id, vi) { const sc = DI.puzScenario(id, vi); const { W, 
 DI.puzInit = function (S, sc) {
   // the records of the call: fixed text, or read from the starting state (a baseline test the setup recorded)
   const v = sc.v, rec = typeof v.records === 'function' ? v.records(S) : v.records || [];
-  S.puz = { id: sc.id, vi: sc.vi, t0: S.t, w0: DI.puzSnap(S.W), rec, money0: S.W.money, hints: 0, diag: { tries: 0, ok: false, picks: [] }, imp: 0, lastT: S.t, futile: 0, resets: 0, actN: S.acts.length, lastReset: -1, flags: {} };
+  S.puz = { id: sc.id, vi: sc.vi, t0: S.t, w0: DI.puzSnap(S.W), rec, money0: S.W.money, hints: 0, diag: { tries: 0, ok: false, picks: [] }, imp: 0, lastT: S.t, futile: 0, resets: 0, flags: {} };
   DI.puzActive = S; return S.puz;
 };
 // (the keys that start with _ are caches: the parsed starting layout and the par)
 DI.puzSave = (S) => (S.puz ? JSON.parse(JSON.stringify(S.puz, (k, val) => (k[0] === '_' ? undefined : val))) : null);
-DI.puzLoad = function (S, o) { S.puz = Object.assign({ flags: {}, diag: { tries: 0, ok: false, picks: [] } }, o); S.puz.lastT = S.t; S.puz.actN = S.acts.length; DI.puzActive = S; return S.puz; };
+DI.puzLoad = function (S, o) { S.puz = Object.assign({ flags: {}, diag: { tries: 0, ok: false, picks: [] } }, o); S.puz.lastT = S.t; DI.puzActive = S; return S.puz; };
 DI.puzVariant = (S) => { const pz = S.puz && DI.puzFind(S.puz.id); return pz ? pz.variants[S.puz.vi] : null; };
 DI.puzStart = (S) => (S.puz._w0 && S.puz._w0s === S.puz.w0 ? S.puz._w0 : (S.puz._w0s = S.puz.w0, S.puz._w0 = DI.puzWorld(S.puz.w0)));
 DI.puzSpent = (S) => S.puz.money0 - S.W.money;
@@ -123,19 +123,20 @@ DI.puzImpaired = function (S) {
     else if (inf && inf.src.length && !v.p.airValve && !S.procs.some((q) => q.kind === 'leak' && q.id === id)) out.push('air supply to ' + DI.sysName(S, id) + ' isolated'); }
   return out;
 };
-// Called after every batch of steps (main.js frame, the tests): the out-of-service clock, and every panel reset made
-// while the variant's cause was still live (its `live` predicate): a reset that cannot hold.
+// Called after every batch of steps (main.js frame, the tests): the out-of-service clock and the variant's own watch.
+// Panel resets are counted by the 'panelReset' handler below, when they are made.
 DI.puzTick = function (S) {
   const pz = S.puz; if (!pz) return;
   const dt = S.t - pz.lastT; pz.lastT = S.t;
   if (dt > 0 && DI.puzImpaired(S).length) pz.imp += dt;
   const v = DI.puzVariant(S); if (!v) return;
-  for (let i = pz.actN; i < S.acts.length; i++) { const a = S.acts[i];
-    if (a.kind !== 'reset-panel' || a.t < pz.t0 || a.t === pz.lastReset) continue;      // one panel reset logs one entry per valve
-    pz.lastReset = a.t; pz.resets++; if (v.live && v.live(S)) pz.futile++; }
-  pz.actN = S.acts.length;
   if (v.watch) v.watch(S, pz.flags);
 };
+// Every panel reset is counted at the moment it is made (alarm.js emits 'panelReset' at the end of DI.panelReset; a dead
+// panel's refused reset emits nothing), and judged against the state of the plant then: the variant's `live` predicate.
+// Counting here, not from the operator log in the next tick, matters while the game is paused: the frame loop does not
+// tick then, and a player who resets, clears the cause and resumes still made a reset that could not hold.
+DI.bus.on('panelReset', (S) => { const pz = S && S.puz; if (!pz) return; const v = DI.puzVariant(S); pz.resets++; if (v && v.live && v.live(S)) pz.futile++; });
 // The supervising station got a new signal (alarm.js emits 'signal' when one first appears): a waterflow from the
 // running puzzle that was transmitted at once is recorded, for the "the alarm reached the station" goals.
 DI.bus.on('signal', (o) => { const S = DI.puzActive; if (!S || !S.puz || !o || !o.key || o.key.slice(0, 2) !== 'wf') return;

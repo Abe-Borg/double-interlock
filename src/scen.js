@@ -34,7 +34,7 @@ DI.simFlags = function (S, sc) { S.live = !!sc.sandbox; S.contract = !sc.sandbox
 // How long the fire pumps have been quiet: seconds since the last automatic start, the last edit, the last pump test
 // and the last moment any fire pump was running (q.lastRun), whichever is latest. t0: an earliest start, optional.
 DI.quietFor = (S, t0) => S.t - Math.max(S.lastAuto || 0, S.editT || 0, S.lastTestT || 0, t0 || 0,
-  ...[...S.W.parts.values()].filter((p) => (p.type === 'epump' || p.type === 'dpump') && p.p.lastRun > 0 && p.p.spd === 0).map((p) => p.p.lastRun));
+  ...[...S.W.parts.values()].filter((p) => (p.type === 'epump' || p.type === 'dpump') && p.p.lastRun > 0).map((p) => p.p.lastRun));
 // --- goal helpers (all read live state)
 DI.G = {
   covered: (S, types) => S.W.rooms.filter((r) => !types || types.includes(r.type)).every((r) => (r.cov === undefined ? 0 : r.cov) >= 0.999),
