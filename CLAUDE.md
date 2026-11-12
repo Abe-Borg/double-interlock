@@ -213,7 +213,11 @@ puzui, input, main.
   solution with `DI.puzWorth` differences. A tile re-laid at its own size (a branch line made a main) costs nothing in
   both, and still counts as kept pipe (`DI.puzReuse` compares sizes only).
 - Design-call goals read `DI.PZ.calcAll(S, id)` (`DI.hydCalcWorst`, calc.js: the design area moved to the far end of
-  every branch line, the worst result), cached on `W.ver`, the valve positions and the pump modes. The contracts keep
+  every branch line, the worst result), cached on `W.ver`, the valve positions and the pump modes. Its `n` is the design
+  area's sprinkler count, as in `DI.hydCalc`, and `areas` the number of areas checked: never reuse `n` for anything
+  else (the riser's calc prints it as the sprinklers). Its tank duration and pump point are those of the most demanding
+  area's demand, the supply basis of the contracts too; an area near the riser over-discharges more and is not the
+  basis, and calls 15 and 16 are tuned on that. The contracts keep
   `DI.hydCalc`. `DI.PZ.calcAllOk(S, type, plant)` / `DI.PZ.calcEvery(S, plant)` add the tank duration and the 150 %
   pump limit when `plant` is set. The riser's calc (the inspector button and the slow loop in main.js) goes through
   `DI.puzCalc`, so a design call shows what its goals read. In the browser `DI.PZ.throttleMs` (1,000, set by puzui.js)

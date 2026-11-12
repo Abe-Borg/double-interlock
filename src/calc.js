@@ -74,10 +74,16 @@ DI.hydCalcRoom = function (S, id, rm, anchor) {
 
 // The calc at the most demanding area (NFPA 13 asks for the hydraulically most demanding design area): the area moved
 // to the far end of every branch line (a sprinkler with no linked neighbour farther from the riser) in every room the
-// system protects, and the worst result returned, with `at` (the tile the area was placed at) and `n` (the areas
-// checked). DI.hydCalc places the area at the farthest sprinkler only, so a fix that strengthens just the farthest
-// lines can pass it while the next lines along fail. About one ordinary calc per branch line end (a few ms each):
-// callers cache it (DI.PZ.calcAll). Used by the design calls; the contracts keep DI.hydCalc.
+// system protects, and the worst result returned, with `at` (the tile the area was placed at) and `areas` (the number
+// of areas checked; `n` stays the design area's sprinkler count, as in DI.hydCalc). DI.hydCalc places the area at the
+// farthest sprinkler only, so a fix that strengthens just the farthest lines can pass it while the next lines along
+// fail. About one ordinary calc per branch line end (a few ms each): callers cache it (DI.PZ.calcAll). Used by the
+// design calls; the contracts keep DI.hydCalc.
+// The tank duration and the pump point of the result (`tankMin`, `durOk`, `pumpPts`, `over`) are those of the most
+// demanding area's demand, as NFPA 13 sizes a supply on the system demand of the hydraulically most demanding area. An
+// area near the riser over-discharges and draws more, and it is not the basis: the same basis as DI.hydCalc, so the
+// design calls judge tanks and pumps the way the contracts do (Churn). Checking every area for the highest flow would
+// be a stricter rule than that, and calls 15 and 16 are tuned on this one.
 DI.HYD_WORST_MAX = 96;
 DI.hydCalcWorst = function (S, id) {
   const W = S.W, inf = S.sysd.info.get(id), td = S.sysd.tdist; if (!inf || inf.remote < 0) return { ok: false, err: 'No sprinklers on this system.' };
@@ -94,6 +100,6 @@ DI.hydCalcWorst = function (S, id) {
     }
   }
   if (!worst) return DI.hydCalc(S, id);
-  worst.pass = worst.pass && worst.margin >= 0.999; worst.n = n;
+  worst.pass = worst.pass && worst.margin >= 0.999; worst.areas = n;
   return DI.calcVerdict(S, inf, worst);
 };

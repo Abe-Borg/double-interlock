@@ -142,7 +142,11 @@ if (!only || only === 'p9') {
   for (const y of [3, 4]) for (let x = 16; x <= 40; x++) { const k = W.k(x, y); if (W.pd[k] && W.pk[k]) W.pd[k] = 4; }
   W.ver++; S.sync();
   const far = DI.hydCalc(S, id), all = DI.PZ.calcAll(S, id);
-  ok('calc: upsizing only the farthest lines passes the farthest area and fails the most demanding one', far.ok && far.pass && all.ok && !all.pass && all.n > 20, DI.fmt(far.margin * 100) + ' / ' + DI.fmt(all.margin * 100) + ' over ' + all.n + ' areas');
+  ok('calc: upsizing only the farthest lines passes the farthest area and fails the most demanding one', far.ok && far.pass && all.ok && !all.pass && all.areas > 20, DI.fmt(far.margin * 100) + ' / ' + DI.fmt(all.margin * 100) + ' over ' + all.areas + ' areas');
+  // (Codex review on the PR: the count of areas checked once overwrote `n`, so the riser's calc read 32 sprinklers for a
+  // 15-head area on call 15 A)
+  { const p = play('p15', 0, 'cheap'), id15 = p.S.W.byType('wetv')[0].id, c = DI.PZ.calcAll(p.S, id15);
+    ok('calc: the worst-area result keeps the design area\'s sprinkler count in n and the areas checked in areas', c.ok && c.n === c.tiles.length && c.n === DI.hydCalc(p.S, id15).n && c.areas > 1, c.n + ' sprinklers, ' + c.tiles.length + ' tiles, ' + c.areas + ' areas'); }
   ok('calc: the result is cached on the layout and recomputed after an edit', DI.PZ.calcAll(S, id) === all && (W.ver++, DI.PZ.calcAll(S, id) !== all));
 }
 {

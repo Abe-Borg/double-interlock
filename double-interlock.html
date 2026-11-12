@@ -3888,10 +3888,16 @@ DI.hydCalcRoom = function (S, id, rm, anchor) {
 
 // The calc at the most demanding area (NFPA 13 asks for the hydraulically most demanding design area): the area moved
 // to the far end of every branch line (a sprinkler with no linked neighbour farther from the riser) in every room the
-// system protects, and the worst result returned, with `at` (the tile the area was placed at) and `n` (the areas
-// checked). DI.hydCalc places the area at the farthest sprinkler only, so a fix that strengthens just the farthest
-// lines can pass it while the next lines along fail. About one ordinary calc per branch line end (a few ms each):
-// callers cache it (DI.PZ.calcAll). Used by the design calls; the contracts keep DI.hydCalc.
+// system protects, and the worst result returned, with `at` (the tile the area was placed at) and `areas` (the number
+// of areas checked; `n` stays the design area's sprinkler count, as in DI.hydCalc). DI.hydCalc places the area at the
+// farthest sprinkler only, so a fix that strengthens just the farthest lines can pass it while the next lines along
+// fail. About one ordinary calc per branch line end (a few ms each): callers cache it (DI.PZ.calcAll). Used by the
+// design calls; the contracts keep DI.hydCalc.
+// The tank duration and the pump point of the result (`tankMin`, `durOk`, `pumpPts`, `over`) are those of the most
+// demanding area's demand, as NFPA 13 sizes a supply on the system demand of the hydraulically most demanding area. An
+// area near the riser over-discharges and draws more, and it is not the basis: the same basis as DI.hydCalc, so the
+// design calls judge tanks and pumps the way the contracts do (Churn). Checking every area for the highest flow would
+// be a stricter rule than that, and calls 15 and 16 are tuned on this one.
 DI.HYD_WORST_MAX = 96;
 DI.hydCalcWorst = function (S, id) {
   const W = S.W, inf = S.sysd.info.get(id), td = S.sysd.tdist; if (!inf || inf.remote < 0) return { ok: false, err: 'No sprinklers on this system.' };
@@ -3908,7 +3914,7 @@ DI.hydCalcWorst = function (S, id) {
     }
   }
   if (!worst) return DI.hydCalc(S, id);
-  worst.pass = worst.pass && worst.margin >= 0.999; worst.n = n;
+  worst.pass = worst.pass && worst.margin >= 0.999; worst.areas = n;
   return DI.calcVerdict(S, inf, worst);
 };
 
@@ -7092,7 +7098,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // (on a design call the calc is the one its goals read: the design area at the most demanding branch line end)
     B.btns([['Run hydraulic calc', () => { const c = DI.puzCalc(S, id, true); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go', false, 'Checks hydraulics only: does every sprinkler in the remote area get its density. Coverage is checked in plan review.' + (S.puz && g().sc.pz && g().sc.pz.design ? ' On this call the design area is moved to the end of every branch line and the worst one is shown.' : '')]]);
     const c = S.calc.get(id); if (!c || !c.ok) return;
-    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' + (c.n ? 'Most demanding of ' + c.n + ' areas checked<br>' : '') +
+    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' + (c.areas ? 'Most demanding of ' + c.areas + ' areas checked<br>' : '') +
       'Design area ' + DI.fmt(c.area) + ' ft²' + (c.dryLike ? ' (+30% dry)' : '') + ': ' + c.n + ' sprinklers<br>Need ' + DI.fmt(c.need, 1) + ' gpm each (' + c.hz.dens.toFixed(2) + ' gpm/ft²)<br>Weakest gets ' + DI.fmt(c.minQ, 1) + ' gpm (' + c.dens.toFixed(3) + ')<br>' +
       'Demand ' + DI.fmt(c.total) + ' gpm (incl. ' + c.hz.hose + ' hose) @ ' + DI.fmt(c.pRiser) + ' psi at riser' + c.pumpPts.filter((p) => p.on).map((p) => '<br>Pump #' + p.id + ' at ' + DI.fmt(p.pct) + '% of rated' + (p.pct > 150 ? ' - OVERLOADED' : '')).join('') +
       (isFinite(c.tankMin) ? '<br>Tank lasts ' + DI.fmt(c.tankMin) + ' min (need ' + c.hz.dur + ')' : '') + '</div>');
