@@ -11,11 +11,17 @@ var DI = globalThis.DI || (globalThis.DI = {});
   const stub = (c) => { c.strokeStyle = C.ink; c.lineWidth = 0.09; P(c, [-0.5, 0, 0.5, 0], false); c.stroke(); };
   const arrow = (c) => { P(c, [0.5, 0, 0.36, -0.09, 0.36, 0.09]); c.fillStyle = '#ffd24a'; c.fill(); };     // flow direction marker at the outlet
   const led = (c, x, y, col, on) => { circ(c, x, y, 0.065); c.fillStyle = on ? col : '#26333f'; c.fill(); if (on) { c.globalAlpha = 0.35; circ(c, x, y, 0.12); c.fill(); c.globalAlpha = 1; } };
+  const metal = (c, x0, y0, x1, y1, light, dark) => { const g = c.createLinearGradient(x0, y0, x1, y1); g.addColorStop(0, light); g.addColorStop(.42, dark); g.addColorStop(1, '#14242e'); return g; };
   const pump = (c, st, r, letter, col) => {
-    stub(c); circ(c, 0, 0, r); c.fillStyle = C.body; c.fill(); c.lineWidth = 0.06; c.strokeStyle = st.spd > 0.5 ? C.grn : col; c.stroke();
-    c.save(); c.rotate((st.t || 0) * 9 * (st.spd || 0)); c.strokeStyle = col; c.lineWidth = 0.045;
-    for (let i = 0; i < 3; i++) { c.rotate(TAU / 3); c.beginPath(); c.arc(r * 0.45, 0, r * 0.5, Math.PI * 0.9, Math.PI * 1.9); c.stroke(); }
-    c.restore(); txt(c, letter, 0, 0, r * 0.9, '#fff', -(st.rot || 0) * Math.PI / 2); arrow(c);
+    stub(c);
+    c.fillStyle = '#090f15'; c.fillRect(-r * .85, r * .60, r * 1.7, .16);
+    circ(c, 0, 0, r); c.fillStyle = metal(c, -r, -r, r, r, '#6c8794', '#2c4453'); c.fill();
+    c.lineWidth = .055; c.strokeStyle = st.spd > .5 ? C.grn : col; c.stroke();
+    circ(c, 0, 0, r * .76); c.fillStyle = '#10232e'; c.fill(); c.strokeStyle = '#638392'; c.lineWidth = .025; c.stroke();
+    for (let i = 0; i < 4; i++) { const a = i * TAU / 4 + Math.PI / 4; circ(c, Math.cos(a) * r * .88, Math.sin(a) * r * .88, .025); c.fillStyle = '#d5e5e9'; c.fill(); }
+    c.save(); c.rotate((st.t || 0) * 9 * (st.spd || 0)); c.strokeStyle = col; c.lineWidth = .055;
+    for (let i = 0; i < 3; i++) { c.rotate(TAU / 3); c.beginPath(); c.arc(r * .40, 0, r * .43, Math.PI * .9, Math.PI * 1.9); c.stroke(); }
+    c.restore(); circ(c, 0, 0, r * .34); c.fillStyle = '#0b1820'; c.fill(); txt(c, letter, 0, 0, r * .74, '#effcff', -(st.rot || 0) * Math.PI / 2); arrow(c);
   };
 
   DI.GLYPH = {
@@ -34,9 +40,14 @@ var DI = globalThis.DI || (globalThis.DI = {});
     dpump(c, st) { pump(c, st, 0.38, 'D', C.amb); c.fillStyle = C.dim; c.fillRect(-0.2, -0.5, 0.4, 0.1); if (st.spd > 0.5) { c.globalAlpha = 0.5; circ(c, 0.26, -0.5 - 0.06 * Math.sin((st.t || 0) * 12), 0.05); c.fill(); c.globalAlpha = 1; } },
     jockey(c, st) { st.spd = st.on ? 1 : 0; pump(c, st, 0.26, 'J', C.n2); },
     tank(c, st) {
-      c.fillStyle = C.body; c.strokeStyle = C.ink; c.lineWidth = 0.05; c.fillRect(-0.4, -0.42, 0.72, 0.86);
-      const f = DI.clamp(st.frac === undefined ? 1 : st.frac, 0, 1); c.fillStyle = C.wat; c.globalAlpha = 0.75; c.fillRect(-0.4, 0.44 - 0.86 * f, 0.72, 0.86 * f); c.globalAlpha = 1;
-      c.strokeRect(-0.4, -0.42, 0.72, 0.86); P(c, [0.32, 0.3, 0.5, 0.3], false); c.lineWidth = 0.09; c.stroke(); P(c, [0.5, 0.3, 0.5, 0], false); c.stroke();
+      const f = DI.clamp(st.frac === undefined ? 1 : st.frac, 0, 1);
+      c.fillStyle = metal(c, -.4, 0, .34, 0, '#9aabb1', '#506775'); c.fillRect(-.38, -.33, .70, .67);
+      c.fillStyle = '#334c5a'; c.beginPath(); c.ellipse(-.03, .33, .35, .11, 0, 0, TAU); c.fill();
+      c.fillStyle = '#a5bac2'; c.beginPath(); c.ellipse(-.03, -.33, .35, .11, 0, 0, TAU); c.fill(); c.strokeStyle = '#d3e1e6'; c.lineWidth = .025; c.stroke();
+      c.fillStyle = '#152c3c'; c.fillRect(-.18, -.25, .24, .54); c.fillStyle = '#55b4e9'; c.fillRect(-.16, .27 - .5 * f, .20, .5 * f);
+      c.strokeStyle = '#d4e5ed'; c.lineWidth = .025; c.strokeRect(-.18, -.25, .24, .54);
+      for (let i = 0; i < 4; i++) { c.fillStyle = '#bdd9e6'; c.fillRect(.09, -.19 + i * .13, .07, .018); }
+      P(c, [.32, .30, .5, .30, .5, 0], false); c.strokeStyle = C.ink; c.lineWidth = .09; c.stroke();
     },
     city(c, st) { circ(c, -0.08, 0, 0.36); c.fillStyle = '#10202e'; c.fill(); c.strokeStyle = C.wat; c.lineWidth = 0.07; c.stroke(); P(c, [0.28, 0, 0.5, 0], false); c.strokeStyle = C.ink; c.lineWidth = 0.09; c.stroke();
       txt(c, st.loop ? 'LOOP' : 'CITY', -0.08, 0, 0.2, '#bfe2ff', -(st.rot || 0) * Math.PI / 2); },
@@ -55,10 +66,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
       if (st.sol || !st.det) led(c, 0.14, -0.42, C.red, st.sol); else { circ(c, 0.14, -0.42, 0.065); c.fillStyle = '#8a2f25'; c.fill(); }
       led(c, 0.32, -0.42, C.amb, st.low); if (st.pl) { c.fillStyle = C.amb; c.fillRect(-0.36, 0.34, 0.72, 0.05); }
       if (st.imp) { c.save(); c.rotate(-(st.rot || 0) * Math.PI / 2); P(c, [0.2, 0.12, 0.5, 0.12, 0.5, 0.48, 0.2, 0.48, 0.1, 0.3]); c.fillStyle = C.amb; c.fill(); c.strokeStyle = '#3a2a05'; c.lineWidth = 0.03; c.stroke(); txt(c, '!', 0.34, 0.3, 0.3, '#201400'); c.restore(); } },     // amber impairment tag
-    comp(c, st) { c.fillStyle = C.body; c.strokeStyle = C.air; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, 0, 0.76, 0.34, 0.16); c.fill(); c.stroke(); circ(c, -0.1, -0.16, 0.19); c.fill(); c.stroke();
+    comp(c, st) { c.fillStyle = metal(c, 0, 0, 0, .34, '#6f7c79', '#334344'); c.strokeStyle = C.air; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, 0, 0.76, 0.34, 0.16); c.fill(); c.stroke(); circ(c, -0.1, -0.16, 0.19); c.fill(); c.stroke();
       c.save(); c.translate(-0.1, -0.16); c.rotate((st.t || 0) * 14 * (st.on ? 1 : 0)); P(c, [-0.13, 0, 0.13, 0], false); c.stroke(); P(c, [0, -0.13, 0, 0.13], false); c.stroke(); c.restore(); led(c, 0.28, -0.2, C.grn, st.on); },
     n2(c, st) { c.fillStyle = C.body; c.strokeStyle = C.n2; c.lineWidth = 0.05; c.beginPath(); c.roundRect(-0.38, -0.38, 0.76, 0.76, 0.08); c.fill(); c.stroke(); txt(c, 'N₂', -0.02, 0.02, 0.36, C.n2, -(st.rot || 0) * Math.PI / 2); led(c, 0.26, -0.26, C.grn, st.on); },
-    panel(c, st) { c.fillStyle = '#5a1712'; c.strokeStyle = C.red; c.lineWidth = 0.05; c.fillRect(-0.36, -0.42, 0.72, 0.84); c.strokeRect(-0.36, -0.42, 0.72, 0.84); c.fillStyle = st.alive === false ? '#05070a' : '#0c1218'; c.fillRect(-0.26, -0.32, 0.52, 0.24);      // dead panel: display dark, every LED off
+    panel(c, st) { c.fillStyle = metal(c, -.36, -.42, .36, .42, '#a54a3e', '#51251f'); c.strokeStyle = C.red; c.lineWidth = 0.05; c.fillRect(-0.36, -0.42, 0.72, 0.84); c.strokeRect(-0.36, -0.42, 0.72, 0.84); c.fillStyle = st.alive === false ? '#05070a' : '#0c1218'; c.fillRect(-0.26, -0.32, 0.52, 0.24); if (st.alive !== false) { c.fillStyle = st.al ? '#ff9c83' : '#83e7d8'; c.fillRect(-.21, -.27, .27, .027); c.fillRect(-.21, -.20, .39, .022); } c.fillStyle = '#ce978b'; c.fillRect(-.31, -.37, .024, .025); c.fillRect(.28, .35, .024, .025); // dead panel: display dark, every LED off
       led(c, -0.2, 0.08, C.red, st.al && (st.sil || Math.sin((st.t || 0) * 10) > 0)); led(c, 0, 0.08, C.amb, st.sv); led(c, 0.2, 0.08, '#ffe45c', st.tr); led(c, -0.2, 0.28, C.grn, st.alive !== false); led(c, 0.2, 0.28, C.opn, st.op); },     // lower right: OPEN item (release input, class not elected)
     vesda(c, st) { c.fillStyle = C.body; c.strokeStyle = C.ink; c.lineWidth = 0.05; c.fillRect(-0.36, -0.3, 0.72, 0.6); c.strokeRect(-0.36, -0.3, 0.72, 0.6);
       for (let i = 0; i < 4; i++) { c.fillStyle = i < (st.lvl || 0) ? [C.grn, C.amb, C.red, C.red][i] : '#26333f'; c.fillRect(-0.28 + i * 0.15, -0.2, 0.11, 0.4); } P(c, [0, -0.3, 0, -0.5], false); c.stroke(); },
