@@ -74,6 +74,24 @@ DI.MANUAL = [
 <p><b>Afterwards</b> the report compares three fixes side by side: yours, the cheapest one and an easily maintained one, each drawn with its edits ringed (red where something was taken away), with its cost and what it teaches.</p>
 <p><b>Tools that matter here.</b> <b>Turn end for end</b> (select an inline part: a check valve, a pump, a backflow preventer, a control valve) reverses it in place for free. A cap shows as a short yellow bar across a joint, also where a pipe meets a part. A control valve can have <b>no tamper switch fitted</b> (an old sealed yard valve): closing it signals nothing until a switch is fitted and wired. A pump suction gauge cannot read below a full vacuum: the game shows a starved suction as -14.7 (full vacuum).</p>
 <p><b>Drills keep the commissioning record.</b> In a contract the goals are recorded when the acceptance drill starts. What was proved before the fire (a quiet half hour on the jockey, a refill, a passing calc) stays proved while the drill runs the plant hard.</p>` },
+  { id: 'design', t: 'Design calls (strong constraints)', h: `<p>A design call is a puzzle with one hard constraint and one decision, and both are in the briefing before you build anything: <b>THE CONSTRAINTS</b> (a budget, a part limit, pipe you must keep, a gallery where pipes cannot cross) and <b>THE DECISION</b> (where the money goes, where a loop is cut, which room governs). They are calls 9 to 16 on the menu, their own track: the first is open from the start and each one opens the next.</p>
+<table><tr><th>#</th><th>Call</th><th>The decision</th></tr>
+<tr><td>9</td><td>The Last $8,000</td><td>Where a small budget buys the most pressure: the feed main that carries the whole demand, a free grid on wet pipe, the cross main on dry pipe where a grid is illegal</td></tr>
+<tr><td>10</td><td>One Wall, Two Systems</td><td>How a wet room and a dry dock share one tap without their mains touching, in the rooms, through the wall and in the riser room</td></tr>
+<tr><td>11</td><td>Split Decision</td><td>Where to cut one preaction zone into zones of 500 gal or less with a limited number of valves, counting each zone&rsquo;s own feed main</td></tr>
+<tr><td>12</td><td>The Forbidden Grid</td><td>Where to break the loops of a dry grid so it still calculates, keeping the pipe</td></tr>
+<tr><td>13</td><td>The Valve Gallery</td><td>How a trunk in a three-tile gallery reaches risers on both sides, each room isolated on its own valve</td></tr>
+<tr><td>14</td><td>Keep the Good Pipe</td><td>The least you replace when inherited pipe refunds nothing</td></tr>
+<tr><td>15</td><td>The Small Tank</td><td>What uses the water: a pump bigger than the demand, or a dry system in a heated room</td></tr>
+<tr><td>16</td><td>One Supply, Many Rooms</td><td>Which room governs the pump and the tank, and where it is cheapest to answer it</td></tr></table>
+<ul><li><b>Answer</b> on the top bar takes the place of Diagnose: one pick, a wrong one answered and counted.</li>
+<li><b>Part limits</b> (call 11): the build tools refuse a part over the limit, and a goal checks it.</li>
+<li><b>No resale value</b> (call 14): erasing, resizing or replacing inherited pipe, heads or parts refunds nothing. What you laid during the call refunds in full. Laying a branch tile as a main at its own size only adds tees and costs nothing.</li>
+<li><b>Pipe kept</b> (calls 12 and 14): the scorecard counts the starting pipe tiles still there at their size. The edit star needs at least as many as the par fix keeps.</li>
+<li><b>The most demanding area.</b> These calls check the calc with the design area moved to the far end of every branch line, not only the farthest one. Strengthening just the two farthest lines moves the demanding area to the next lines; it does not remove it.</li>
+<li><b>Independent isolation</b> (call 13): each room&rsquo;s control valve shuts off that room and no other.</li>
+<li>On a call that builds a lot, the edit star allows a slack over the par fix (shown on the scorecard). Time out of service is not scored where nothing is in service yet.</li></ul>
+<p>Afterwards the report compares your design with the par fix (the cheapest, or on calls 12 and 14 the one that keeps the most pipe) and an easily maintained one.</p>` },
   { id: 'wet', t: 'Wet pipe systems', h: `<p>Pipe full of water under pressure, closed heat-activated sprinklers. Only the sprinklers that get hot open. Wet is the default: it is the most reliable and it puts water on the fire soonest.</p>
 <ul><li><b>Limits:</b> the whole system must stay at 40&nbsp;&deg;F or above. One riser may protect 52,000 ft&sup2; per floor for light and ordinary hazard (NFPA 13-2025 &sect;4.4.1).</li>
 <li><b>Riser:</b> control valve with tamper switch, alarm check valve or riser check with a waterflow switch, main drain, gauges above and below.</li>

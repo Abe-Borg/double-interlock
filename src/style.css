@@ -93,6 +93,9 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .cmpc > b { display:block; font-size:13px; color:#fff; margin-bottom:6px; } .cmpc canvas { width:100%; height:auto; display:block; border-radius:4px; background:#0d141b; }
 .cmpc small { display:block; font:12px var(--mono); color:var(--amb); margin:6px 0 2px; } .cmpc ul, .cmpc ol { margin:4px 0; padding-left:18px; } .cmpc li { font-size:12.5px !important; } .cmpc p { font-size:12.5px !important; margin:6px 0 0 !important; }
 .card small.vs { font:11px var(--mono); color:var(--amb); margin-top:3px; }
+/* design calls: the decision is the point of the briefing, so it gets a margin line of its own */
+.decision { border-left:3px solid var(--amb); padding:4px 0 4px 12px; margin:6px 0 !important; }
+.decision b { font-weight:600; color:#f3e7c8; }
 button.dg { text-align:left; width:100%; }
 
 /* Operations edition: restrained instrument panels around a luminous game world. */
@@ -385,6 +388,7 @@ kbd { font:10px var(--mono); }
 .card em { font-size:9px; color:#9bb6c8; }
 .card b { margin-top:7px; font-size:14px; }
 .card small { margin-top:5px; font-size:11px; }
+.card.design { border-left:3px solid #7f6a33; }
 .focus-view #tools, .focus-view #canvasGuide .guide-help { display:none; }
 .focus-view #viewControls { bottom:20px; }
 .focus-view #canvasGuide { bottom:32px; }

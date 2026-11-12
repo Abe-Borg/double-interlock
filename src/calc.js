@@ -3,11 +3,14 @@
 // pumps are running and solves steady state. Answers "does every sprinkler get its density?"
 var DI = globalThis.DI || (globalThis.DI = {});
 
-// design area for one room served by system `id`: the hydraulically most remote sprinklers in that room
-DI.designArea = function (S, id, rm) {
+// design area for one room served by system `id`: the hydraulically most remote sprinklers in that room.
+// anchor (optional, a sprinkler tile of that room): the area is placed there instead (DI.hydCalcWorst moves it to every
+// branch line end, so a fix that only strengthens the farthest area cannot pass by moving the demanding area elsewhere)
+DI.designArea = function (S, id, rm, anchor) {
   const W = S.W, inf = S.sysd.info.get(id), v = W.parts.get(id), td = S.sysd.tdist; if (!inf || inf.remote < 0) return null;
   if (!rm) rm = W.roomAt[inf.remote];
   let remote = -1; for (const k of inf.tiles) if (W.spk[k] && W.roomAt[k] === rm && (remote < 0 || td[k] > td[remote])) remote = k;
+  if (anchor !== undefined && W.spk[anchor] && W.roomAt[anchor] === rm) remote = anchor;
   if (remote < 0) return null;
   const hz = rm ? DI.HAZ[DI.ROOMS[W.rooms[rm - 1].type].haz] : DI.HAZ.OH1;
   const dryLike = v.type === 'dryv' || v.type === 'prev';
@@ -25,16 +28,19 @@ DI.hydCalc = function (S, id) {
   let worst = null; const rooms = inf.rooms.size ? [...inf.rooms] : [0];
   for (const rm of rooms) { const r = DI.hydCalcRoom(S, id, rm); if (!r.ok) return r; r.margin = r.minQ / r.need; if (!worst || r.margin < worst.margin) worst = r; }
   worst.pass = worst.pass && worst.margin >= 0.999;
-  // The calc checks hydraulics only. Coverage stays in plan review, so the result carries a flag and the UI
-  // never shows an unqualified PASS over a room that is not fully sprinklered.
-  worst.covOk = [...inf.rooms].every((rm) => { const room = S.W.rooms[rm - 1]; if (room.exempt || DI.ROOMS[room.type].open) return true; const c = DI.roomCoverage(S.W, S.sysd, room); return c.have >= c.need && !c.orphan; });      // a head on no riser protects nothing
-  worst.verdict = !worst.pass ? 'FAIL' : worst.covOk ? 'PASS' : 'PASS (hydraulics only); coverage FAIL, see plan review';
-  return worst;
+  return DI.calcVerdict(S, inf, worst);
+};
+// The calc checks hydraulics only. Coverage stays in plan review, so the result carries a flag and the UI
+// never shows an unqualified PASS over a room that is not fully sprinklered.
+DI.calcVerdict = function (S, inf, r) {
+  r.covOk = [...inf.rooms].every((rm) => { const room = S.W.rooms[rm - 1]; if (room.exempt || DI.ROOMS[room.type].open) return true; const c = DI.roomCoverage(S.W, S.sysd, room); return c.have >= c.need && !c.orphan; });      // a head on no riser protects nothing
+  r.verdict = !r.pass ? 'FAIL' : r.covOk ? 'PASS' : 'PASS (hydraulics only); coverage FAIL, see plan review';
+  return r;
 };
 
-DI.hydCalcRoom = function (S, id, rm) {
+DI.hydCalcRoom = function (S, id, rm, anchor) {
   const W = S.W, inf = S.sysd.info.get(id), v = W.parts.get(id);
-  const da = DI.designArea(S, id, rm); if (!da) return { ok: false, err: 'No sprinklers on this system.' };
+  const da = DI.designArea(S, id, rm, anchor); if (!da) return { ok: false, err: 'No sprinklers on this system.' };
   if (!inf.fed) return { ok: false, err: 'Riser has no water supply connection.' };
   // temporary "everything wet, pumps running, design area open" copy of the state
   const saved = da.tiles.map((k) => W.spk[k]); da.tiles.forEach((k) => { W.spk[k] = 2; });
@@ -64,4 +70,36 @@ DI.hydCalcRoom = function (S, id, rm) {
     v.p.drain = drains[0]; v.p.sdrain = drains[1]; v.p.itc = drains[2];
   }
   return res;
+};
+
+// The calc at the most demanding area (NFPA 13 asks for the hydraulically most demanding design area): the area moved
+// to the far end of every branch line (a sprinkler with no linked neighbour farther from the riser) in every room the
+// system protects, and the worst result returned, with `at` (the tile the area was placed at) and `areas` (the number
+// of areas checked; `n` stays the design area's sprinkler count, as in DI.hydCalc). DI.hydCalc places the area at the
+// farthest sprinkler only, so a fix that strengthens just the farthest lines can pass it while the next lines along
+// fail. About one ordinary calc per branch line end (a few ms each): callers cache it (DI.PZ.calcAll). Used by the
+// design calls; the contracts keep DI.hydCalc.
+// The tank duration and the pump point of the result (`tankMin`, `durOk`, `pumpPts`, `over`) are those of the most
+// demanding area's demand, as NFPA 13 sizes a supply on the system demand of the hydraulically most demanding area. An
+// area near the riser over-discharges and draws more, and it is not the basis: the same basis as DI.hydCalc, so the
+// design calls judge tanks and pumps the way the contracts do (Churn). Checking every area for the highest flow would
+// be a stricter rule than that, and calls 15 and 16 are tuned on this one.
+DI.HYD_WORST_MAX = 96;
+DI.hydCalcWorst = function (S, id) {
+  const W = S.W, inf = S.sysd.info.get(id), td = S.sysd.tdist; if (!inf || inf.remote < 0) return { ok: false, err: 'No sprinklers on this system.' };
+  let worst = null, n = 0;
+  for (const rm of inf.rooms.size ? [...inf.rooms] : [0]) {
+    const ends = inf.tiles.filter((k) => {
+      if (!W.spk[k] || W.roomAt[k] !== rm) return false; const x = k % W.w, y = (k / W.w) | 0;
+      for (let d = 0; d < 4; d++) if (W.linked(x, y, d)) { const q = W.k(x + DI.DX[d], y + DI.DY[d]); if (S.sysd.tileSys[q] === id && td[q] > td[k]) return false; }
+      return true;
+    }).sort((a, b) => td[b] - td[a]);
+    for (const k of ends.slice(0, DI.HYD_WORST_MAX)) {
+      const r = DI.hydCalcRoom(S, id, rm, k); if (!r.ok) return r;
+      n++; r.margin = r.minQ / r.need; r.at = k; if (!worst || r.margin < worst.margin) worst = r;
+    }
+  }
+  if (!worst) return DI.hydCalc(S, id);
+  worst.pass = worst.pass && worst.margin >= 0.999; worst.areas = n;
+  return DI.calcVerdict(S, inf, worst);
 };

@@ -17,7 +17,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const G = g(), W = G.W, t = G.tool, a = drag.start; let tiles = [], cost = 0, label = '';
     if (t.type === 'pipe') {
       tiles = lpath(a, end, drag.hf).filter(([x, y]) => W.inb(x, y) && !W.partAt[W.k(x, y)]);
-      for (const [x, y] of tiles) { const k = W.k(x, y); cost += DI.PIPES[t.size].cost - (W.pd[k] ? DI.PIPES[W.pd[k] - 1].cost : 0); }
+      // a resize pays the new size and gets the old pipe back (in a field call with no salvage, inherited pipe gets nothing
+      // back: DI.puzPipeCredit); the same size again only re-lays the tile as a main and costs nothing
+      for (const [x, y] of tiles) { const k = W.k(x, y); if (W.pd[k] !== t.size + 1) cost += DI.PIPES[t.size].cost - (W.pd[k] ? DI.puzPipeCredit(G.S, k) : 0); }
       label = DI.PIPES[t.size].n + ' main · ' + tiles.length * 10 + ' ft · ' + DI.money(cost);
     } else if (t.type === 'branch') {
       tiles = rect(a, end).filter(([x, y]) => W.inb(x, y) && !W.partAt[W.k(x, y)]); let n = 0;
@@ -33,7 +35,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       return { tiles, cost: 0, label, ok: true, cap: single ? 'one' : horiz ? 'row' : 'col' };
     } else if (t.type === 'erase') {
       tiles = rect(a, end).filter(([x, y]) => W.inb(x, y));
-      for (const [x, y] of tiles) { const k = W.k(x, y), p = W.at(x, y); if (p && !p.p.fixed) cost -= DI.partCost(p.type, p.p); cost -= W.pipeCost(x, y); if (W.air[k]) cost -= AIR_COST; }
+      for (const [x, y] of tiles) { const k = W.k(x, y), p = W.at(x, y); if (p && !p.p.fixed) cost -= DI.puzPartRefund(G.S, p); cost -= DI.puzTileRefund(G.S, x, y); if (W.air[k]) cost -= DI.puzAirRefund(G.S, k); }
       label = 'Remove · refund ' + DI.money(-cost);
     }
     return { tiles, cost, label, ok: rich(cost) };
@@ -66,7 +68,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       if ((w || e) && !(n || s2) || (here && (w || e) && rot % 2 === 0)) rot = w && !e ? 0 : e && !w ? 2 : rot % 2 ? 0 : (pr(tl.x + 1, tl.y) > pr(tl.x - 1, tl.y) + 1 ? 2 : pr(tl.x - 1, tl.y) > pr(tl.x + 1, tl.y) + 1 ? 0 : rot);
       else if ((n || s2) && !(w || e)) rot = n && !s2 ? 1 : s2 && !n ? 3 : rot % 2 ? (pr(tl.x, tl.y + 1) > pr(tl.x, tl.y - 1) + 1 ? 3 : pr(tl.x, tl.y - 1) > pr(tl.x, tl.y + 1) + 1 ? 1 : rot) : 1;
     }
-    const cost = DI.partCost(type, def.props) - W.pipeCost(tl.x, tl.y);
+    // a design call may limit how many of a part there can be: refused here, and checked by a goal
+    const lim = DI.puzLimit(G.S, type); if (lim) { DI.ui.banner(lim); return; }
+    const cost = DI.partCost(type, def.props) - DI.puzTileRefund(G.S, tl.x, tl.y);
     if (!rich(cost)) { DI.ui.banner('Not enough budget: ' + def.name + ' costs ' + DI.money(cost) + '.'); return; }
     DI.pushUndo(); W.erasePipe(tl.x, tl.y); const p = W.addPart(type, tl.x, tl.y, rot); if (!p) return;
     // Keep construction clear of inspector overlays; Select opens a placed device's controls.
@@ -105,7 +109,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
         if (G.sel && G.sel.kind === 'tile') DI.findHead(G.S, G.sel.k);       // selecting an operated head is "find the operated head" in the recovery log
         DI.inspect.render(true); if (p) DI.audio.play('click'); drag = { kind: 'pan', mx: e.clientX, my: e.clientY, cx: G.cam.x, cy: G.cam.y, moved: false, btn: 0 };
       } else if (t.type === 'part') placePart(tl);
-      else if (t.type === 'head') { if (!W.inb(tl.x, tl.y)) return; const k = W.k(tl.x, tl.y); if (!W.pd[k]) return; const add = !W.spk[k]; if (add && !rich(DI.SPK_COST)) return; DI.pushUndo(); W.spk[k] = add ? 1 : 0; W.ver++; W.money -= add ? DI.SPK_COST : -DI.SPK_COST; DI.edited(); DI.audio.play('place'); }
+      else if (t.type === 'head') { if (!W.inb(tl.x, tl.y)) return; const k = W.k(tl.x, tl.y); if (!W.pd[k]) return; const add = !W.spk[k]; if (add && !rich(DI.SPK_COST)) return; const back = add ? 0 : DI.puzHeadRefund(G.S, k); DI.pushUndo(); W.spk[k] = add ? 1 : 0; W.ver++; W.money -= add ? DI.SPK_COST : -back; DI.edited(); DI.audio.play('place'); }
       else if (t.type === 'wire') {
         const p = W.at(tl.x, tl.y); if (!p) { G.wireFrom = 0; return; }
         if (!G.wireFrom) { G.wireFrom = p.id; DI.audio.play('click'); }
@@ -139,7 +143,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       else if (k === 'g') DI.ui.showGoals();
       else if (k === 'f') DI.ui.toggleFocus();
       else if (k === 'home') { e.preventDefault(); DI.ui.fitSite(); }
-      else if (k === 'delete' || k === 'backspace') { if (G.sel && G.sel.kind === 'part') { const p = G.W.parts.get(G.sel.id); if (p && !p.p.fixed) { DI.pushUndo(); G.W.money += DI.partCost(p.type, p.p); G.W.removePart(p.id); G.sel = null; DI.edited(); DI.inspect.render(true); } } }
+      else if (k === 'delete' || k === 'backspace') { if (G.sel && G.sel.kind === 'part') { const p = G.W.parts.get(G.sel.id); if (p && !p.p.fixed) { DI.pushUndo(); G.W.money += DI.puzPartRefund(G.S, p); G.W.removePart(p.id); G.sel = null; DI.edited(); DI.inspect.render(true); } } }
       else keys.add(k);
     });
     window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
