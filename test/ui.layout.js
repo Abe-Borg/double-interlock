@@ -109,12 +109,22 @@ const path = require('path');
     await page.setViewportSize({ width: 1024, height: 768 });
     await start('c5');
     await page.addScriptTag({ path: path.resolve(__dirname, 'bot.js') });
-    await page.evaluate(() => {
+    const valveId = await page.evaluate(() => {
       DI.botBuild(DI.game.S, 'c5');
       DI.game.sel = { kind: 'part', id: DI.game.W.byType('prev')[0].id };
       DI.inspect.render(true);
+      return DI.game.sel.id;
     });
+    // The slow loop (main.js) runs one system's hydraulic calc per 0.6 s pass, and the inspector rebuilds when the
+    // selected valve's result arrives: that adds the calc rows and makes the panel taller. Scrolling before then races
+    // the rebuild (the panel stops short of a bottom that has moved), so wait for the result and let the inspector
+    // take it in first. Nothing else in its signature changes while the game is paused.
+    await page.waitForFunction((id) => DI.game.S.calc.has(id), valveId);
+    await page.evaluate(() => DI.inspect.render());
     const checkInspector = async (focus) => {
+      // Start from the top in both layouts, so the wheel has to do the scrolling (in Focus view the panel would
+      // otherwise already sit at the bottom from the previous check).
+      await page.locator('#side').evaluate((e) => { e.scrollTop = 0; });
       const panel = await page.locator('#side').boundingBox();
       const dock = await page.locator('#tools').boundingBox();
       assert.ok(panel.y + panel.height <= (focus ? page.viewportSize().height : dock.y), 'Tall inspector stays above the toolbar or inside the Focus window');
@@ -124,13 +134,20 @@ const path = require('path');
       await page.waitForFunction(() => {
         const e = document.getElementById('side');
         return e.scrollTop + e.clientHeight >= e.scrollHeight - 2;
+      }, null, { timeout: 5000 }).catch(async () => {
+        const st = await page.locator('#side').evaluate((e) => [e.scrollTop, e.clientHeight, e.scrollHeight]);
+        assert.fail('The mouse wheel scrolls the inspector to its bottom' + (focus ? ' in Focus view' : '') + ' (scrollTop, clientHeight, scrollHeight): ' + JSON.stringify(st));
       });
-      const reachable = await page.locator('#side').evaluate((e) => {
+      // Read the position and the last control in one evaluation, so nothing can rebuild the panel in between.
+      const reach = await page.locator('#side').evaluate((e) => {
         const buttons = e.querySelectorAll('button');
         const last = buttons[buttons.length - 1], r = last.getBoundingClientRect(), p = e.getBoundingClientRect();
-        return r.top >= p.top && r.bottom <= p.bottom && document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('button') === last;
+        const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+        return { ok: e.scrollTop + e.clientHeight >= e.scrollHeight - 2 && r.top >= p.top && r.bottom <= p.bottom && hit?.closest('button') === last,
+          button: last.textContent, buttonY: [r.top, r.bottom], panelY: [p.top, p.bottom], hit: hit ? hit.id || hit.tagName : null,
+          scroll: [e.scrollTop, e.clientHeight, e.scrollHeight] };
       });
-      assert.equal(reachable, true, 'The final inspector control can be reached without the toolbar covering it');
+      assert.equal(reach.ok, true, 'The final inspector control can be reached without the toolbar covering it' + (focus ? ' in Focus view' : '') + ': ' + JSON.stringify(reach));
     };
     await checkInspector(false);
     await page.keyboard.press('f');

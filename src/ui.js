@@ -66,7 +66,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   ui.focus = function (x, y, sel) { const G = g(); G.cam.x = x + 0.5; G.cam.y = y + 0.5; G.mark = { x, y, t: G.now }; if (sel) { G.sel = sel; DI.inspect.render(true); } };
   ui.banner = function (t) { const b = $('banner'); b.textContent = t; b.classList.add('show'); clearTimeout(ui.bt); ui.bt = setTimeout(() => b.classList.remove('show'), 7000); };
   ui.pop = function (x, y, items) { const p = $('pop'); p.innerHTML = ''; for (const [n, fn] of items) { const b = document.createElement('button'); b.textContent = n; b.onclick = () => { p.style.display = 'none'; fn(); }; p.appendChild(b); } p.style.left = Math.max(4, Math.min(innerWidth - 190, x)) + 'px'; p.style.top = y + 'px'; p.style.display = 'block'; };
-  ui.modal = function (html, dismiss) { ui.ce = 0; $('mbox').classList.remove('wide'); $('mbox').innerHTML = html; $('modal').classList.add('show'); ui.modalOpen = true; ui.dismiss = dismiss !== false; $('mbox').scrollTop = 0; };
+  ui.modal = function (html, dismiss) { ui.ce = 0; $('mbox').classList.remove('wide', 'menu-box', 'brief-box'); $('modal').classList.remove('menu-mode'); $('mbox').innerHTML = html; $('modal').classList.add('show'); ui.modalOpen = true; ui.dismiss = dismiss !== false; $('mbox').scrollTop = 0; };
   ui.close = function () { $('modal').classList.remove('show'); ui.modalOpen = false; ui.ce = 0; };
   ui.setTool = function (type, part) { const G = g(); G.tool.type = type; G.tool.part = part || null; if (type !== 'select') { G.sel = null; DI.inspect.render(true); } if (part) ui.category = DI.PARTS[part].cat; G.ghost = null; G.wireFrom = 0; ui.hintText = type === 'part' ? DI.PARTS[part].name + ' (' + DI.money(DI.partCost(part)) + '): click to place, R rotates. ' + DI.PARTS[part].desc : HINT[type] || ''; ui.toolbar(); DI.cv.style.cursor = type === 'select' ? 'default' : 'crosshair'; };
 
@@ -144,17 +144,48 @@ var DI = globalThis.DI || (globalThis.DI = {});
   };
 
   // ---------- modals
+  // Original vector artwork: an isometric server hall, drawn locally so the title screen works offline.
+  // It is decorative; all live system state belongs to the map and annunciator.
+  function menuArt() {
+    const iso = (x, y, h) => [280 + x - y, 88 + (x + y) * 0.48 - (h || 0)];
+    const pts = (a) => a.map((p) => p.join(',')).join(' ');
+    const cube = (x, y, w, d, h, top, left, right) => {
+      const a = iso(x, y, h), b = iso(x + w, y, h), c = iso(x + w, y + d, h), e = iso(x, y + d, h);
+      return '<polygon points="' + pts([e, c, iso(x + w, y + d), iso(x, y + d)]) + '" fill="' + left + '"/><polygon points="' + pts([b, c, iso(x + w, y + d), iso(x + w, y)]) + '" fill="' + right + '"/><polygon points="' + pts([a, b, c, e]) + '" fill="' + top + '" stroke="#7194a2" stroke-opacity=".24" stroke-width=".6"/>';
+    };
+    let art = '<svg class="facility-art" viewBox="0 0 600 370" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><radialGradient id="hallGlow"><stop stop-color="#155363" stop-opacity=".5"/><stop offset="1" stop-color="#0a1720" stop-opacity="0"/></radialGradient><linearGradient id="pipeGlow" x2="0" y2="1"><stop stop-color="#ffd69b"/><stop offset="1" stop-color="#ef854b"/></linearGradient></defs><ellipse cx="300" cy="212" rx="280" ry="150" fill="url(#hallGlow)"/>';
+    art += cube(-20, -15, 270, 205, 9, '#142b34', '#0b1922', '#08141c');
+    for (let i = 0; i <= 12; i++) { const a = iso(i * 20, 0, 10), b = iso(i * 20, 175, 10); art += '<path d="M' + a.join(' ') + 'L' + b.join(' ') + '" stroke="#70c5c9" stroke-opacity=".1"/>'; }
+    for (let i = 0; i <= 9; i++) { const a = iso(0, i * 20, 10), b = iso(240, i * 20, 10); art += '<path d="M' + a.join(' ') + 'L' + b.join(' ') + '" stroke="#70c5c9" stroke-opacity=".1"/>'; }
+    art += cube(-20, -15, 270, 6, 35, '#456271', '#1e3644', '#152a36');
+    art += cube(-20, -9, 6, 199, 35, '#456271', '#1e3644', '#152a36');
+    for (let row = 0; row < 4; row++) for (let col = 0; col < 7; col++) {
+      const x = 10 + col * 32, y = 8 + row * 44;
+      art += cube(x, y, 21, 29, 30, '#304c5b', '#142936', '#0b1c28');
+      for (let j = 0; j < 4; j++) { const a = iso(x + 2, y + 29, 7 + j * 5), b = iso(x + 18, y + 29, 7 + j * 5); art += '<path d="M' + a.join(' ') + 'L' + b.join(' ') + '" stroke="#36576b" stroke-width="1.4"/>'; const l = iso(x + 3, y + 29, 9 + j * 5); art += '<circle cx="' + l[0] + '" cy="' + l[1] + '" r=".9" fill="' + ((row + col + j) % 5 ? '#78d9cc' : '#e8bc74') + '"/>'; }
+    }
+    const line = (a, b, col, width) => '<path d="M' + iso(...a).join(' ') + 'L' + iso(...b).join(' ') + '" stroke="' + col + '" stroke-width="' + width + '" stroke-linecap="round"/>';
+    art += line([-5, 15, 45], [245, 15, 45], '#182e37', 8) + line([-5, 15, 46], [245, 15, 46], '#f0a466', 3.5);
+    for (let x = 20; x < 240; x += 64) {
+      art += line([x, 15, 46], [x, 170, 46], '#263b40', 5) + line([x, 15, 47], [x, 170, 47], '#df9c65', 2);
+      for (let y = 40; y < 170; y += 40) { const q = iso(x, y, 47); art += '<circle cx="' + q[0] + '" cy="' + q[1] + '" r="3" fill="#e0f7f4"/><circle cx="' + q[0] + '" cy="' + q[1] + '" r="6" stroke="#a8e3e0" stroke-opacity=".2"/>'; }
+    }
+    art += '<path d="M63 267H120L161 244M465 114L520 84H569" stroke="#5f8b99" stroke-width=".8"/><circle cx="161" cy="244" r="3" fill="#8eddd6"/><circle cx="465" cy="114" r="3" fill="#e6ad75"/><text x="38" y="283" fill="#86b4bf" font-family="monospace" font-size="8" letter-spacing="1.5">PROTECT THE CAMPUS</text><text x="477" y="74" fill="#d1ac80" font-family="monospace" font-size="8" letter-spacing="1.5">EVERY SECOND COUNTS</text><path d="M280 337h42m-21-5v10" stroke="#507786"/><text x="279" y="358" fill="#598493" font-family="monospace" font-size="8" letter-spacing="2">SYSTEMS / STRATEGY / SURVIVAL</text></svg>';
+    return art;
+  }
   ui.showMenu = function () {
-    const G = g(); G.mode = 'menu'; document.body.classList.remove('playing'); let unlocked = true, h = '<h1>DOUBLE <span>INTERLOCK</span></h1><div class="sub">A FIRE PROTECTION SIM FOR HYPERSCALE DATA CENTERS</div>' +
-      '<p>Design, build, commission and operate the systems that keep a data center from burning down or drowning. The hydraulics are solved live, the air leaks, the pumps follow their curves, and the valves trip when physics says so.</p><div class="cards">';
+    const G = g(); G.mode = 'menu'; document.body.classList.remove('playing');
+    const contracts = DI.SCEN.filter((sc) => !sc.sandbox), won = contracts.filter((sc) => G.prog.done[sc.id] && G.prog.done[sc.id].stars > 0).length;
+    let unlocked = true, h = '<div class="menu-mast"><span class="di-mark" aria-hidden="true">Ⅱ</span><span>CRITICAL INFRASTRUCTURE / OPERATIONS DIVISION</span><span class="menu-status"><i></i> SIMULATION ONLINE</span></div><section class="menu-hero"><div class="hero-copy"><div class="eyebrow">A FIRE PROTECTION STRATEGY GAME</div><h1>DOUBLE<br><span>INTERLOCK</span></h1><p class="hero-line">Build with purpose.<br>Protect under pressure.</p><p class="hero-description">Engineer the systems that stand between a data center and disaster. Learn the physics. Master the response.</p><div class="hero-tags"><span>LIVE HYDRAULICS</span><span>REAL CONSEQUENCES</span><span>HANDS-ON LEARNING</span></div></div>' + menuArt() + '</section><div class="campaign-heading"><div><span class="eyebrow">BUILD. COMMISSION. SURVIVE.</span><h2>Choose your contract</h2></div><div class="campaign-progress"><strong>' + String(won).padStart(2, '0') + '</strong><span>/ ' + String(contracts.length).padStart(2, '0') + ' CONTRACTS CLEARED</span></div></div><div class="cards campaign-cards">';
     DI.SCEN.forEach((sc, i) => {
       const d = G.prog.done[sc.id], open = unlocked || sc.sandbox, sv = DI.LS.get('di.save.' + sc.id, null);
-      h += '<button class="card' + (open ? '' : ' lock') + '" data-sc="' + sc.id + '"' + (open ? '' : ' disabled') + '><em>' + (sc.sandbox ? 'FREE PLAY' : 'CONTRACT ' + (i + 1)) + '</em>' + (d ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') + '<b>' + esc(sc.name) + '</b><small>' + esc(sc.tag) + (sv ? ' · in progress' : '') + '</small></button>';
+      h += '<button class="card' + (open ? ' available' : ' lock') + (sc.sandbox ? ' sandbox-card' : '') + '" data-sc="' + sc.id + '"' + (open ? '' : ' disabled') + '><div class="card-top"><em>' + (sc.sandbox ? 'FREE PLAY' : 'CONTRACT ' + String(i + 1).padStart(2, '0')) + '</em><span class="card-state">' + (d && d.stars ? '★'.repeat(d.stars) : !open ? 'LOCKED' : sv ? 'RESUME ↗' : 'DEPLOY ↗') + '</span></div><b>' + esc(sc.name) + '</b><small>' + esc(sc.tag) + (sv ? ' · in progress' : '') + '</small><span class="card-rule"><span style="width:' + (d ? (d.stars / 3 * 100) : 0) + '%"></span></span></button>';
       if (!sc.sandbox && !d) unlocked = false;
     });
     h += '</div>' + DI.puzUI.menuHtml() + '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">' + (DI.desktop && DI.desktop.available ? 'Progress saves on this PC.' : 'Progress saves in this browser.') + ' Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
     if (DI.desktop && DI.desktop.available) h += '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Windows desktop · Progress saves on this PC.</span><button id="mUpdates">Check for updates</button></div>';
     ui.modal(h, false);
+    $('mbox').classList.add('menu-box'); $('modal').classList.add('menu-mode');
     if ($('mUpdates')) $('mUpdates').onclick = DI.desktop.check;
     $('mbox').querySelectorAll('.card[data-sc]').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); }); DI.puzUI.bindMenu();
     $('mMan').onclick = () => ui.showManual(null, ui.showMenu);
@@ -162,10 +193,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
   };
   ui.showBrief = function (sc) {
     if (sc.puzzle) return DI.puzUI.brief(sc);
-    ui.modal('<h4>CONTRACT BRIEFING</h4><h2>' + esc(sc.name) + '</h2><div class="sub">' + esc(sc.tag).toUpperCase() + ' · BUDGET ' + DI.money(sc.money) + '</div>' + sc.brief.map((p) => '<p>' + esc(p) + '</p>').join('') +
-      (sc.learn.length ? '<h4>WHAT THIS CONTRACT TEACHES</h4><ul>' + sc.learn.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>' : '') +
+    ui.modal('<div class="brief-heading"><span class="eyebrow">OPERATIONS / CONTRACT BRIEFING</span><h2>' + esc(sc.name) + '</h2><div class="sub">' + esc(sc.tag).toUpperCase() + ' · BUDGET ' + DI.money(sc.money) + '</div></div>' + sc.brief.map((p) => '<p>' + esc(p) + '</p>').join('') +
+      (sc.learn.length ? '<h4>WHAT THIS CONTRACT TEACHES</h4><ul class="learning-grid">' + sc.learn.map((l, i) => '<li><span>' + String(i + 1).padStart(2, '0') + '</span><div>' + esc(l) + '</div></li>').join('') + '</ul>' : '') +
       (sc.goals.length ? '<h4>GOALS</h4>' + sc.goals.map((q) => '<div class="goal"><i>○</i><div>' + esc(q.t) + '</div></div>').join('') : '') +
-      '<div class="mrow"><button id="mGo" class="go">Start</button></div>');
+      '<div class="mrow"><span class="brief-tip">Plan your system. Prove it under pressure.</span><button id="mGo" class="go">Start contract</button></div>');
+    $('mbox').classList.add('brief-box');
     $('mGo').onclick = ui.close;
   };
   ui.showGoals = function () {

@@ -20,6 +20,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     Object.assign(g, { W, S, sc, sel: null, ghost: null, undo: [], speed: 1, warp: 0, acc: 0, goalOk: sc.goals.map(() => false), calcShow: null, mode: 'play', drillPassed: !!(sv && sv.drillPassed), calcI: 0, doneShown: false });
     S.calc = new Map(); S.rv = DI.review(S); DI.simFlags(S, sc);
     DI.ui.onScenario(); DI.ui.fitSite();
+    if (DI.tactical) DI.tactical.onScenario();
     // a field call opens on its records: what the setup put in the event log (the night's alarm, the resets) is shown
     if (pz) for (const l of S.log) DI.bus.emit('log', l.text, l.cls);
     if (!sv) DI.ui.showBrief(sc);
@@ -43,6 +44,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     requestAnimationFrame(frame);
     const dtR = Math.min(0.1, (ts - last) / 1000 || 0); last = ts; g.now += dtR;
     const cv = DI.cv, c = DI.ctx; if (!cv) return;
+    if (DI.tactical) DI.tactical.visible(g.mode === 'play');
     if (g.mode === 'play') {
       const S = g.S, sc = g.sc;
       // a system drain opened in a pending return-to-normal step ends a running skip: the bleed is fast, and the player has to be able to stop it
@@ -57,7 +59,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
         if (sc.tick) sc.tick(S); if (g.acc > step * 6) g.acc = 0;
       }
       if (g.now - tSlow > 0.6) { tSlow = g.now; slow(); }
-      if (g.now - tUI > 0.2) { tUI = g.now; DI.ui.tick(); }
+      if (g.now - tUI > 0.2) { tUI = g.now; DI.ui.tick(); if (DI.tactical) DI.tactical.tick(); }
       if (g.now - tSave > 8) { tSave = g.now; DI.saveGame(); }
       DI.draw(g, c, innerWidth, innerHeight, g.now);
       DI.audio && DI.audio.tick(g);
@@ -90,7 +92,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const cv = DI.cv = document.getElementById('cv'); DI.ctx = cv.getContext('2d');
     const fit = () => { const d = Math.min(2, window.devicePixelRatio || 1); DI.dpr = d; cv.width = Math.floor(innerWidth * d); cv.height = Math.floor(innerHeight * d); };
     fit(); window.addEventListener('resize', fit);
-    DI.ui.init(); DI.input.init(cv); DI.ui.showMenu(); requestAnimationFrame(frame);
+    DI.ui.init(); DI.input.init(cv); if (DI.tactical) DI.tactical.init(); DI.ui.showMenu(); requestAnimationFrame(frame);
     window.addEventListener('beforeunload', DI.saveGame);
   });
 })();

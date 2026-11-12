@@ -12,6 +12,7 @@ Install Node.js 24, stable Rust with the `x86_64-pc-windows-msvc` target, and Vi
 Build Tools with **Desktop development with C++** and the Windows SDK. Install WebView2 if needed.
 
 ```powershell
+node scripts/third-party-notices.js --check
 npm ci
 npm run build
 npm test
@@ -23,7 +24,7 @@ npm run desktop:build -- --target x86_64-pc-windows-msvc --bundles nsis -- --loc
 ./scripts/package-release.ps1
 ```
 
-The installer and SHA-256 hashes are in `dist/release/`. For local development use `npm run desktop:dev`;
+The installer, `LICENSE.txt`, `THIRD_PARTY_NOTICES.txt` and SHA-256 hashes are in `dist/release/`. For local development use `npm run desktop:dev`;
 the frontend is staged before launch, so rerun after editing sources. The installer embeds Microsoft's
 WebView2 bootstrapper and installs the runtime only if missing. This keeps downloads small while
 requiring network access on PCs without WebView2. The app itself works offline.
@@ -50,14 +51,15 @@ token or signing key is embedded in the application.
 
 1. Bump the same stable version in `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`,
    `src-tauri/Cargo.lock`, and `src-tauri/tauri.conf.json`. Update `RELEASE_NOTES.md` and the README's
-   installer name. Keep the asset naming convention in `scripts/package-release.ps1`.
+   installer name. Keep the asset naming convention in `scripts/package-release.ps1`. If the Rust
+   dependencies changed, run `node scripts/third-party-notices.js` and commit `THIRD_PARTY_NOTICES.txt`.
 2. Run the checks above and commit the release changes.
 3. Push the commit and an annotated tag matching the version, for example `v1.0.0`.
 
 The **Windows installer** GitHub Actions workflow also builds on pull requests and manual dispatches.
 Tag builds validate versions, test the engine and UI, build the installer on Windows, smoke-test a
 silent install and launch, and upload a workflow artifact. Only a successful tag build creates a
-draft GitHub Release with the installer, standalone HTML, and `SHA256SUMS.txt`, then publishes it as
+draft GitHub Release with the installer, standalone HTML, `LICENSE.txt`, `THIRD_PARTY_NOTICES.txt`, and `SHA256SUMS.txt`, then publishes it as
 latest. This keeps an incomplete build out of the update feed. Re-running publication for an existing
 release fails safely; inspect that release before changing or replacing its assets.
 
