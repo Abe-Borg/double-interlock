@@ -100,6 +100,9 @@ button.pill { border-radius:12px; padding:3px 10px; }
 .cmpc > b { display:block; font-size:13px; color:#fff; margin-bottom:6px; } .cmpc canvas { width:100%; height:auto; display:block; border-radius:4px; background:#0d141b; }
 .cmpc small { display:block; font:12px var(--mono); color:var(--amb); margin:6px 0 2px; } .cmpc ul, .cmpc ol { margin:4px 0; padding-left:18px; } .cmpc li { font-size:12.5px !important; } .cmpc p { font-size:12.5px !important; margin:6px 0 0 !important; }
 .card small.vs { font:11px var(--mono); color:var(--amb); margin-top:3px; }
+/* design calls: the decision is the point of the briefing, so it gets a margin line of its own */
+.decision { border-left:3px solid var(--amb); padding:4px 0 4px 12px; margin:6px 0 !important; }
+.decision b { font-weight:600; color:#f3e7c8; }
 button.dg { text-align:left; width:100%; }
 
 /* Workspace shell: a quiet instrument frame around an expansive live site. */
@@ -210,6 +213,7 @@ kbd { font:10px var(--mono); }
 .card em { font-size:9px; color:#9bb6c8; }
 .card b { margin-top:7px; font-size:14px; }
 .card small { margin-top:5px; font-size:11px; }
+.card.design { border-left:3px solid #7f6a33; }
 .focus-view #tools, .focus-view #canvasGuide .guide-help { display:none; }
 .focus-view #viewControls { bottom:20px; }
 .focus-view #canvasGuide { bottom:32px; }
@@ -3813,11 +3817,14 @@ DI.Sim.prototype.restore = function (j) {
 // pumps are running and solves steady state. Answers "does every sprinkler get its density?"
 var DI = globalThis.DI || (globalThis.DI = {});
 
-// design area for one room served by system `id`: the hydraulically most remote sprinklers in that room
-DI.designArea = function (S, id, rm) {
+// design area for one room served by system `id`: the hydraulically most remote sprinklers in that room.
+// anchor (optional, a sprinkler tile of that room): the area is placed there instead (DI.hydCalcWorst moves it to every
+// branch line end, so a fix that only strengthens the farthest area cannot pass by moving the demanding area elsewhere)
+DI.designArea = function (S, id, rm, anchor) {
   const W = S.W, inf = S.sysd.info.get(id), v = W.parts.get(id), td = S.sysd.tdist; if (!inf || inf.remote < 0) return null;
   if (!rm) rm = W.roomAt[inf.remote];
   let remote = -1; for (const k of inf.tiles) if (W.spk[k] && W.roomAt[k] === rm && (remote < 0 || td[k] > td[remote])) remote = k;
+  if (anchor !== undefined && W.spk[anchor] && W.roomAt[anchor] === rm) remote = anchor;
   if (remote < 0) return null;
   const hz = rm ? DI.HAZ[DI.ROOMS[W.rooms[rm - 1].type].haz] : DI.HAZ.OH1;
   const dryLike = v.type === 'dryv' || v.type === 'prev';
@@ -3835,16 +3842,19 @@ DI.hydCalc = function (S, id) {
   let worst = null; const rooms = inf.rooms.size ? [...inf.rooms] : [0];
   for (const rm of rooms) { const r = DI.hydCalcRoom(S, id, rm); if (!r.ok) return r; r.margin = r.minQ / r.need; if (!worst || r.margin < worst.margin) worst = r; }
   worst.pass = worst.pass && worst.margin >= 0.999;
-  // The calc checks hydraulics only. Coverage stays in plan review, so the result carries a flag and the UI
-  // never shows an unqualified PASS over a room that is not fully sprinklered.
-  worst.covOk = [...inf.rooms].every((rm) => { const room = S.W.rooms[rm - 1]; if (room.exempt || DI.ROOMS[room.type].open) return true; const c = DI.roomCoverage(S.W, S.sysd, room); return c.have >= c.need && !c.orphan; });      // a head on no riser protects nothing
-  worst.verdict = !worst.pass ? 'FAIL' : worst.covOk ? 'PASS' : 'PASS (hydraulics only); coverage FAIL, see plan review';
-  return worst;
+  return DI.calcVerdict(S, inf, worst);
+};
+// The calc checks hydraulics only. Coverage stays in plan review, so the result carries a flag and the UI
+// never shows an unqualified PASS over a room that is not fully sprinklered.
+DI.calcVerdict = function (S, inf, r) {
+  r.covOk = [...inf.rooms].every((rm) => { const room = S.W.rooms[rm - 1]; if (room.exempt || DI.ROOMS[room.type].open) return true; const c = DI.roomCoverage(S.W, S.sysd, room); return c.have >= c.need && !c.orphan; });      // a head on no riser protects nothing
+  r.verdict = !r.pass ? 'FAIL' : r.covOk ? 'PASS' : 'PASS (hydraulics only); coverage FAIL, see plan review';
+  return r;
 };
 
-DI.hydCalcRoom = function (S, id, rm) {
+DI.hydCalcRoom = function (S, id, rm, anchor) {
   const W = S.W, inf = S.sysd.info.get(id), v = W.parts.get(id);
-  const da = DI.designArea(S, id, rm); if (!da) return { ok: false, err: 'No sprinklers on this system.' };
+  const da = DI.designArea(S, id, rm, anchor); if (!da) return { ok: false, err: 'No sprinklers on this system.' };
   if (!inf.fed) return { ok: false, err: 'Riser has no water supply connection.' };
   // temporary "everything wet, pumps running, design area open" copy of the state
   const saved = da.tiles.map((k) => W.spk[k]); da.tiles.forEach((k) => { W.spk[k] = 2; });
@@ -3874,6 +3884,32 @@ DI.hydCalcRoom = function (S, id, rm) {
     v.p.drain = drains[0]; v.p.sdrain = drains[1]; v.p.itc = drains[2];
   }
   return res;
+};
+
+// The calc at the most demanding area (NFPA 13 asks for the hydraulically most demanding design area): the area moved
+// to the far end of every branch line (a sprinkler with no linked neighbour farther from the riser) in every room the
+// system protects, and the worst result returned, with `at` (the tile the area was placed at) and `n` (the areas
+// checked). DI.hydCalc places the area at the farthest sprinkler only, so a fix that strengthens just the farthest
+// lines can pass it while the next lines along fail. About one ordinary calc per branch line end (a few ms each):
+// callers cache it (DI.PZ.calcAll). Used by the design calls; the contracts keep DI.hydCalc.
+DI.HYD_WORST_MAX = 96;
+DI.hydCalcWorst = function (S, id) {
+  const W = S.W, inf = S.sysd.info.get(id), td = S.sysd.tdist; if (!inf || inf.remote < 0) return { ok: false, err: 'No sprinklers on this system.' };
+  let worst = null, n = 0;
+  for (const rm of inf.rooms.size ? [...inf.rooms] : [0]) {
+    const ends = inf.tiles.filter((k) => {
+      if (!W.spk[k] || W.roomAt[k] !== rm) return false; const x = k % W.w, y = (k / W.w) | 0;
+      for (let d = 0; d < 4; d++) if (W.linked(x, y, d)) { const q = W.k(x + DI.DX[d], y + DI.DY[d]); if (S.sysd.tileSys[q] === id && td[q] > td[k]) return false; }
+      return true;
+    }).sort((a, b) => td[b] - td[a]);
+    for (const k of ends.slice(0, DI.HYD_WORST_MAX)) {
+      const r = DI.hydCalcRoom(S, id, rm, k); if (!r.ok) return r;
+      n++; r.margin = r.minQ / r.need; r.at = k; if (!worst || r.margin < worst.margin) worst = r;
+    }
+  }
+  if (!worst) return DI.hydCalc(S, id);
+  worst.pass = worst.pass && worst.margin >= 0.999; worst.n = n;
+  return DI.calcVerdict(S, inf, worst);
 };
 
 </script>
@@ -4689,19 +4725,24 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
 </script>
 <script>
-// Field calls: small "find the fault" puzzles. Engine side (no DOM), so the tests can play them under Node.
-// A puzzle hands the player an existing installation, a symptom and a small repair budget, and asks one central
-// question. The live plant is the same simulation as the contracts: nothing here changes how water, air or the panel
-// behave. This file holds the puzzle machinery; the puzzles themselves are in puz1.js and puz2.js.
+// Field calls: small puzzles on the live simulation. Engine side (no DOM), so the tests can play them under Node.
+// Calls 1-8 (puz1.js, puz2.js) are find-the-fault calls: an existing installation, a symptom, a small repair budget and
+// one central question. Calls 9-16 (puz3.js, puz4.js) are design calls (`design: true`): a hard constraint and one
+// decision, both shown in the briefing before anything is built. The live plant is the same simulation as the
+// contracts: nothing here changes how water, air or the panel behave.
 //
-//   DI.PUZ            the puzzle list: { id, n, name, tag, kind, question, learn, w, h, parts, variants: [...] }
+//   DI.PUZ            the puzzle list: { id, n, name, kind, design?, builds?, question, learn, w, h, parts, variants: [...] }
 //   variant           { key, name, money, symptom, records, build(W, b), setup(S), area, hints, diag, goals,
-//                       cheap, maint, live, impPar, cfg }
+//                       cheap, maint, live, impPar, cfg, kind?,
+//                       design calls: constraints [text], decision text, limits { partType: max }, salvage (0..1,
+//                       default 1: what removing starting material refunds), reuse (score the starting pipe kept),
+//                       editSlack (fraction over the cheap fix's edits that still earns the star) }
 //   DI.puzScenario    one variant as a scenario object (the shape main.js and DI.buildScenario expect)
 //   S.puz             the running puzzle's state: the starting layout (w0), hints shown, diagnosis tries, the
 //                     out-of-service clock and the resets made while the cause was still live. It is saved beside
 //                     the world and the sim (main.js), never inside Sim.dump.
 //   DI.puzDiff        the edits between the starting layout and now: what "fewest edits" counts
+//   DI.puzCost        what a layout change costs, with the variant's salvage rule
 //   DI.puzScore       the scorecard and the stars
 //   DI.puzSolution    the cheap and the easily maintained fix, applied to a copy of the starting layout, for the
 //                     comparison after the puzzle (and for the tests, which play both)
@@ -4726,7 +4767,8 @@ DI.puzWorth = function (W) {
   return c;
 };
 DI.puzSnap = (W) => JSON.stringify(W.toJSON());
-DI.puzWorld = (snap) => DI.World.fromJSON(JSON.parse(snap));
+// (World.fromJSON does not carry a room's `exempt` flag: main.js copies it on a load, and so does this)
+DI.puzWorld = (snap) => { const j = JSON.parse(snap), W = DI.World.fromJSON(j); for (const r of W.rooms) { const o = j.rooms.find((q) => q.id === r.id); if (o && o.exempt) r.exempt = true; } return W; };
 
 // The edits between two layouts, one per changed thing: a pipe tile (added, removed, resized, re-oriented, a head
 // added or removed), a capped joint, a tile of air tubing, a part (added, removed, replaced, turned end for end, or
@@ -4769,17 +4811,90 @@ DI.puzDiff = function (W0, W) {
   return { n: items.length, items, tiles };
 };
 
+// ---------- design-call constraints
+// Part limits: { type: max } counts every part of that type in the layout, the starting ones included. The build tools
+// refuse a part over the limit (DI.puzLimit, input.js) and a goal checks it (DI.puzScenario).
+DI.puzLimitText = (lim) => Object.keys(lim).map((t) => 'at most ' + lim[t] + ' ' + DI.PARTS[t].name.toLowerCase() + (lim[t] === 1 ? '' : 's')).join(', ');
+DI.puzOverLimit = (W, lim) => Object.keys(lim || {}).filter((t) => W.byType(t).length > lim[t]);
+DI.puzLimit = function (S, type) {
+  const v = S && S.puz && DI.puzVariant(S), lim = v && v.limits; if (!lim || !(type in lim)) return '';
+  return S.W.byType(type).length >= lim[type] ? 'Constraint of this call: ' + DI.puzLimitText({ [type]: lim[type] }) + '. Remove one first, or rethink the arrangement.' : '';
+};
+// Salvage: what removing starting material refunds, as a fraction of its installed cost (variant.salvage, default 1).
+// 0 = inherited material has no resale value: erasing, resizing or replacing it refunds nothing. Only material that is
+// still as it was at the start counts as inherited; what the player laid during the call refunds in full as always.
+DI.puzSalv = (S) => { const v = S && S.puz && DI.puzVariant(S); return v && v.salvage !== undefined ? v.salvage : 1; };
+DI.puzOrigPipe = (W0, W, k) => !!W0.pd[k] && W0.pd[k] === W.pd[k] && !W0.partAt[k];
+DI.puzOrigPart = (W0, p) => { const q = W0.parts.get(W0.partAt[W0.k(p.x, p.y)]); return !!q && q.id === p.id && q.type === p.type; };
+// the money back for the pipe alone on tile k (a resize keeps the head), for everything on a pipe tile (pipe, head,
+// tubing), and for a part; in a contract (no puzzle) these are the plain installed costs
+DI.puzPipeCredit = function (S, k) {
+  const W = S.W; if (!W.pd[k]) return 0; const c = DI.pipeAt(W, k).cost, f = DI.puzSalv(S);
+  return f < 1 && DI.puzOrigPipe(DI.puzStart(S), W, k) ? c * f : c;
+};
+DI.puzTileRefund = function (S, x, y) {
+  const W = S.W, k = W.k(x, y), f = DI.puzSalv(S), W0 = f < 1 ? DI.puzStart(S) : null;
+  let c = DI.puzPipeCredit(S, k);
+  if (W.pd[k] && W.spk[k]) c += W0 && DI.puzOrigPipe(W0, W, k) && W0.spk[k] ? DI.SPK_COST * f : DI.SPK_COST;
+  return c;
+};
+DI.puzHeadRefund = (S, k) => { const f = DI.puzSalv(S); return f < 1 && DI.puzOrigPipe(DI.puzStart(S), S.W, k) && DI.puzStart(S).spk[k] ? DI.SPK_COST * f : DI.SPK_COST; };
+DI.puzAirRefund = (S, k) => { const f = DI.puzSalv(S); return f < 1 && DI.puzStart(S).air[k] ? 25 * f : 25; };
+DI.partWorth = (p) => DI.partCost(p.type, p.p) + (p.p.vent ? 3200 : 0);
+DI.puzPartRefund = function (S, p) { const f = DI.puzSalv(S), c = DI.partWorth(p); return f < 1 && DI.puzOrigPart(DI.puzStart(S), p) ? c * f : c; };
+// a design setting changed on a part: a price difference d; downsizing an inherited part refunds only its salvage share
+DI.puzReprice = (S, p, d) => (d < 0 && DI.puzSalv(S) < 1 && DI.puzOrigPart(DI.puzStart(S), p) ? d * DI.puzSalv(S) : d);
+
+// What turning layout W0 into W1 costs, with salvage f: everything new at its installed price, everything of W0 that
+// was taken away or replaced refunded at f. With f = 1 it is the difference in installed worth (DI.puzWorth). The build
+// tools charge the same (input.js): a resize pays the new size and gets the old one back at f.
+DI.puzCost = function (W0, W1, f) {
+  if (f === undefined) f = 1;
+  const pipe = (W, k) => (W.pd[k] ? DI.pipeAt(W, k).cost : 0);
+  let c = 0;
+  for (let k = 0; k < W1.pd.length; k++) {
+    const p0 = W0.partAt[k] ? null : W0.pd[k], p1 = W1.partAt[k] ? null : W1.pd[k];
+    // (a tile re-laid at the same size, a branch line made a main, costs nothing: it adds tees, not pipe)
+    if (p0 !== p1) { c += p1 ? pipe(W1, k) : 0; c -= p0 ? pipe(W0, k) * f : 0; }
+    // (a head is charged when it comes or goes; a resize keeps it, as the Main tool does)
+    const h0 = !!(p0 && W0.spk[k]), h1 = !!(p1 && W1.spk[k]);
+    if (h0 !== h1) c += h1 ? DI.SPK_COST : -DI.SPK_COST * f;
+    if (W0.air[k] !== W1.air[k]) c += W1.air[k] ? 25 : -25 * f;
+  }
+  const at = (W, p) => W.parts.get(W.partAt[W.k(p.x, p.y)]);
+  for (const p of W0.parts.values()) {
+    if (p.p.fixed) continue; const q = at(W1, p);
+    if (!q || q.id !== p.id || q.type !== p.type) c -= DI.partWorth(p) * f;
+    else { const d = DI.partWorth(q) - DI.partWorth(p); c += d < 0 ? d * f : d; }
+  }
+  for (const q of W1.parts.values()) { if (q.p.fixed) continue; const p = at(W0, q); if (!p || p.id !== q.id || p.type !== q.type) c += DI.partWorth(q); }
+  return Math.round(c);
+};
+// Pipe reuse: the pipe tiles of the starting layout still there at the same size (a resized or re-laid tile is new pipe)
+DI.puzReuse = function (W0, W) {
+  let total = 0, kept = 0;
+  for (let k = 0; k < W0.pd.length; k++) if (W0.pd[k] && !W0.partAt[k]) { total++; if (W.pd[k] === W0.pd[k] && !W.partAt[k]) kept++; }
+  return { kept, total };
+};
+
 // ---------- a variant as a scenario
 DI.puzFind = (id) => DI.PUZ.find((p) => p.id === id) || null;
+// the words of a call: a find-the-fault call is diagnosed, a design call is answered
+DI.puzWords = (pz) => (pz && pz.design ? { call: 'Design call', ask: 'Answer', done: 'Answered', noun: 'Answer', head: 'THE ANSWER', pick: 'Pick the answer.', solved: 'Design accepted', what: 'THE ANSWER' }
+  : { call: 'Field call', ask: 'Diagnose', done: 'Diagnosed', noun: 'Diagnosis', head: 'DIAGNOSIS', pick: 'Pick the fault.', solved: 'Fault found and fixed', what: 'THE FAULT' });
 DI.puzScenario = function (id, vi) {
   const pz = DI.puzFind(id); if (!pz) return null;
   const i = DI.clamp(vi | 0, 0, pz.variants.length - 1), v = pz.variants[i];
-  const diagGoal = { t: 'Name the fault (Diagnose, on the top bar)', ok: (S) => !!(S.puz && S.puz.diag.ok), hint: 'Answer the central question: ' + (v.diag.q || pz.question) };
+  const diagGoal = pz.design ? { t: 'Answer the design question (Answer, on the top bar)', ok: (S) => !!(S.puz && S.puz.diag.ok), hint: 'The central question: ' + (v.diag.q || pz.question) }
+    : { t: 'Name the fault (Diagnose, on the top bar)', ok: (S) => !!(S.puz && S.puz.diag.ok), hint: 'Answer the central question: ' + (v.diag.q || pz.question) };
+  // a design call's part limits are a goal as well as a refusal at the build tools (DI.puzLimit), so a layout that got
+  // past the tools another way (an undo, a test) is still judged against them
+  const limGoal = v.limits ? [{ t: 'Within the limits: ' + DI.puzLimitText(v.limits), ok: (S) => DI.puzOverLimit(S.W, v.limits).length === 0, hint: 'Remove what is over the limit: ' + DI.puzLimitText(v.limits) + '.' }] : [];
   const sc = {
-    id: pz.id, name: pz.name, tag: 'Field call ' + pz.n + ' · ' + v.name, w: v.w || pz.w, h: v.h || pz.h, money: v.money, par: 0,
+    id: pz.id, name: pz.name, tag: (pz.design ? 'Design call ' : 'Field call ') + pz.n + ' · ' + v.name, w: v.w || pz.w, h: v.h || pz.h, money: v.money, par: 0,
     parts: v.parts || pz.parts, brief: v.symptom, learn: pz.learn, cfg: v.cfg, drill: null, puzzle: true, pz, vi: i, v,
     build: (W) => v.build(W, DI.mk(W)), start: v.setup ? (S) => v.setup(S) : undefined,
-    goals: v.goals.concat([diagGoal]), tick: (S) => DI.puzTick(S),
+    goals: v.goals.concat(limGoal, [diagGoal]), tick: (S) => DI.puzTick(S),
   };
   return sc;
 };
@@ -4853,35 +4968,51 @@ DI.puzSolution = function (S, which) {
   const v = DI.puzVariant(S), sol = v && v[which]; if (!sol) return null;
   const W0 = DI.puzStart(S), W1 = DI.puzWorld(S.puz.w0);
   if (sol.edit) sol.edit(W1, DI.mk(W1));
-  return { sol, W: W1, diff: DI.puzDiff(W0, W1), cost: DI.puzWorth(W1) - DI.puzWorth(W0) };
+  return { sol, W: W1, diff: DI.puzDiff(W0, W1), cost: DI.puzCost(W0, W1, v.salvage), reuse: DI.puzReuse(W0, W1) };
 };
 // par = the cheap fix: its edits and its cost
 DI.puzPar = function (S) {
   const pz = S.puz; if (pz._par) return pz._par;
   const c = DI.puzSolution(S, 'cheap'), v = DI.puzVariant(S);
-  return (pz._par = { edits: c ? c.diff.n : 0, cost: c ? Math.max(0, c.cost) : 0, imp: v && v.impPar !== undefined ? v.impPar : DI.PUZ_IMP_PAR });
+  return (pz._par = { edits: c ? c.diff.n : 0, cost: c ? Math.max(0, c.cost) : 0, imp: v && v.impPar !== undefined ? v.impPar : DI.PUZ_IMP_PAR, reuse: c ? c.reuse.kept : 0 });
 };
-// The scorecard. [ok, text] lines; the stars: one for the fix (every goal, the diagnosis included), one for fewest
-// edits at no more than the cheap fix's cost, one for the diagnosis right the first time with at most one hint, no
-// more out-of-service time than par and no reset made while the cause was still live.
+// The scorecard. [ok, text] lines; the stars: one for the fix (every goal, the diagnosis or answer included), one for
+// fewest edits (plus the variant's slack) at no more than the cheap fix's cost and, where pipe kept is scored, keeping
+// at least as much as the cheap fix, one for the diagnosis right the first time with at most one hint, no more
+// out-of-service time than par (where it is scored) and no reset made while the cause was still live.
 DI.puzScore = function (S) {
-  const pz = S.puz, v = DI.puzVariant(S), par = DI.puzPar(S), d = DI.puzDiff(DI.puzStart(S), S.W), spent = DI.puzSpent(S);
-  const costOk = spent <= par.cost * (1 + DI.PUZ_COST_SLACK) + 100, editOk = d.n <= par.edits, diagOk = pz.diag.ok && pz.diag.tries === 1, hintOk = pz.hints <= 1, impOk = pz.imp <= par.imp, resetOk = !v.live || pz.futile === 0;
+  const pz = S.puz, v = DI.puzVariant(S), par = DI.puzPar(S), W0 = DI.puzStart(S), d = DI.puzDiff(W0, S.W), spent = DI.puzSpent(S), design = !!DI.puzFind(pz.id).design;
+  // a design call builds more, so its edit line may allow a slack over the cheap fix (variant.editSlack, a game value)
+  const editMax = Math.floor(par.edits * (1 + (v.editSlack || 0)) + 1e-9), ru = v.reuse ? DI.puzReuse(W0, S.W) : null;
+  const costOk = spent <= par.cost * (1 + DI.PUZ_COST_SLACK) + 100, editOk = d.n <= editMax, reuseOk = !ru || ru.kept >= par.reuse;
+  const diagOk = pz.diag.ok && pz.diag.tries === 1, hintOk = pz.hints <= 1, impOk = v.impPar === null || pz.imp <= par.imp, resetOk = !v.live || pz.futile === 0;
+  const word = design ? 'Answer' : 'Diagnosis';
   const lines = [
-    [editOk, 'Edits: ' + d.n + ' (fewest needed: ' + par.edits + ')'],
-    [costOk, 'Spent: ' + DI.money(Math.max(0, spent)) + ' (cheapest fix: ' + DI.money(par.cost) + ')'],
-    [diagOk, pz.diag.ok ? 'Diagnosis: ' + (pz.diag.tries === 1 ? 'right the first time' : 'right on try ' + pz.diag.tries) : 'Diagnosis: not given'],
-    [hintOk, 'Hints used: ' + pz.hints + ' of ' + v.hints.length],
-    [impOk, 'Out of service: ' + DI.dur(pz.imp) + ' (par ' + DI.dur(par.imp) + ')'],
+    [editOk, 'Edits: ' + d.n + ' (fewest needed: ' + par.edits + (editMax > par.edits ? ', star up to ' + editMax : '') + ')'],
+    [costOk, 'Spent: ' + DI.money(Math.max(0, spent)) + (spent < 0 ? ' (' + DI.money(-spent) + ' back)' : '') + ' (cheapest fix: ' + DI.money(par.cost) + ')'],
   ];
+  if (ru) lines.push([reuseOk, 'Starting pipe kept: ' + ru.kept + ' of ' + ru.total + ' tiles (the cheapest fix keeps ' + par.reuse + ')']);
+  lines.push([diagOk, pz.diag.ok ? word + ': ' + (pz.diag.tries === 1 ? 'right the first time' : 'right on try ' + pz.diag.tries) : word + ': not given'],
+    [hintOk, 'Hints used: ' + pz.hints + ' of ' + v.hints.length]);
+  if (v.impPar !== null) lines.push([impOk, 'Out of service: ' + DI.dur(pz.imp) + ' (par ' + DI.dur(par.imp) + ')']);
   if (v.live) lines.push([resetOk, 'Resets made while the cause was still live: ' + pz.futile + (pz.resets ? ' of ' + pz.resets : '')]);
-  const stars = 1 + (editOk && costOk ? 1 : 0) + (diagOk && hintOk && impOk && resetOk ? 1 : 0);
-  return { stars, lines, edits: d.n, diff: d, spent, par };
+  const stars = 1 + (editOk && costOk && reuseOk ? 1 : 0) + (diagOk && hintOk && impOk && resetOk ? 1 : 0);
+  return { stars, lines, edits: d.n, diff: d, spent, par, reuse: ru };
 };
 // Live status for the inspector's home panel and the goals dialog.
 DI.puzStatus = function (S) {
   const v = DI.puzVariant(S), pz = S.puz; if (!v) return null;
-  return { v, edits: DI.puzDiff(DI.puzStart(S), S.W).n, spent: DI.puzSpent(S), hints: v.hints.slice(0, pz.hints), left: v.hints.length - pz.hints, imp: pz.imp, now: DI.puzImpaired(S), futile: pz.futile, diag: pz.diag };
+  const W0 = DI.puzStart(S);
+  return { v, edits: DI.puzDiff(W0, S.W).n, spent: DI.puzSpent(S), hints: v.hints.slice(0, pz.hints), left: v.hints.length - pz.hints, imp: pz.imp, now: DI.puzImpaired(S), futile: pz.futile, diag: pz.diag,
+    reuse: v.reuse ? DI.puzReuse(W0, S.W) : null, overLimit: DI.puzOverLimit(S.W, v.limits), design: !!DI.puzFind(pz.id).design };
+};
+
+// The calc a riser shows: on a design call the one its goals read, at the most demanding area (fresh = the Run button:
+// computed now, past the throttle); everywhere else the ordinary calc at the farthest area. null = no result yet.
+DI.puzCalc = function (S, id, fresh) {
+  const pz = S && S.puz && DI.puzFind(S.puz.id); if (!pz || !pz.design) return DI.hydCalc(S, id);
+  if (fresh && S._calcAll) S._calcAll.delete(id);
+  return DI.PZ.calcAll(S, id);
 };
 
 // ---------- helpers the puzzles share
@@ -4898,6 +5029,47 @@ DI.PZ = {
   // test for 1,800 s (DI.quietFor): a pump that ran half an hour and was then stopped by hand is not a quiet half hour
   sleeps: (S) => { const fp = [...S.W.parts.values()].filter((p) => p.type === 'epump' || p.type === 'dpump');
     return fp.length > 0 && fp.every((p) => p.p.mode === 'auto' && p.p.spd === 0) && DI.quietFor(S, S.puz ? S.puz.t0 : 0) >= 1800; },
+  // the calc at the most demanding area (DI.hydCalcWorst, calc.js), cached on the layout, the valve positions and the
+  // pump modes: the game reads the goals every 0.6 s and one result costs a few ms per branch line end (about 0.2 s for
+  // the six rooms of call 13). In the browser (throttleMs, set by puzui.js) a system edited again within the window gets
+  // no result (null: the goal reads as not met) until the window has passed, so building does not stall on it. It never
+  // hands back a stale pass. The tests leave throttleMs at 0 and always get a fresh result.
+  throttleMs: 0,
+  calcAll: (S, id) => {
+    const W = S.W, key = W.ver + '|' + W.byType('gate').map((g) => Math.round(g.p.open * 100)).join(',') + '|' + [...W.parts.values()].filter((p) => p.type === 'epump' || p.type === 'dpump').map((p) => p.p.mode).join(',');
+    const m = S._calcAll || (S._calcAll = new Map()), c = m.get(id); if (c && c.key === key) return c.r;
+    const now = DI.PZ.throttleMs > 0 ? Date.now() : 0; if (now && c && now - c.at < DI.PZ.throttleMs) return null;
+    if (S.ver !== W.ver) S.sync();
+    const r = DI.hydCalcWorst(S, id); m.set(id, { key, r, at: now }); return r;
+  },
+  // every system that protects a room of `type` passes at its most demanding area (with the tank lasting the hazard's
+  // duration and no fire pump over 150 % where `plant` is set)
+  calcAllOk: (S, type, plant) => DI.G.each(S, type, (v, inf, s, id) => { const c = DI.PZ.calcAll(S, id); return !!c && c.ok && c.pass && (!plant || (c.durOk && !c.over)); }),
+  // Which system valves the water supplies reach with the control valve on tile `blockK` shut (-1: none shut). A walk over
+  // the layout from every supply outlet: through pipe that is linked, through inline parts by their two ports, and it
+  // stops at a system valve (reached) or at the shut valve. Used for independent isolation (call 13).
+  reached: (W, blockK) => {
+    const out = new Set(), seen = new Set(), q = [];
+    for (const p of W.parts.values()) if (p.type === 'city' || p.type === 'tank') { const pt = W.ports(p); if (pt.o >= 0) q.push([p.x, p.y, pt.o]); }
+    while (q.length) {
+      const [x, y, d] = q.pop(); if (!W.linked(x, y, d)) continue;
+      const nx = x + DI.DX[d], ny = y + DI.DY[d], k = W.k(nx, ny); if (seen.has(k)) continue; seen.add(k);
+      const p = W.at(nx, ny);
+      if (p) { if (DI.SYSV[p.type]) { out.add(p.id); continue; } if (k === blockK) continue; const pt = W.ports(p); for (const e of [pt.i, pt.o]) if (e >= 0 && e !== DI.OPP[d]) q.push([nx, ny, e]); continue; }
+      for (let e = 0; e < 4; e++) if (e !== DI.OPP[d]) q.push([nx, ny, e]);
+    }
+    return out;
+  },
+  // Independent isolation: every system valve has a control valve of its own (the nearest upstream, DI.ctrlValve), and
+  // shutting it cuts off that system and no other. Returns the system valves that fail.
+  notIsolated: (S) => {
+    const W = S.W, sys = [...W.parts.values()].filter((p) => DI.SYSV[p.type]), all = DI.PZ.reached(W, -1), bad = [];
+    for (const v of sys) { const g = DI.ctrlValve(W, v.id); if (!g || !all.has(v.id)) { bad.push(v); continue; }
+      const r = DI.PZ.reached(W, W.k(g.x, g.y)); if (r.has(v.id) || sys.some((o) => o !== v && all.has(o.id) && !r.has(o.id))) bad.push(v); }
+    return bad;
+  },
+  // every system of the layout passes there
+  calcEvery: (S, plant) => S.sysd.info.size > 0 && [...S.sysd.info.keys()].every((id) => { const c = DI.PZ.calcAll(S, id); return !!c && c.ok && c.pass && (!plant || (c.durOk && !c.over)); }),
 };
 
 </script>
@@ -5488,6 +5660,678 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
 </script>
 <script>
+// Design calls 9-12: The Last $8,000, One Wall, Two Systems, Split Decision, The Forbidden Grid.
+// A design call gives one hard constraint (a budget, a part limit, a rule of the system type) and one decision, and
+// both are in the briefing before anything is built (variant.constraints, variant.decision). The later calls combine
+// ideas from the earlier ones: gridding a wet system (call 3), the dry system's rules (contract 2), delivery and zoning
+// (contract 5), caps (call 3). See puz.js for the shape of a call; coordinates are tiles of the variant's own map.
+var DI = globalThis.DI || (globalThis.DI = {});
+(function () {
+  const G = DI.G, PZ = DI.PZ, E = DI.PZE;
+  const col = (x, y0, y1) => { const o = []; for (let y = y0; y <= y1; y++) o.push([x, y]); return o; };
+  const row = (y, x0, x1) => { const o = []; for (let x = x0; x <= x1; x++) o.push([x, y]); return o; };
+  // resize a list of tiles to pipe size index `size` (a resize keeps the head and the line direction: the Main tool
+  // over an existing tile does the same, except that it lays the tile as a main)
+  const resize = (W, pts, size) => { for (const [x, y] of pts) { const k = W.k(x, y); if (W.pd[k]) { W.pd[k] = size + 1; W.pk[k] = 0; } } W.ver++; };
+  // lay the branch tiles of a column as a main at size index `size` (or the size they have): a grid tie. A main already
+  // in the column (the feed main crossing it) is left as it is.
+  const tie = (W, x, y0, y1, size) => { for (let y = y0; y <= y1; y++) { const k = W.k(x, y); if (W.pd[k] && W.pk[k]) { W.pk[k] = 0; if (size !== undefined) W.pd[k] = size + 1; } } W.ver++; };
+  // the worst calc of the first system of a room type, as a records line
+  const calcLine = (S, type, who) => { const id = G.sysOf(S, type)[0], c = id && PZ.calcAll(S, id);
+    return c && c.ok ? (who || 'Hydraulic calc') + ': ' + (c.pass ? 'PASS' : 'FAIL') + ', the weakest head in the most demanding area gets ' + DI.fmt(c.minQ, 1) + ' gpm of the ' + DI.fmt(c.need, 1) + ' gpm it needs (' + DI.fmt(c.margin * 100) + ' percent).' : (who || 'Hydraulic calc') + ': no result.'; };
+  DI.PZ3 = { col, row, resize, tie, calcLine };
+
+  // =====================================================================================================
+  // Call 9. A storage floor (or an unheated dock) that misses its calc by a few percent, with $8,000 left.
+  //   city (0,12) -> backflow (1,12) -> control valve (2,12) -> system valve (3,12) in the riser room
+  //   centre-fed (A, B): feed main (4..27,12) -> cross main (28,3..18) -> branch lines west (16..27) and east (29..40)
+  //   end-fed (C): feed main (4..15,12), down (15,13..19), along (16..27,19) -> cross main (28,19 up to 3)
+  const AREA9 = [0, 2, 42, 20];
+  const floor9 = (W, b, o) => {
+    W.addRoom('riser', 1, 9, 5, 6).exempt = true; W.addRoom(o.room, 16, 3, 25, 16);
+    b.p('city', 0, 12, 0, { stat: 75, resid: o.resid || 60, flow: 1500, fixed: true }); b.p('bfp', 1, 12); const g = b.p('gate', 2, 12, 0);
+    const r = o.dry ? b.p('dryv', 3, 12, 0, { qod: true }) : b.p('wetv', 3, 12);
+    if (o.endFed) { b.h(4, 15, 12, o.feed); b.v(15, 13, 19, o.feed); b.h(16, 27, 19, o.feed); b.v(28, 3, 19, o.cross); for (let y = 3; y <= 18; y++) W.spk[W.k(28, y)] = 1; }
+    else { b.h(4, 27, 12, o.feed); b.v(28, 3, 18, o.cross, true); }
+    b.grid(16, 3, 27, 18, o.br, 1); b.grid(29, 3, 40, 18, o.br, 1);
+    const pn = b.p('panel', 4, 10); b.wire(pn, g, r);
+    if (o.dry) { b.p('comp', 3, 10, 0, { scfm: 20 }); b.air([[3, 11]]); }
+  };
+  const calc9 = (type) => ({ t: 'Hydraulic calc passes at the most demanding area (the design area moved to every branch line end)', ok: (S) => PZ.calcAllOk(S, type), hint: 'Select the riser and run the calc. The goal checks the design area at the end of every branch line, not only the farthest one.' });
+  const review9 = { t: 'Plan review finds no code failures', ok: G.noFails, hint: 'Open Review.' };
+  const C9 = ['Budget: what is left, $8,000. No new pump, tank or water supply: pipe and valves only.', 'The calc must pass wherever the design area falls: the goal moves it to the end of every branch line.'];
+  DI.PUZ.push({
+    id: 'p9', n: 9, name: 'The Last $8,000', kind: 'Nearly finished plant', design: true, w: 44, h: 24, parts: ['gate', 'check'],
+    builds: ['Call 1: friction, and where a restriction shows on the hover readings', 'Call 3: a wet system may be gridded; dry pipe may not', 'Cold Dock: the dry design area is 30 percent larger'],
+    question: 'Where does a small budget buy the most pressure?',
+    learn: ['Friction grows with the flow to the power 1.85: a tile that carries the whole demand loses far more than a tile that carries one line', 'Upsize only as far as the calc needs: past that point the money buys margin, not a pass', 'On a wet system, tying the far ends of the branch lines into a grid feeds every line from both ends, almost for free', 'Dry and preaction pipe may not be gridded, so there the cross main has to carry it', 'Check the most demanding area, not only the farthest one: strengthening the remote lines moves the area, it does not remove it'],
+    variants: [
+      { key: 'A', name: 'Floor A: the long feed', money: 8000, area: AREA9, impPar: null, constraints: C9,
+        decision: 'The calc is about 10 percent short. Pressure is lost in three places: the 240 ft feed main, the cross main and the branch lines. Every tile you upsize costs money, and $8,000 will not buy all three. Spend it where the most water flows.',
+        symptom: ['Nearly finished plant. A storage building on a city main: the sprinklers are hung, the riser is set, and the contractor has $8,000 left in the contract. The hydraulic calc fails by about 10 percent.', 'Find an upgrade that passes within the budget. The cheapest one earns the star.'],
+        records: (S) => [calcLine(S, 'stor', 'Contractor’s calc'), 'Hydrant flow test at the street: 75 psi static, 60 psi residual at 1,500 gpm.'],
+        build: (W, b) => floor9(W, b, { room: 'stor', feed: 5, cross: 6, br: 3 }),
+        hints: [['Start at the riser: run the calc and read the pressure at the riser against the hydrant test. Then follow the water: feed main, cross main, branch lines.', 3, 12],
+          ['While the calc is shown, hover the feed main, the cross main and a branch line. The feed main carries the whole demand at the highest velocity: it loses the most pressure per tile, and every tile of it loses about the same.', 10, 12],
+          ['The 3 in. feed main is the bottleneck. Upsize half of it (12 tiles) to 4 in. with the Main tool: about $1,300 and the calc passes. The whole feed main works too, at twice the price.', 10, 12]],
+        diag: { q: 'Where does $8,000 buy the most pressure?', opts: [
+          ['The feed main: it carries the whole demand', true, 'Yes. Every tile of it carries all 600 gpm, so each one upsized buys more pressure than any other tile on the floor.'],
+          ['The branch lines in the design area', false, 'The two farthest lines then pass, and the area moves to the next lines, which still fail. All the lines would cost over $20,000.'],
+          ['The cross main', false, 'It carries less than half the demand to the far end. The whole cross main one size up buys under one percent.'],
+          ['A fire pump', false, 'Not in the budget, and not needed: the street has the pressure. The pipe loses it.']] },
+        goals: [calc9('stor'), review9], prove: () => {},
+        cheap: { t: 'Half the feed main one size up', steps: ['Main tool at 4 in. over 12 tiles of the 3 in. feed main', 'Run the calc'], edit: (W) => resize(W, row(12, 4, 15), 6),
+          lesson: 'About $1,300. The calc passes with a percent or two to spare: just enough.' },
+        maint: { t: 'The whole feed main one size up', steps: ['Main tool at 4 in. over the whole feed main', 'Run the calc'], edit: (W) => resize(W, row(12, 4, 27), 6),
+          lesson: 'Twice the price for a margin of about 17 percent. The next tenant who adds a rack or a few heads does not reopen the calc.' } },
+      { key: 'B', name: 'Floor B: the long lines', money: 8000, area: AREA9, impPar: null, constraints: C9,
+        decision: 'The calc is about 20 percent short and the branch lines are 120 ft long on 1½ in. pipe. Upsizing them all would cost about $15,000. Is there a way to shorten the path the water takes without buying pipe?',
+        symptom: ['Nearly finished plant. The same storage building with a bigger feed main and long branch lines. The calc fails by about 20 percent, and the contractor has $8,000 left.', 'Find an upgrade that passes within the budget. The cheapest one earns the star.'],
+        records: (S) => [calcLine(S, 'stor', 'Contractor’s calc'), 'Contractor’s note: "upsize the branch lines" (quoted at $14,880).'],
+        build: (W, b) => floor9(W, b, { room: 'stor', feed: 7, cross: 6, br: 2 }),
+        hints: [['The feed main is 6 in. now. Run the calc and hover a far branch line: almost all the pressure is lost along the 1½ in. lines.', 38, 4],
+          ['Upsizing the two farthest lines passes the farthest area, and the area moves to the next lines. A line fed from both ends carries half the flow over each half: about a quarter of the loss.', 40, 10],
+          ['This is a wet system: tie the far ends of the lines into a grid. Lay the far column of each side (x 16 and x 40) as a main, at the 1½ in. size it already is: no cost. Both sides, or the area moves to the side you left.', 40, 10]],
+        diag: { q: 'Where does $8,000 buy the most pressure?', opts: [
+          ['Tie the far ends of the branch lines into a grid', true, 'Yes. Each line is fed from both ends, so each half carries half the flow. On a wet system that is allowed and costs nothing but the far column.'],
+          ['Upsize the branch lines in the design area', false, 'The area moves to the next lines along, which still fail. Every line would cost about $15,000.'],
+          ['Upsize the feed main', false, 'It is 6 in. already: almost no pressure is lost there.'],
+          ['Upsize the cross main', false, 'One size up buys about two percent. The loss is in the lines.']] },
+        goals: [calc9('stor'), review9], prove: () => {},
+        cheap: { t: 'Grid both sides, same size', steps: ['Main tool at 1½ in. over the far column of each side (x 16 and x 40)', 'Run the calc'], edit: (W) => { tie(W, 16, 3, 18); tie(W, 40, 3, 18); },
+          lesson: 'No cost. The same pipe, joined at both ends: about 30 percent over the need.' },
+        maint: { t: 'Grid both sides with 2 in. ties', steps: ['Main tool at 2 in. over the far column of each side', 'Run the calc'], edit: (W) => { tie(W, 16, 3, 18, 3); tie(W, 40, 3, 18, 3); },
+          lesson: 'About $1,200. A tie one size up is a real main on the drawings, and it keeps the grid balanced when heads are added at the far end later.' } },
+      { key: 'C', name: 'Dock C: dry pipe', money: 8000, area: AREA9, impPar: null, constraints: C9.concat(['The dock is unheated: dry pipe, and dry pipe may not be gridded.']),
+        decision: 'An unheated dock on dry pipe, the calc about 18 percent short, with the cross main fed from its south end. The free fix of a wet floor (a grid) fails review on dry pipe. Where else does $8,000 buy the pressure?',
+        symptom: ['Nearly finished plant. A loading dock, unheated, on a dry pipe valve in the riser room. The cross main is fed from its south end and the calc fails by about 18 percent. $8,000 is left.', 'Find an upgrade that passes within the budget and still passes plan review.'],
+        records: (S) => [calcLine(S, 'dock', 'Contractor’s calc'), 'Dry design area: 1,950 ft² (1,500 + 30 percent).'],
+        build: (W, b) => floor9(W, b, { room: 'dock', dry: true, endFed: true, feed: 7, cross: 5, br: 3 }),
+        hints: [['The cross main is fed from its south end, so the water for the far (north) area travels its whole length. Run the calc and hover the cross main.', 28, 12],
+          ['A grid would pass the calc and fail plan review: dry pipe must not be gridded. The cross main is 3 in. and carries the whole design area to the far end.', 28, 6],
+          ['Upsize the whole cross main, from the feed at the south end to the north end, one size (3 in. to 4 in.). Half of it is not enough: the far area draws through all of it.', 28, 10]],
+        diag: { q: 'Where does $8,000 buy the most pressure on dry pipe?', opts: [
+          ['The cross main, end to end: it carries the whole design area', true, 'Yes. End-fed, every tile of the cross main carries the far area’s water. One size up passes with margin.'],
+          ['Tie the far ends of the lines into a grid', false, 'It would pass the calc, and fail plan review: dry pipe must not be gridded.'],
+          ['The north half of the cross main only', false, 'The far area draws through the south half too. Half the cross main buys about nine percent.'],
+          ['The feed main', false, 'It is 6 in.: almost nothing is lost there, and more pipe adds volume to the dry zone.']] },
+        goals: [calc9('dock'), review9], prove: () => {},
+        cheap: { t: 'The cross main one size up', steps: ['Main tool at 4 in. over the whole cross main, rows 3 to 19', 'Run the calc'], edit: (W) => resize(W, col(28, 3, 19), 6),
+          lesson: 'About $1,900. The legal fix on dry pipe is bigger pipe where the flow concentrates.' },
+        maint: { t: 'The cross main two sizes up', steps: ['Main tool at 6 in. over the whole cross main', 'Run the calc'], edit: (W) => resize(W, col(28, 3, 19), 7),
+          lesson: 'About $6,000 for a margin near 20 percent: room for the racks the dock will get. The zone volume grows by about 200 gal; it still needs its timed trip test.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // Call 10. A heated storage room and an unheated dock on one city tap. The branch lines are hung in both rooms and the
+  // storage room's cross main is laid; the player builds both risers, the mains, the air and the wiring.
+  //   A: riser room west (1..6, 8..15), storage (8..20, 4..17), dock (21..33, 4..17); tap (0,12), backflow, control
+  //      valve, stub (3,12). The storage cross main is column 14, down to row 17.
+  //   B: storage (3..15, 3..16), dock (16..28, 3..16), riser room south of the shared wall (12..19, 18..22); tap from the
+  //      south (15,25), backflow (15,24), control valve (15,23), stub (15,22). The storage cross main runs down the
+  //      shared wall, column 15, to row 17.
+  const wall10A = (W, b) => {
+    W.addRoom('riser', 1, 8, 6, 8).exempt = true; W.addRoom('stor', 8, 4, 13, 14); W.addRoom('dock', 21, 4, 13, 14);
+    b.p('city', 0, 12, 0, { stat: 80, resid: 65, flow: 1500, fixed: true }); b.p('bfp', 1, 12); const g = b.p('gate', 2, 12, 0); W.setPipe(3, 12, 7, 0);
+    b.grid(8, 4, 20, 17, 3, 1); b.grid(21, 4, 33, 17, 3, 1); b.v(14, 4, 17, 6, true);
+    const pn = b.p('panel', 5, 9); b.wire(pn, g);
+  };
+  const wall10B = (W, b) => {
+    W.addRoom('stor', 3, 3, 13, 14); W.addRoom('dock', 16, 3, 13, 14); W.addRoom('riser', 12, 18, 8, 5).exempt = true;
+    b.p('city', 15, 25, 3, { stat: 80, resid: 65, flow: 1500, fixed: true }); b.p('bfp', 15, 24, 3); const g = b.p('gate', 15, 23, 3); W.setPipe(15, 22, 7, 0);
+    b.grid(3, 3, 15, 16, 3, 1); b.grid(16, 3, 28, 16, 3, 1); b.v(15, 3, 17, 6); for (let y = 3; y <= 16; y++) W.spk[W.k(15, y)] = 1;
+    const pn = b.p('panel', 13, 19); b.wire(pn, g);
+  };
+  const heads = (W, x, y0, y1) => { for (let y = y0; y <= y1; y++) W.spk[W.k(x, y)] = 1; W.ver++; };
+  // A: wet riser east of the tee, its feed along row 12 into the storage cross main; dry valve south of the tee, its main
+  // through the yard along row 18 and up the dock's middle column; a cap where it passes the foot of the storage cross main
+  const solA10 = (W, b, valves) => {
+    const pn = W.byType('panel')[0], o = valves ? 1 : 0;
+    if (valves) b.p('gate', 4, 12, 0); const r = b.p('wetv', 4 + o, 12); b.h(5 + o, 7, 12, 5); for (let x = 8; x <= 13; x++) { const k = W.k(x, 12); W.pk[k] = 0; W.pd[k] = 6; }
+    if (valves) b.p('gate', 3, 13, 1); else W.setPipe(3, 13, 7, 0); const d = b.p('dryv', 3, 14, 1); b.v(3, 15, 18, 6); b.h(4, 26, 18, 6); b.v(27, 4, 18, 6); heads(W, 27, 4, 17);
+    b.p('comp', 5, 14, 0, { scfm: 10 }); b.air([[4, 14]]); b.wire(pn, r, d); if (valves) { b.wire(pn, W.at(4, 12), W.at(3, 13)); } W.setCut(14, 17, true, 1);
+  };
+  // B: wet riser north from the tee into the foot of the storage cross main; dry riser and the dock cross main one column
+  // clear of it (column 17), so no main of the dock touches a main of the storage room
+  const solB10 = (W, b, valves) => {
+    const pn = W.byType('panel')[0];
+    if (valves) { b.p('gate', 15, 21, 3); b.p('gate', 17, 21, 3); } else { W.setPipe(15, 21, 7, 0); W.setPipe(17, 21, 7, 0); }
+    const r = b.p('wetv', 15, 20, 3); b.v(15, 18, 19, 6); W.setPipe(16, 22, 7, 0); W.setPipe(17, 22, 7, 0);
+    const d = b.p('dryv', 17, 20, 3); b.v(17, 3, 19, 6); heads(W, 17, 3, 16);
+    b.p('comp', 19, 20, 0, { scfm: 10 }); b.air([[18, 20]]); b.wire(pn, r, d); if (valves) b.wire(pn, W.at(15, 21), W.at(17, 21));
+  };
+  const goals10 = [
+    { t: 'Both rooms sprinklered, every head on a riser', ok: (S) => G.covered(S, ['stor', 'dock']) && !!S.rv && !S.rv.some((f) => /not connected to any system riser/.test(f.text)), hint: 'Every head needs a path to a riser: hover a line, it reads no pressure if it is not on one.' },
+    { t: 'Two separate systems: storage on a wet riser, the dock on a dry valve, nothing joined', ok: (S) => G.each(S, 'stor', (v, inf) => v.type === 'wetv' && ![...inf.rooms].some((r) => S.W.rooms[r - 1].type === 'dock')) && G.each(S, 'dock', (v, inf) => v.type === 'dryv' && ![...inf.rooms].some((r) => S.W.rooms[r - 1].type === 'stor')), hint: 'If one valve feeds both rooms, a main of one system touches a main of the other somewhere.' },
+    { t: 'Plan review finds no code failures', ok: G.noFails, hint: 'Open Review: a cross-connection or wet pipe in the dock means the two systems have joined.' },
+    { t: 'Both calcs pass at the most demanding area', ok: (S) => PZ.calcAllOk(S, 'stor') && PZ.calcAllOk(S, 'dock'), hint: 'Select each riser and run the calc.' },
+    { t: 'The dock’s dry system is set and up to pressure', ok: (S) => G.each(S, 'dock', (v, i, s) => v.type === 'dryv' && s.state === 'dry' && s.set), hint: 'Tube a compressor to the dry valve and let it pump up (speed up the clock).' },
+  ];
+  DI.PUZ.push({
+    id: 'p10', n: 10, name: 'One Wall, Two Systems', kind: 'Empty site', design: true, w: 36, h: 27, parts: ['gate', 'check', 'wetv', 'dryv', 'comp', 'panel'],
+    builds: ['Cold Dock: wet pipe stays out of unheated rooms; the dry valve sits in heated space', 'Call 3: a cap is a joint, not a tile'],
+    question: 'How do two systems share one supply without joining?',
+    learn: ['Branch lines stop at a wall; mains pass straight through it and join every main or branch line beside them', 'Two systems side by side need a capped joint or a clear tile between their mains, in the rooms and in the riser room', 'A dry valve lives in heated space; its pipe can run anywhere, the yard included, because it holds air', 'Wet pipe, the supply main included, stays in heated space or underground', 'Split the supply after the control valve, then give each system its own riser'],
+    variants: [
+      { key: 'A', name: 'Site A: past the warm room', money: 55000, area: [0, 3, 35, 19], impPar: null, editSlack: 0.25, w: 36, h: 22,
+        constraints: ['One city tap, already through its backflow preventer and control valve in the riser room.', 'The riser room is the only heated place for the dry valve.', 'The branch lines are hung in both rooms and the storage cross main is laid: keep them.'],
+        decision: 'The dock is beyond the heated storage room. Its dry main has to get past that room without touching it: inside the room a main joins every branch line it meets, and pipes cannot cross. Which way does the dry main go?',
+        symptom: ['Empty site. A heated storage room and an unheated loading dock share a wall and one city tap. The sprinkler fitter has hung the branch lines in both rooms and laid the storage room’s cross main. Nothing else is built.', 'Give the storage room a wet system and the dock a dry system, from the one tap, and keep them separate.'],
+        records: ['Hydrant flow test: 80 psi static, 65 psi residual at 1,500 gpm.', 'Both rooms: storage / staging and dock, Ordinary Hazard Group 2.'],
+        build: wall10A, prove: (S) => S.warp(2400),
+        hints: [['Tee off the stub after the control valve: a wet riser for the storage room, and a dry valve for the dock. Both go in the riser room.', 3, 12],
+          ['The dry main cannot go through the storage room: it would join the branch lines and cross the storage cross main. Go around through the yard below the rooms. Then hover it: where does it pass the foot of the storage cross main?', 14, 18],
+          ['Dry valve south of the tee, its main down to row 18, east along row 18 and up the dock’s middle column as the cross main. Cap the joint between the storage cross main and row 18 (Cap tool at 14,17 south side). Tube a 10 scfm compressor to the dry valve, wire both risers.', 14, 17]],
+        diag: { q: 'How does the dry main reach the dock?', opts: [
+          ['Around the heated room through the yard, capped where it passes a wet main', true, 'Yes. Outside the room it touches no branch line, and the one joint it shares with the storage cross main is capped.'],
+          ['Straight through the storage room, along a row of branch line', false, 'Laid as a main it joins that row’s heads and the storage cross main where it crosses it: one system again.'],
+          ['From the storage cross main through the wall', false, 'That is the wet system: wet pipe in an unheated dock, and no dry valve at all.'],
+          ['From a second city tap on the dock side', false, 'There is one tap. Two systems share a supply after its control valve: that is what the riser room is for.']] },
+        goals: goals10,
+        cheap: { t: 'Around through the yard, one cap', steps: ['Wet riser east of the tee, 3 in. feed into the storage cross main', 'Dry valve south of the tee, 4 in. main along row 18 and up the dock’s middle column', 'Cap the joint at the foot of the storage cross main', '10 scfm compressor, tubing, wire both risers'], edit: (W, b) => solA10(W, b, false),
+          lesson: 'The cap is free and is the whole trick: without it the yard main joins the storage cross main and the dock ends up on the wet system.' },
+        maint: { t: 'The same, with a control valve on each system', steps: ['As the cheapest fix', 'A supervised control valve ahead of each riser, both wired to the panel'], edit: (W, b) => solA10(W, b, true),
+          lesson: 'One system can be shut for work while the other stays in service, and the panel sees both valves. The shared control valve still isolates the whole building.' } },
+      { key: 'B', name: 'Site B: on the wall', money: 40000, area: [2, 2, 30, 24], impPar: null, editSlack: 0.25,
+        constraints: ['One city tap from the south, through its backflow preventer and control valve.', 'The riser room sits under the shared wall; the dry valve goes there.', 'The storage cross main runs down the shared wall into the riser room: keep it.'],
+        decision: 'The storage cross main already runs down the shared wall. A main beside it, on either side of the wall, joins it: the dock would end up on the wet system. Where do the dry riser and the dock’s cross main go?',
+        symptom: ['Empty site. The same two rooms, built the other way round: the storage room’s cross main was laid down the shared wall, into a riser room under it. The dock has its branch lines and nothing else.', 'Give the dock a dry system from the same tap and keep it separate from the storage room.'],
+        records: ['Hydrant flow test: 80 psi static, 65 psi residual at 1,500 gpm.', 'Fitter’s note: "dock main against the wall, like the storage one".'],
+        build: wall10B, prove: (S) => S.warp(2400),
+        hints: [['The storage cross main comes down the shared wall to row 17. Anything you lay beside it is on the wet system.', 15, 17],
+          ['Walls stop branch lines, not mains. Two risers side by side in the riser room join as well. Leave a clear column between the wet pipe and the dry pipe all the way up.', 16, 12],
+          ['Wet riser north from the tee into the foot of the storage cross main. Tee east twice, dry valve in column 17 facing north, and the dock’s cross main up column 17 with its heads. Compressor beside it, tubed; wire both risers.', 17, 20]],
+        diag: { q: 'Where do the dry riser and the dock’s cross main go?', opts: [
+          ['One column clear of the storage main, all the way from the riser room', true, 'Yes. Column 17 touches no wet main: the dock’s first tile of branch line meets it end to end, and the wall keeps that branch line from the storage main.'],
+          ['Against the wall in column 16, like the storage main', false, 'Two mains side by side join through the wall: one wet system with pipe in the dock.'],
+          ['Anywhere in the dock: the wall keeps the systems apart', false, 'Only branch lines stop at a wall. Mains pass straight through it.'],
+          ['Beside the wet riser in the riser room, then into the dock', false, 'Two risers side by side join each other before they ever reach the rooms.']] },
+        goals: goals10,
+        cheap: { t: 'Dry riser and cross main in column 17', steps: ['Wet riser north into the foot of the storage cross main', 'Tee east to column 17: dry valve facing north, the dock cross main up column 17', '10 scfm compressor, tubing, wire both risers'], edit: (W, b) => solB10(W, b, false),
+          lesson: 'No caps needed: one clear column keeps the two systems apart from the riser room to the far wall.' },
+        maint: { t: 'The same, with a control valve on each system', steps: ['As the cheapest fix', 'A supervised control valve ahead of each riser, both wired'], edit: (W, b) => solB10(W, b, true),
+          lesson: 'Either room can be shut down for work with the other in service.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // Call 11. One preaction zone over a whole data hall: too much pipe volume for the 60 s delivery, and the owner wants
+  // every zone at 500 gal or less. A riser room runs down the hall's west wall with a supply header (column 5); the
+  // zone's valve is at (7,12) behind its control valve (6,12), its feed main along row 12 to the cross main.
+  //   A: hall (12..41, 4..19), cross main column 26, 4 in. feed; at most three preaction valves.
+  //   B: hall (12..37, 4..17), cross main column 24, 6 in. feed; at most two preaction valves.
+  const hall11 = (W, b, o) => {
+    W.addRoom('riser', 5, 4, 7, 16).exempt = true; W.addRoom('hall', 12, 4, o.wid, o.rows);
+    const y1 = 4 + o.rows - 1, x1 = 12 + o.wid - 1, cx = o.cx;
+    b.p('city', 0, 12, 0, { stat: 165, resid: 145, flow: 2500, fixed: true, loop: true, label: 'Campus Fire Loop' }); b.h(1, 5, 12, 8); b.v(5, 5, 18, 8);
+    const d = b.p('vesda', x1, 4), g = b.p('gate', 6, 12, 0), v = b.p('prev', 7, 12, 0);
+    b.h(8, cx - 1, 12, o.feed); b.v(cx, 4, y1, 7, true); b.grid(12, 4, cx - 1, y1, 2, 1); b.grid(cx + 1, 4, x1, y1, 2, 1);
+    const pn = b.p('panel', 10, 9); b.wire(pn, g, v, d); b.p('comp', 7, 15, 0, { scfm: 10 }); b.air(col(8, 12, 15));
+  };
+  // a new zone: control valve and preaction valve at (6,y), (7,y), its row laid as a 4 in. main to the cross main
+  const zone11 = (W, b, y, cx) => {
+    const pn = W.byType('panel')[0], g = b.p('gate', 6, y, 0), v = b.p('prev', 7, y, 0);
+    for (let x = 8; x < cx; x++) { const k = W.k(x, y); if (x < 12) W.setPipe(x, y, 6, 0); else { W.pk[k] = 0; W.pd[k] = 7; } }
+    W.ver++; b.wire(pn, g, v);
+  };
+  const tube11 = (W, y0, y1) => { for (let y = y0; y <= y1; y++) if (!W.air[W.k(8, y)]) W.setAir(8, y, 1); };
+  const solA11 = (W, b, big) => { W.setCut(26, 9, true, 1); W.setCut(26, 14, true, 1); zone11(W, b, 6, 26); zone11(W, b, 17, 26); tube11(W, 6, 17); if (big) { W.byType('comp')[0].p.scfm = 20; W.ver++; } };
+  const solB11 = (W, b, big) => { for (let x = 8; x < 24; x++) W.pd[W.k(x, 12)] = 7; W.ver++; W.setCut(24, 10, true, 1); zone11(W, b, 8, 24); tube11(W, 8, 11); if (big) { W.byType('comp')[0].p.scfm = 20; W.ver++; } };
+  const zones11 = (S) => S.W.byType('prev').every((v) => { const inf = S.sysd.info.get(v.id); return !!inf && DI.zoneVolume(S.W, inf) <= DI.DELIVERY.di; });
+  const goals11 = [
+    { t: 'Every preaction zone 500 gal or less (owner standard: no zone depends on the timed trip test)', ok: (S) => S.W.byType('prev').length > 0 && zones11(S), hint: 'Select each preaction valve: the Piping row shows its zone volume, pipe plus fittings plus trim.' },
+    { t: 'The whole hall still on double-interlock preaction, with no code failures', ok: (S) => G.covered(S, ['hall']) && G.each(S, 'hall', (v) => v.type === 'prev') && G.noFails(S), hint: 'Open Review: each new valve needs its solenoid wired, air tubed, and detection on its panel.' },
+    { t: 'Every zone’s calc passes at the most demanding area', ok: (S) => PZ.calcAllOk(S, 'hall'), hint: 'Select each preaction valve and run the calc.' },
+    { t: 'Every zone set and pressurized, nothing latched', ok: (S) => S.W.byType('prev').every((v) => PZ.inService(S, v)), hint: 'Let the compressor fill the new zones (speed up the clock).' },
+  ];
+  DI.PUZ.push({
+    id: 'p11', n: 11, name: 'Split Decision', kind: 'Nearly finished plant', design: true, w: 46, h: 22, parts: ['gate', 'prev', 'comp', 'panel'],
+    builds: ['Double Interlock: zone volume counts pipe, fittings and trim; over 500 gal a double-interlock zone needs the 60 s timed test', 'Call 10: two systems stay apart only where their mains do not touch', 'The air supply code check: one compressor is sized on the largest zone it serves'],
+    question: 'How do you divide one zone into zones that deliver in time, with the valves you have?',
+    learn: ['Delivery time follows the air the water must push out: the zone volume, feed main included', 'A zone’s own feed main counts in its volume: a fat feed to a far zone can be most of it', 'Equal rows do not make equal zones: balance the gallons, not the area', 'A cap on the cross main and a feed of its own turn one band of rows into a zone', 'One compressor can serve several zones: it is sized on the largest one, so smaller zones also fix an undersized compressor'],
+    variants: [
+      { key: 'A', name: 'Hall A: three valves', money: 75000, area: [4, 3, 42, 20], impPar: null, editSlack: 0.25, limits: { prev: 3, comp: 1 }, w: 46, h: 22,
+        constraints: ['At most three preaction valves on this hall, the one there now included.', 'One compressor, the one there now.', 'Owner standard: no preaction zone over 500 gal.'],
+        decision: 'The zone is about 920 gal: two zones would each still be over 500 with their feeds. Three valves give three zones, but each one carries its own feed main. Where do the cuts go so that all three are under 500 gal and still pass the calc?',
+        symptom: ['Nearly finished plant. Data Hall A is one double-interlock preaction zone. Its acceptance trip test put water at the inspector’s test in 104 s against 60 s, and the compressor fails the air supply check for a zone this size.', 'Divide it into zones of 500 gal or less with the valves allowed, and put every zone back in service.'],
+        records: ['Acceptance trip test: valve tripped at 96 s, water at the inspector’s test at 104 s (limit 60 s over 500 gal). Zone volume 918 gal.', 'Plan review: air supply 10 scfm cannot restore normal pressure in this zone within 30 min.'],
+        build: (W, b) => hall11(W, b, { wid: 30, rows: 16, cx: 26, feed: 6 }), prove: (S) => S.warp(2400),
+        hints: [['Select the preaction valve: the Piping row shows the zone volume. Three valves in the riser room means three zones, each fed from the riser room.', 7, 12],
+          ['Cap the cross main twice to cut the hall into three bands of rows, and feed each new band along one of its rows from a new valve. The feed main counts in its zone: check each valve’s zone volume as you build, and run each calc.', 26, 9],
+          ['Cap the cross main below row 9 and below row 14. New control valve and preaction valve at (6,6) and (7,6), and at (6,17) and (7,17), each feeding its row as a 4 in. main to the cross main. Wire both, carry the air tubing down column 8, and let the zones fill.', 26, 14]],
+        diag: { q: 'How do three valves make three zones under 500 gal?', opts: [
+          ['Cap the cross main into three bands and feed each band from its own valve', true, 'Yes. About 370, 420 and 370 gal, each with its own feed, and each passes its calc.'],
+          ['Two zones, and keep the third valve spare', false, 'No two-way cut gets both zones to 500 gal or less once each has its own feed main.'],
+          ['A quick-opening device on the one valve', false, 'On double interlock a quick-opening device does not extend the 500 gal.'],
+          ['A bigger compressor', false, 'The air comes back faster, and the water still has to push 900 gal of it out of the pipe.']] },
+        goals: goals11,
+        cheap: { t: 'Three bands, two new valves', steps: ['Cap the cross main below rows 9 and 14', 'Control valve + preaction valve at rows 6 and 17, each row laid as a 4 in. feed main', 'Wire both, tubing down column 8, let the zones fill'], edit: (W, b) => solA11(W, b, false),
+          lesson: 'Three zones of about 400 gal: no zone needs the timed test, and the 10 scfm compressor passes for the largest one.' },
+        maint: { t: 'The same split, with a 20 scfm compressor', steps: ['As the cheapest fix', 'Compressor to 20 scfm'], edit: (W, b) => solA11(W, b, true),
+          lesson: 'The code check passes at 10 scfm. At 20 a tripped zone is back to normal in half the time: recovery after an incident is mostly compressor time.' } },
+      { key: 'B', name: 'Hall B: one more valve', money: 35000, area: [4, 3, 38, 18], impPar: null, editSlack: 0.25, limits: { prev: 2, comp: 1 },
+        constraints: ['At most two preaction valves: one more than now.', 'One compressor, the one there now.', 'Owner standard: no preaction zone over 500 gal.'],
+        decision: 'A smaller hall, about 900 gal, and only one more valve. Split in two, each half is still over 500 gal. Over a quarter of the zone is the 6 in. feed main, which carries water to one zone only. What else can come out of the zone?',
+        symptom: ['Nearly finished plant. Data Hall B is one double-interlock preaction zone of about 900 gal. Its trip test took 104 s against 60 s. The riser room has space for one more valve and no more.', 'Get every zone to 500 gal or less with one more valve, and put both back in service.'],
+        records: ['Acceptance trip test: valve tripped at 94 s, water at the inspector’s test at 104 s (limit 60 s over 500 gal). Zone volume 896 gal, of which the 6 in. feed main holds about 260 gal.', 'Plan review: air supply 10 scfm cannot restore normal pressure in this zone within 30 min.'],
+        build: (W, b) => hall11(W, b, { wid: 26, rows: 14, cx: 24, feed: 7 }), prove: (S) => S.warp(2400),
+        hints: [['Select the preaction valve and read the zone volume. Hover the feed main: 6 in. pipe holds about 16 gal per tile.', 14, 12],
+          ['Two zones of 500 gal or less leave no room for a second fat feed main, and the new zone needs a feed of its own. The feed main is sized for far more flow than one zone draws: run the calc with it smaller.', 18, 12],
+          ['Resize the 6 in. feed main to 4 in. (it refunds), cap the cross main below row 10, and feed rows 4 to 10 from a new control valve and preaction valve at (6,8) and (7,8) along row 8 as a 4 in. main. Wire, tube, let it fill.', 24, 10]],
+        diag: { q: 'How do two zones fit under 500 gal each?', opts: [
+          ['Downsize the 6 in. feed main, then split the hall in two', true, 'Yes. At 4 in. the feed still passes the calc and holds about 150 gal less, and the two halves come out near 430 gal each.'],
+          ['Split the hall in two, nothing else', false, 'Each half keeps or gets a feed main: one zone stays over 500 gal.'],
+          ['Lower the supervisory air pressure', false, 'Pressure changes how fast the air comes back, not the volume the water must fill.'],
+          ['A quick-opening device', false, 'On double interlock it does not extend the 500 gal.']] },
+        goals: goals11,
+        cheap: { t: 'A 4 in. feed and one more zone', steps: ['Resize the feed main to 4 in.', 'Cap the cross main below row 10', 'Control valve + preaction valve at row 8, its row laid as a 4 in. feed', 'Wire, tube, let it fill'], edit: (W, b) => solB11(W, b, false),
+          lesson: 'The smaller feed pays for part of the valve: downsizing refunds the difference.' },
+        maint: { t: 'The same, with a 20 scfm compressor', steps: ['As the cheapest fix', 'Compressor to 20 scfm'], edit: (W, b) => solB11(W, b, true),
+          lesson: 'Faster recovery after a trip: the refill clock is compressor time.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // Call 12. A dry system laid as a grid: it calculates well and fails review. Make it a tree and keep the pipe.
+  //   dock (10..33, 4..17), unheated; riser room (2..7, 8..14): tap (0,11), backflow (1,11), control valve (3,11), dry
+  //   valve (5,11), feed main (6..9, 11) into the west main (column 10).
+  //   A (ring): west and east mains (columns 10 and 33) joined by headers outside the dock (rows 3 and 18); the branch
+  //      lines hang from each main and are capped where they meet in the middle (between x 21 and 22).
+  //   B (ladder): the branch lines run from the west main to the east main, nothing else joins the east main.
+  const dock12 = (W, b, ring) => {
+    W.addRoom('riser', 2, 8, 6, 7).exempt = true; W.addRoom('dock', 10, 4, 24, 14);
+    b.p('city', 0, 11, 0, { stat: 80, resid: 65, flow: 1500, fixed: true }); b.p('bfp', 1, 11); W.setPipe(2, 11, 7, 0); const g = b.p('gate', 3, 11, 0); W.setPipe(4, 11, 7, 0);
+    const v = b.p('dryv', 5, 11, 0, { qod: true }); b.h(6, 9, 11, 7);
+    if (ring) { b.v(10, 3, 18, 6); b.v(33, 3, 18, 6); b.h(11, 32, 3, 6); b.h(11, 32, 18, 6); for (let y = 4; y <= 17; y++) { W.spk[W.k(10, y)] = 1; W.spk[W.k(33, y)] = 1; } }
+    else { b.v(10, 4, 17, 6, true); b.v(33, 4, 17, 6, true); }
+    b.grid(11, 4, 32, 17, 3, 1); if (ring) for (let y = 4; y <= 17; y++) W.setCut(21, y, false, 1);
+    const pn = b.p('panel', 6, 9); b.wire(pn, g, v); b.p('comp', 5, 13, 0, { scfm: 20 }); b.air([[5, 12]]);
+  };
+  const capLines = (W) => { for (let y = 4; y <= 17; y++) W.setCut(21, y, false, 1); };
+  const goals12 = [
+    { t: 'Plan review finds no code failures: no loop left, every head on the riser', ok: G.noFails, hint: 'Open Review: the gridded finding goes once every loop is broken; a head cut off from the riser is a failure too.' },
+    { t: 'The calc passes at the most demanding area', ok: (S) => PZ.calcAllOk(S, 'dock'), hint: 'Select the dry valve and run the calc after every cut.' },
+    { t: 'The dock is set and pressurized', ok: (S) => G.each(S, 'dock', (v, i, s) => v.type === 'dryv' && s.state === 'dry' && s.set), hint: 'Let the compressor bring it up.' },
+  ];
+  DI.PUZ.push({
+    id: 'p12', n: 12, name: 'The Forbidden Grid', kind: 'Inherited installation', design: true, w: 36, h: 22, parts: ['gate', 'n2', 'comp'],
+    builds: ['Call 3: a cap is a joint, and a wet system may be gridded', 'Call 9: the calc at the most demanding area', 'Cold Dock: dry pipe must not be gridded'],
+    question: 'Where do you break a loop so the pipe still works?',
+    learn: ['A dry or preaction system must be a tree: every loop broken exactly once, so the air can be driven out one way', 'Each loop needs one cut, and the place of the cut decides the calc: cut where the two ways round are equally long', 'A cut next to the riser makes the water go the long way round to half the system', 'Cutting a ladder grid orphans its far main unless the far main gets a path of its own', 'Inherited pipe is worth keeping: new pipe beside it usually beats replacing it'],
+    variants: [
+      { key: 'A', name: 'Dock A: the ring', money: 35000, area: [0, 2, 35, 19], impPar: null, reuse: true,
+        constraints: ['Plan review must pass: no loop of any kind on dry pipe.', 'Keep the pipe: the scorecard counts the starting pipe tiles you keep.'],
+        decision: 'The branch lines are already dead-ended. The loop is the ring of mains: the west main, the two headers outside the dock and the east main. One cap breaks it. Where it goes decides whether the calc still passes.',
+        symptom: ['Inherited installation. The new owner’s insurer walked the unheated dock and flagged its dry system: the mains form a ring. The contractor who built it says it calculates better that way, and it does.', 'Make it a legal tree without losing the calc. Keep as much of the existing pipe as you can.'],
+        records: (S) => ['Plan review (insurer): FAIL, dry piping is gridded (looped).', calcLine(S, 'dock', 'Contractor’s calc, with the ring')],
+        build: (W, b) => dock12(W, b, true), prove: (S) => S.warp(2400),
+        hints: [['Open Review and click the gridded finding. Follow the mains: west main, north header, east main, south header, and back.', 10, 3],
+          ['One cap on the ring makes it a tree, and the water then reaches every part one way only. Try a cap, run the calc, undo, try another: compare a cut next to the riser with one at the far side.', 33, 11],
+          ['Cap the east main in the middle (between rows 10 and 11), the point of the ring farthest from the riser. Each half of the ring then feeds its half of the dock the short way.', 33, 10]],
+        diag: { q: 'Where does the one cap go?', opts: [
+          ['At the far side of the ring, the middle of the east main', true, 'Yes. Both halves of the ring are then about equally long, and the calc keeps a quarter of its margin.'],
+          ['Next to the riser, where the ring starts', false, 'Then half the west main is fed the long way round the whole ring: the calc falls to about 94 percent.'],
+          ['On every branch line', false, 'The lines are already dead-ended in the middle. The loop is the ring of mains.'],
+          ['Nowhere: a dry system may loop if it calculates', false, 'Not dry or preaction pipe: the air has to be driven out one way, and review fails any loop.']] },
+        goals: goals12,
+        cheap: { t: 'One cap at the far side', steps: ['Cap tool on the east main between rows 10 and 11', 'Run the calc'], edit: (W) => W.setCut(33, 10, true, 1),
+          lesson: 'One edit, no cost, every tile kept.' },
+        maint: { t: 'One cap, and nitrogen', steps: ['Cap the east main at the far side', 'Add a nitrogen generator beside the compressor, tubed to the dry valve'], edit: (W, b) => { W.setCut(33, 10, true, 1); b.p('n2', 4, 13, 0); W.setAir(4, 12, 1); },
+          lesson: 'A loop that was flushed from both ends has left water in its low points. Nitrogen stops the corrosion that water would feed, while the compressor still does the fast refill.' } },
+      { key: 'B', name: 'Dock B: the ladder', money: 15000, area: [0, 2, 35, 19], impPar: null, reuse: true, editSlack: 0.25,
+        constraints: ['Plan review must pass: no loop of any kind on dry pipe.', 'Keep the pipe: the scorecard counts the starting pipe tiles you keep, and the cheaper fix is not the better one here.'],
+        decision: 'Every branch line runs from the west main to the east main: fourteen loops, and the east main is fed only through them. Break every loop once and the east main has nothing feeding it. Replace a line with a main, or add pipe that keeps every old tile?',
+        symptom: ['Inherited installation. A dry system in an unheated dock, laid as a ladder: every branch line joins a cross main at each end. It calculates with a big margin and fails review.', 'Make it a legal tree that still passes the calc, keeping as much of the existing pipe as you can.'],
+        records: (S) => ['Plan review (insurer): FAIL, dry piping is gridded (looped).', calcLine(S, 'dock', 'Contractor’s calc, as a grid')],
+        build: (W, b) => dock12(W, b, false), prove: (S) => S.warp(2400),
+        hints: [['Each branch line with the two mains makes a loop: fourteen of them. A cap on every line gives each a dead end, and then the east main is fed by nothing.', 21, 10],
+          ['The east main needs one path of its own. A branch line kept as that path carries half the dock’s water: at 2 in. the calc collapses. Either upsize one line into a main, or add a header that joins the two mains outside the dock.', 21, 3],
+          ['Cap every line in the middle (between x 21 and 22) and lay a 3 in. header along row 3, from the top of the west main to the top of the east main. Every starting tile stays; the calc passes.', 21, 3]],
+        diag: { q: 'How does the ladder become a tree and keep its pipe?', opts: [
+          ['Cap every line once and feed the far main with a new header', true, 'Yes. The header is new pipe beside the old, so every old tile is kept, and each half line is fed from the nearer main.'],
+          ['Keep one line as the connector and cap the rest', false, 'It works only with that line upsized to a main: 22 old tiles replaced. The header keeps them all.'],
+          ['Cap every line at the east main', false, 'The east main’s heads then hang on no riser, and every line is 220 ft long from one end.'],
+          ['Leave one loop: review allows one', false, 'Review allows none on dry pipe.']] },
+        goals: goals12,
+        cheap: { t: 'Fourteen caps and a 3 in. header', steps: ['Cap every branch line between x 21 and 22', 'Lay a 3 in. header along row 3 joining the tops of the two mains', 'Run the calc'], edit: (W, b) => { capLines(W); b.h(10, 33, 3, 5); },
+          lesson: 'All 342 starting tiles kept. Upsizing one line as the connector costs less money and throws away 22 tiles of good pipe.' },
+        maint: { t: 'The same with a 4 in. header', steps: ['Cap every line once', 'A 4 in. header along row 3', 'Run the calc'], edit: (W, b) => { capLines(W); b.h(10, 33, 3, 6); },
+          lesson: 'A 3 in. header passes by two percent. At 4 in. the calc keeps about a quarter of margin for the racks the dock will get.' } },
+    ],
+  });
+})();
+
+</script>
+<script>
+// Design calls 13-16: The Valve Gallery, Keep the Good Pipe, The Small Tank, One Supply, Many Rooms.
+// The same shape as calls 9-12 (puz3.js): one hard constraint and one decision, both in the briefing. These combine more
+// ideas: caps and independent isolation (calls 10, 13), salvage and reuse (calls 12, 14), the supply's pressure,
+// flow and duration against the most demanding room (calls 9, 15, 16, Churn).
+var DI = globalThis.DI || (globalThis.DI = {});
+(function () {
+  const G = DI.G, PZ = DI.PZ, P3 = DI.PZ3, col = P3.col, row = P3.row, resize = P3.resize, tie = P3.tie, calcLine = P3.calcLine;
+
+  // =====================================================================================================
+  // Call 13. A valve gallery three tiles deep (rows 11 to 13) with rooms on both sides. Each room's cross main is laid
+  // down to the gallery wall (its "entry"); the player builds the trunk and a control valve plus a wet riser per room,
+  // all inside the gallery. A riser for a north room needs the trunk on row 13 at its column (valve row 11, control
+  // valve row 12); one for a south room needs it on row 11. Pipes cannot cross, so the trunk has to weave.
+  //   rooms: [side, type, x0, x1, entry column]; north rooms rows 2..10, south rooms rows 14..22
+  const ROOMS13 = {
+    A: [['N', 'office', 3, 12, 7], ['N', 'stor', 14, 25, 19], ['N', 'office', 27, 38, 32], ['S', 'stor', 8, 19, 13], ['S', 'office', 21, 32, 26], ['S', 'stor', 34, 44, 39]],
+    B: [['N', 'office', 3, 12, 7], ['N', 'stor', 14, 25, 19], ['N', 'office', 27, 38, 32], ['S', 'stor', 4, 16, 12], ['S', 'office', 18, 29, 20], ['S', 'stor', 31, 44, 38]],
+  };
+  const gallery13 = (W, b, rooms) => {
+    W.addRoom('corr', 2, 11, 44, 3).exempt = true;
+    for (const [side, type, x0, x1, sx] of rooms) {
+      const y0 = side === 'N' ? 2 : 14, y1 = side === 'N' ? 10 : 22, big = type === 'stor'; W.addRoom(type, x0, y0, x1 - x0 + 1, y1 - y0 + 1);
+      b.v(sx, y0, y1, big ? 6 : 5, true); b.grid(x0, y0, x1, y1, big ? 3 : 2, 1);
+    }
+    b.p('city', 0, 12, 0, { stat: 90, resid: 75, flow: 2500, fixed: true, loop: true, label: 'Campus Fire Loop' }); const g = b.p('gate', 1, 12, 0);
+    const pn = b.p('panel', 1, 14); b.wire(pn, g);
+  };
+  // a riser at column x for a north (valve row 11, control valve row 12) or south room (control valve row 12, valve row 13)
+  const riser13 = (W, b, side, x) => { const pn = W.byType('panel')[0]; const pair = side === 'N' ? [b.p('wetv', x, 11, 3), b.p('gate', x, 12, 3)] : [b.p('gate', x, 12, 1), b.p('wetv', x, 13, 1)]; b.wire(pn, ...pair); };
+  // the trunk: from the gallery's west end, a list of row segments [y, x0, x1]; consecutive segments are joined by a jog
+  // down or up the column where they meet (through row 12)
+  const trunk13 = (W, segs, size) => {
+    const lay = (x, y) => { if (!W.pd[W.k(x, y)] && !W.partAt[W.k(x, y)]) W.setPipe(x, y, size, 0); };
+    lay(2, 12); for (let y = 11; y <= 13; y++) if (y === segs[0][0]) lay(2, y);
+    segs.forEach(([y, a, c], i) => { for (let x = a; x <= c; x++) lay(x, y); if (i + 1 < segs.length) lay(c, 12); });
+  };
+  const solA13 = (W, b, size) => {
+    for (const [side, , , , x] of ROOMS13.A) riser13(W, b, side, x);
+    trunk13(W, [[13, 2, 10], [11, 10, 16], [13, 16, 23], [11, 23, 29], [13, 29, 35], [11, 35, 39]], size);
+  };
+  // B: the office south of the storage room enters at column 20, beside the storage room's 19: no weave serves both.
+  // Its entry moves to column 23 along its first row (three tiles laid as a main), and the two joints where the trunk
+  // passes over that main are capped.
+  const solB13 = (W, b, size) => {
+    for (const [side, , , , x] of ROOMS13.B) if (x !== 20) riser13(W, b, side, x);
+    for (let x = 21; x <= 23; x++) { const k = W.k(x, 14); W.pk[k] = 0; W.pd[k] = 6; } W.ver++;
+    riser13(W, b, 'S', 23); W.setCut(20, 13, true, 1); W.setCut(21, 13, true, 1);
+    trunk13(W, [[13, 2, 9], [11, 9, 15], [13, 15, 21], [11, 21, 28], [13, 28, 34], [11, 34, 38]], size);
+  };
+  // every non-exempt room on exactly one system, which protects that room only
+  const ownRiser = (S) => S.W.rooms.filter((r) => !r.exempt).every((r) => { const sys = [...S.sysd.info.values()].filter((i) => i.rooms.has(r.id)); return sys.length === 1 && sys[0].rooms.size === 1; });
+  const inGallery = (S) => { const W = S.W, gal = W.rooms.find((r) => r.type === 'corr'), inG = (p) => W.roomAt[W.k(p.x, p.y)] === gal.id;
+    const sys = [...W.parts.values()].filter((p) => DI.SYSV[p.type]); return sys.length > 0 && sys.every((v) => { const g = DI.ctrlValve(W, v.id); return inG(v) && !!g && inG(g); }); };
+  const goals13 = [
+    { t: 'Every room on a riser of its own: one system valve per room', ok: (S) => G.covered(S) && ownRiser(S), hint: 'Hover a room’s lines: they read no pressure until its entry is on a riser.' },
+    { t: 'Every riser and its control valve in the valve gallery', ok: inGallery, hint: 'The owner’s rule: nobody enters a room to work a valve.' },
+    { t: 'Independent isolation: each room’s control valve shuts off that room and no other', ok: (S) => S.W.byType('wetv').length > 0 && PZ.notIsolated(S).length === 0, hint: 'A control valve on the trunk between two risers shuts everything past it. Each control valve belongs between the trunk and one riser.' },
+    { t: 'Every valve supervised: risers and control valves wired to the panel', ok: (S) => G.wired(S, ['wetv', 'gate']), hint: 'Wire tool: the panel, then each riser and each control valve.' },
+    { t: 'Plan review finds no code failures', ok: G.noFails, hint: 'Open Review: a cross-connection means the trunk touches a room’s main without a valve between them.' },
+    { t: 'Every room’s calc passes at the most demanding area', ok: (S) => PZ.calcEvery(S), hint: 'Select each riser and run the calc.' },
+  ];
+  DI.PUZ.push({
+    id: 'p13', n: 13, name: 'The Valve Gallery', kind: 'Empty site', design: true, w: 48, h: 25, parts: ['gate', 'wetv', 'check', 'panel'],
+    builds: ['Hyperscale: risers in a gallery beside the rooms, one trunk down the corridor', 'Call 10: mains join through walls; a cap keeps them apart', 'Call 4: a control valve that shuts more than it should'],
+    question: 'How do you fit a riser for every room into a corridor where pipes cannot cross?',
+    learn: ['Plan the trunk before the first tile: in a narrow gallery the order of the risers decides where the trunk can run', 'A riser takes two tiles between the trunk and the wall: control valve, then system valve', 'Rooms on both sides of a three-tile gallery need the trunk to weave from one edge to the other between risers', 'Independent isolation: each control valve sits between the trunk and one riser, never on the trunk', 'When two entries are too close, move one entry along the room’s first row, and cap the trunk where it passes the new main'],
+    variants: [
+      { key: 'A', name: 'Gallery A: staggered entries', money: 85000, area: [0, 1, 47, 23], impPar: null, editSlack: 0.25,
+        constraints: ['The gallery is three tiles deep. Every riser and its control valve go in it.', 'Each room is isolated by its own control valve, without shutting any other room.', 'The rooms are piped to the gallery wall: keep their entries.'],
+        decision: 'A riser for a north room needs the trunk on the south edge of the gallery at its column; a riser for a south room needs it on the north edge. The entries alternate north and south. One straight trunk cannot serve both sides: where does it cross over?',
+        symptom: ['Empty site. Six rooms on both sides of a valve gallery, every room piped to the gallery wall. The campus loop comes in at the west end through one control valve. The gallery is empty.', 'Plan the gallery, then build a trunk and a riser for every room, each with its own control valve, all in the gallery.'],
+        records: ['Campus fire loop at the gallery: 90 psi static, 75 psi residual at 2,500 gpm.', 'Owner standard: risers in the gallery only; each room isolated on its own valve.'],
+        build: (W, b) => gallery13(W, b, ROOMS13.A), prove: () => {},
+        hints: [['Look at where each room’s cross main reaches the gallery wall. North entries are at columns 7, 19 and 32; south entries at 13, 26 and 39.', 13, 12],
+          ['A north riser: system valve on row 11, control valve on row 12, trunk on row 13 at that column. A south riser is the mirror: the trunk on row 11. Between a north riser and the next south one, the trunk has to jog across the gallery.', 10, 12],
+          ['Trunk (4 in.) along row 13 from the west end to column 10, up to row 11 and on to column 16, down to row 13 to column 23, up at 23, down at 29, up at 35, ending at 39. A riser at every entry column, wired with its control valve.', 23, 12]],
+        diag: { q: 'Where does the trunk run in a three-tile gallery with rooms on both sides?', opts: [
+          ['It weaves: along the south edge past north risers, across the gallery between risers, along the north edge past south risers', true, 'Yes. Each jog sits in a column with no entry, so the trunk never touches a room’s main except through a riser.'],
+          ['Down the middle row, with the valves on either side of it', false, 'Then a riser has only one tile between the trunk and the wall: the system valve would have to go in the room.'],
+          ['Two trunks, one along each edge', false, 'A north riser’s system valve sits on the north edge: the second trunk would run into it.'],
+          ['Along one edge, with sectional valves between rooms', false, 'A valve on the trunk shuts every room past it: that is not independent isolation, and the south rooms still need the other edge.']] },
+        goals: goals13,
+        cheap: { t: 'A 4 in. trunk that weaves', steps: ['Trunk along row 13, jogging across the gallery at columns 10, 16, 23, 29 and 35', 'A riser and its control valve at every entry, wired'], edit: (W, b) => solA13(W, b, 6),
+          lesson: 'Twelve valves, one trunk, five jogs: every room isolated on its own valve. A 3 in. trunk fails the far storage rooms.' },
+        maint: { t: 'The same with a 6 in. trunk', steps: ['As the cheapest fix, with the trunk at 6 in.'], edit: (W, b) => solA13(W, b, 7),
+          lesson: 'About $12,000 more for a trunk that can take a seventh room at the east end without a new calc for the others.' } },
+      { key: 'B', name: 'Gallery B: two entries side by side', money: 85000, area: [0, 1, 47, 23], impPar: null, editSlack: 0.25,
+        constraints: ['The gallery is three tiles deep. Every riser and its control valve go in it.', 'Each room is isolated by its own control valve.', 'A room’s piping may be changed along its first row; nothing deeper.'],
+        decision: 'The storage room enters at column 19 from the north and the office at column 20 from the south. One needs the trunk on the south edge, the other on the north edge, a column apart: no jog fits between them. One entry has to move, and the trunk must not touch the main that moves it.',
+        symptom: ['Empty site. The same gallery, with the rooms piped by two different contractors. Two entries ended up in neighbouring columns on opposite sides.', 'Build a trunk and a riser for every room, each with its own control valve, all in the gallery.'],
+        records: ['Campus fire loop at the gallery: 90 psi static, 75 psi residual at 2,500 gpm.', 'Coordination note: "office entry at column 20, clashes with storage at 19. Resolve in the gallery."'],
+        build: (W, b) => gallery13(W, b, ROOMS13.B), prove: () => {},
+        hints: [['North entries at 7, 19 and 32; south entries at 12, 20 and 38. Columns 19 and 20 cannot both have a riser: the trunk would have to be on both edges at once.', 20, 12],
+          ['Move the office entry: lay its first row (row 14) as a main from column 20 to a free column further east, and put its riser there. The trunk passes over that main on row 13 and joins it unless the joints are capped.', 22, 14],
+          ['Lay row 14 from column 21 to 23 as a main; riser for the office at column 23. Trunk: row 13 to 9, row 11 to 15, row 13 to 21, row 11 to 28, row 13 to 34, row 11 to 38. Cap the two joints between the trunk on row 13 and the office main below it (columns 20 and 21).', 21, 13]],
+        diag: { q: 'How do two entries a column apart both get a riser?', opts: [
+          ['Move one entry along the room’s first row to a free column, and cap the trunk where it passes over that main', true, 'Yes. The moved entry gets a riser of its own, and the caps keep the trunk off the room’s main.'],
+          ['One riser for both rooms', false, 'Then one control valve shuts both rooms: not independent isolation, and review counts it a shared system.'],
+          ['Put one system valve in the room', false, 'The owner’s rule: every riser in the gallery.'],
+          ['Feed one of them from the other room’s main', false, 'That puts both rooms behind one riser again.']] },
+        goals: goals13,
+        cheap: { t: 'Move the office entry, two caps', steps: ['Row 14, columns 21 to 23, laid as a 4 in. main; the office riser at column 23', 'A riser at every other entry', '4 in. trunk weaving across at columns 9, 15, 21, 28 and 34', 'Cap the trunk over the office main at columns 20 and 21'], edit: (W, b) => solB13(W, b, 6),
+          lesson: 'Three tiles of room main and two free caps resolve the clash.' },
+        maint: { t: 'The same with a 6 in. trunk', steps: ['As the cheapest fix, with the trunk at 6 in.'], edit: (W, b) => solB13(W, b, 7),
+          lesson: 'Spare capacity on the trunk for the next room.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // Call 14. An inherited wet system on a floor whose use changes, gridded by the original installer: both far ends of
+  // the branch lines are tied into mains (columns 12 and 35; the feed main crosses the west tie on row 12). Nothing
+  // taken out refunds anything (salvage 0), and the pipe kept is scored.
+  //   riser room (1..5, 9..14): tap (0,12), backflow (1,12), control valve (2,12), riser (3,12); feed main (4..23, 12),
+  //   cross main column 24 (3..18), branch lines west (12..23) and east (25..35).
+  //   A: the floor is now storage: 2½ in. feed and cross main, 1½ in. lines, both sides tied.
+  //   B: the floor becomes a data hall on double-interlock preaction: 3 in. feed and cross main, 2 in. lines, west tie.
+  const floor14 = (W, b, o) => {
+    W.addRoom('riser', 1, 9, 5, 6).exempt = true; W.addRoom(o.room, 12, 3, 24, 16);
+    b.p('city', 0, 12, 0, { stat: 75, resid: 60, flow: 1500, fixed: true }); b.p('bfp', 1, 12); const g = b.p('gate', 2, 12, 0), r = b.p('wetv', 3, 12);
+    b.h(4, 23, 12, o.feed); b.v(24, 3, 18, o.feed, true); b.grid(12, 3, 23, 18, o.br, 1); b.grid(25, 3, 35, 18, o.br, 1);
+    tie(W, 12, 3, 18); if (o.east) tie(W, 35, 3, 18);
+    const pn = b.p('panel', 4, 10); b.wire(pn, g, r);
+  };
+  // B: preaction valve in place of the wet riser, a 20 scfm compressor tubed to it, an aspirating detector in the hall's
+  // north-east corner (it takes the place of one tile of line), both wired; every west line capped off the tie column
+  const toDI = (W, b) => {
+    const pn = W.byType('panel')[0]; W.removePart(W.at(3, 12).id); const v = b.p('prev', 3, 12, 0);
+    W.erasePipe(35, 3); const d = b.p('vesda', 35, 3); b.p('comp', 4, 13, 0, { scfm: 20 }); W.setAir(3, 13, 1); b.wire(pn, v, d);
+    for (let y = 3; y <= 18; y++) if (y !== 12) W.setCut(12, y, false, 1);
+  };
+  const C14 = ['Inherited material has no resale value: anything you take out or replace refunds nothing.', 'The starting pipe you keep is scored: the best fix keeps nearly all of it.'];
+  DI.PUZ.push({
+    id: 'p14', n: 14, name: 'Keep the Good Pipe', kind: 'Inherited installation', design: true, w: 40, h: 22, parts: ['gate', 'prev', 'wetv', 'comp', 'panel', 'vesda'],
+    builds: ['Call 9: friction concentrates where the whole demand flows', 'Call 12: a grid on preaction pipe has to become a tree, and where it is cut decides the calc', 'Double Interlock: valve, air, detection and the 30 percent larger design area'],
+    question: 'What is the least you have to replace to make an old system meet a new use?',
+    learn: ['Old pipe that is sound is free capacity: every tile replaced is paid for twice', 'Find the bottleneck before buying pipe: here the lines and the grid were big enough, the feed was not', 'A use that needs more water does not mean a new system; a system type that changes (wet to preaction) means the grid goes and the valve changes, not the pipe', 'Where a grid is cut decides the calc: a tie column that stays fed from the feed main keeps half its value', 'Replace the length that carries the whole demand, and only as far as the calc needs'],
+    variants: [
+      { key: 'A', name: 'Floor A: office to storage', money: 20000, area: [0, 2, 37, 19], impPar: null, salvage: 0, reuse: true, constraints: C14,
+        decision: 'The floor is storage now and its calc fails. The contractor quotes $132,000 to re-pipe it for the new use. The pipe is sound, gridded and paid for; whatever you take out is scrap. Most of it is big enough. Which part is not?',
+        symptom: ['Inherited installation. An office floor on a gridded wet system is being turned into storage. At the higher hazard the calc fails, and the sprinkler contractor proposes re-piping the whole floor.', 'Make the calc pass for storage, replacing as little as you can.'],
+        records: (S) => [calcLine(S, 'stor', 'Calc at the storage hazard (0.20 gpm/ft² over 1,500 ft²)'), 'Contractor’s proposal: re-pipe the floor, 2 in. lines and a 6 in. feed, $132,000.'],
+        build: (W, b) => floor14(W, b, { room: 'stor', feed: 4, br: 2, east: true }), prove: () => {},
+        hints: [['Run the calc and hover from the riser outwards. The lines are gridded and fed from both ends: look for the pipe that carries the whole floor’s demand.', 8, 12],
+          ['The 2½ in. feed main carries everything. A tile replaced costs the full price of the new pipe, and the old one is scrap: replace only as much of it as the calc needs.', 8, 12],
+          ['Replace the feed main from the riser room to the building wall (8 tiles, x 4 to 11) with 4 in. pipe: about $3,200, and the calc passes.', 8, 12]],
+        diag: { q: 'What does the change to storage actually need?', opts: [
+          ['A short length of bigger feed main', true, 'Yes. Eight tiles of 4 in. where the whole demand flows: the gridded lines were big enough all along.'],
+          ['Re-pipe the floor for storage', false, 'About $132,000 and every tile scrapped, for lines that already calculate.'],
+          ['Bigger branch lines in the design area', false, 'The lines are gridded and fed from both ends: they are not where the pressure goes.'],
+          ['Replace the cross main', false, 'One size up buys about five percent: the grid feeds the lines from the tie mains as well.']] },
+        goals: [{ t: 'The calc passes at the storage hazard, at the most demanding area', ok: (S) => PZ.calcAllOk(S, 'stor'), hint: 'Select the riser and run the calc.' }, { t: 'Plan review finds no code failures', ok: G.noFails, hint: 'Open Review.' }],
+        cheap: { t: 'Eight tiles of 4 in. feed', steps: ['Main tool at 4 in. over the feed main from the riser room to the building wall (x 4 to 11)', 'Run the calc'], edit: (W) => resize(W, row(12, 4, 11), 6),
+          lesson: 'About $3,200 against a $132,000 proposal, and 384 of 392 tiles kept.' },
+        maint: { t: 'The whole feed main at 4 in.', steps: ['Main tool at 4 in. over the whole feed main', 'Run the calc'], edit: (W) => resize(W, row(12, 4, 23), 6),
+          lesson: 'About $8,000 for a margin over 10 percent, still keeping 372 tiles.' } },
+      { key: 'B', name: 'Floor B: office to data hall', money: 60000, area: [0, 2, 37, 19], impPar: null, salvage: 0, reuse: true, editSlack: 0.25,
+        constraints: C14.concat(['The hall needs double-interlock preaction (owner standard for white space).']),
+        decision: 'The office becomes a data hall: double interlock, so the grid must go, the riser valve must change and the design area grows 30 percent. The old valve and every tile you replace are scrap. Where do you cut the grid, and what little do you replace?',
+        symptom: ['Inherited installation. An office floor on a wet system, gridded on its west side, becomes a data hall. The owner’s standard for white space is double-interlock preaction.', 'Convert it, keeping as much of the old pipe as you can.'],
+        records: (S) => [calcLine(S, 'hall', 'Calc as a wet system today'), 'Owner standard: white space on double-interlock preaction, aspirating detection.'],
+        build: (W, b) => floor14(W, b, { room: 'hall', feed: 5, br: 3 }), prove: (S) => S.warp(2400),
+        hints: [['Swap the wet riser for a preaction valve, tube a compressor to it, put an aspirating detector in the hall and wire both to the panel. Then open Review: the grid fails on preaction pipe.', 3, 12],
+          ['The west lines are tied into a main at their far ends (column 12), and the feed main crosses that tie. Cap the lines off the tie, or cap them in their middles: try both, and run the calc. The bigger preaction design area needs more pressure than the wet system did.', 12, 8],
+          ['Cap every west line where it meets the tie column (between x 12 and 13, every row but the feed row): the tie stays a dead-end main off the feed. Then replace the feed main from the riser to just inside the hall (10 tiles, x 4 to 13) with 4 in. pipe.', 12, 12]],
+        diag: { q: 'Where does the grid get cut, and what gets replaced?', opts: [
+          ['Cap the lines off the tie column, and replace the first length of feed main', true, 'Yes. The tie stays fed from the feed main as a dead end, the lines are fed from the cross main, and ten tiles of 4 in. feed make up the bigger design area.'],
+          ['Cap every line in its middle', false, 'That is a tree too, and it calculates worse: the tie then feeds half of every west line the long way.'],
+          ['Keep the grid on the preaction valve', false, 'No loop is allowed on preaction pipe: the air has to be driven out one way.'],
+          ['Re-pipe the hall as a new tree', false, 'Everything taken out is scrap. The old pipe is sound: it needs cutting differently, not replacing.']] },
+        goals: [{ t: 'The hall on double-interlock preaction, every head on it', ok: (S) => G.covered(S, ['hall']) && G.each(S, 'hall', (v) => v.type === 'prev'), hint: 'Replace the wet riser with a preaction valve.' },
+          { t: 'Plan review finds no code failures: no loop, detection, air, wiring', ok: G.noFails, hint: 'Open Review.' },
+          { t: 'The calc passes at the most demanding area (the preaction area is 30 percent larger)', ok: (S) => PZ.calcAllOk(S, 'hall'), hint: 'Select the preaction valve and run the calc.' },
+          { t: 'The zone set and pressurized, nothing latched', ok: (S) => G.each(S, 'hall', (v) => PZ.inService(S, v)), hint: 'Let the compressor fill it.' }],
+        cheap: { t: 'Valve swap, caps off the tie, ten tiles of feed', steps: ['Preaction valve in place of the wet riser; compressor, tubing, aspirating detector, wiring', 'Cap every west line off the tie column', 'Main tool at 4 in. over the feed main, x 4 to 13'], edit: (W, b) => { toDI(W, b); resize(W, row(12, 4, 13), 6); },
+          lesson: 'Fifteen free caps and ten tiles of pipe; 381 of 392 tiles kept.' },
+        maint: { t: 'The same with the whole feed main at 4 in.', steps: ['As the cheapest fix, with the whole feed main replaced'], edit: (W, b) => { toDI(W, b); resize(W, row(12, 4, 23), 6); },
+          lesson: 'About $5,000 more for a margin near 20 percent: data halls get re-racked.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // Call 15. The pump site of Churn (contract 3): a tank, an electric fire pump, a jockey pump, a storage building on a
+  // wet riser at (28,13). The calc has pressure to spare; the tank does not last the hazard's 60 minutes.
+  //   A: an oversized pump (1,500 gpm at 150 psi) on a 60,000 gal tank.
+  //   B: 1¼ in. branch lines on a 3 in. main, a dry valve in the heated riser room, an inherited 45,000 gal tank.
+  const c3 = () => DI.SCEN.find((s) => s.id === 'c3');
+  const site15 = (W, b, o) => {
+    c3().build(W); const pn = W.byType('panel')[0], h = DI.pumpHouse(b, pn); Object.assign(h.ep.p, o.pump); h.ep.p.orig = 1;
+    const t = W.byType('tank')[0]; t.p.cap = t.p.gal = o.cap;
+    if (o.br !== undefined) { for (let y = 8; y <= 17; y++) for (let x = 30; x <= 45; x++) { const k = W.k(x, y); if (W.pk[k]) W.pd[k] = o.br + 1; } for (let x = 29; x <= 45; x++) W.pd[W.k(x, 13)] = 6; W.ver++; }
+    if (o.dry) { W.removePart(W.at(28, 13).id); const v = b.p('dryv', 28, 13, 0); b.p('comp', 28, 11, 0, { scfm: 10 }); W.setAir(28, 12, 1); b.wire(pn, v); }
+  };
+  const wet15 = (W, b) => { const pn = W.byType('panel')[0]; W.removePart(W.at(28, 13).id); const r = b.p('wetv', 28, 13, 0); b.wire(pn, r); W.removePart(W.at(28, 11).id); };
+  const pump15 = (W, gpm, psi) => { const p = W.byType('epump')[0]; p.p.gpm = gpm; p.p.psi = psi; W.ver++; };
+  const n0 = (x) => Math.round(x).toLocaleString('en-US');
+  const tankLine = (S) => { const id = G.sysOf(S, 'stor')[0], c = id && PZ.calcAll(S, id); return c && c.ok ? 'Insurer survey: at the design demand of ' + n0(c.total) + ' gpm the tank lasts ' + DI.fmt(c.tankMin) + ' min against the 60 min the storage hazard needs. The calc itself passes at ' + DI.fmt(c.margin * 100) + ' percent.' : 'Insurer survey: no calc result.'; };
+  const goals15 = [{ t: 'The calc passes at the most demanding area, the tank lasts the full 60 minutes and the pump runs at 150 percent of rating or less', ok: (S) => PZ.calcAllOk(S, 'stor', true), hint: 'Select the wet riser and run the calc: it reports the tank’s duration and the pump’s operating point.' },
+    { t: 'Plan review finds no code failures', ok: G.noFails, hint: 'Open Review.' }];
+  const C15 = ['Every protection requirement stays: the hazard, the density, the design area, the hose allowance and the 60 minutes.', 'Money back counts: the best fix here may cost less than nothing.'];
+  DI.PUZ.push({
+    id: 'p15', n: 15, name: 'The Small Tank', kind: 'Records-only investigation', design: true, w: 60, h: 32, parts: ['tank', 'epump', 'wetv', 'dryv', 'gate', 'check', 'panel'],
+    builds: ['Churn: the tank sets how long you can fight, and the pump curve sets the flow', 'Call 1: Q = K√P, so more pressure is more water from every open head', 'Cold Dock: the dry design area is 30 percent larger'],
+    question: 'What uses up the water, and what is the cheapest way to make it last?',
+    learn: ['Duration is storage divided by demand: a tank can be too small, or the demand too big', 'Every open head flows K√P: a pump far bigger than the system needs over-discharges, and the tank empties faster', 'Size the pump to the demand, not to the catalogue: up to 150 percent of rating is allowed', 'A dry system calculates 30 percent more heads: in a heated room it costs water, money and delivery time for nothing', 'Read the calc for three things: pressure (the weakest head), flow (the pump’s point) and duration (the tank)'],
+    variants: [
+      { key: 'A', name: 'Site A: the big pump', money: 40000, area: [3, 7, 47, 19], impPar: null, constraints: C15.concat(['Plan review must pass.']),
+        decision: 'The calc passes by a mile and the tank empties in 56 minutes. A bigger tank costs at least $36,000. The pump makes far more pressure than the storage building needs, and every open head turns pressure into water. Spend money on storage, or take it off demand?',
+        symptom: ['Records-only investigation. The insurer’s survey of the storage building’s pump house: the 60,000 gal tank does not last the 60 minutes the storage hazard needs. The pump was upgraded to 1,500 gpm at 150 psi "for margin" two years ago.', 'Make the water last, keeping every protection requirement. The cheapest fix earns the star.'],
+        records: (S) => [tankLine(S), 'Pump upgrade ticket: 1,000 gpm / 100 psi replaced by 1,500 gpm / 150 psi.'],
+        build: (W, b) => site15(W, b, { pump: { gpm: 1500, psi: 150, start: 100 }, cap: 60000 }), prove: () => {},
+        hints: [['Select the wet riser and run the calc: read the pressure at the riser, the total demand and the tank’s duration. The weakest head gets more than twice what it needs.', 28, 13],
+          ['Every head in the design area flows K√P: at more than twice the needed pressure it flows about 50 percent more water. Select the fire pump: its nameplate (rated flow and pressure) is a design setting.', 11, 12],
+          ['Pick a smaller pump on its nameplate and run the calc again. 500 gpm at 80 psi still passes, runs under 150 percent of rating and lasts over 80 minutes, and its price comes back to you.', 11, 12]],
+        diag: { q: 'What empties the tank early?', opts: [
+          ['A pump far bigger than the demand: every open head over-discharges', true, 'Yes. The heads take K√P at the pump’s pressure, not at the pressure they need. A pump sized to the demand draws about 30 percent less from the tank.'],
+          ['The tank is too small for the room', false, 'With a pump sized to the demand it lasts over 80 minutes as it is.'],
+          ['The hose allowance', false, 'It is fixed at 250 gpm for this hazard. The sprinklers are what take more than they need.'],
+          ['A leak on the underground main', false, 'A leak is a few gallons a minute of jockey make-up, not hundreds.']] },
+        goals: goals15,
+        cheap: { t: 'A 500 gpm, 80 psi pump', steps: ['Fire pump nameplate: 500 gpm, 80 psi', 'Run the calc'], edit: (W) => pump15(W, 500, 80),
+          lesson: 'About $49,500 back, and the tank lasts about 82 minutes. The pump runs near 147 percent of rating at the design demand: inside the 150 percent the curve allows.' },
+        maint: { t: 'A 1,000 gpm, 100 psi pump', steps: ['Fire pump nameplate: 1,000 gpm, 100 psi', 'Run the calc'], edit: (W) => pump15(W, 1000, 100),
+          lesson: 'About $33,000 back. At about 90 percent of rating it keeps headroom for wear and for the annual flow test, and the tank still lasts 67 minutes.' } },
+      { key: 'B', name: 'Site B: the dry room', money: 20000, area: [3, 7, 47, 19], impPar: null, constraints: C15.concat(['The storage building is heated.']),
+        decision: 'The calc passes with a little pressure to spare and the 45,000 gal tank empties in 57 minutes. A smaller pump cannot hold the pressure the 1¼ in. lines need. The storage building is heated, and its system is dry. What is the extra water for?',
+        symptom: ['Records-only investigation. The insurer’s survey of a storage building with an inherited 45,000 gal tank: it does not last the 60 minutes the hazard needs. The building is heated; its sprinklers are on a dry pipe valve "because the last tenant asked for it".', 'Make the water last, keeping every protection requirement. The cheapest fix earns the star.'],
+        records: (S) => [tankLine(S), 'Building: heated storage, 70 °F year round.'],
+        build: (W, b) => site15(W, b, { pump: { gpm: 750, psi: 100, start: 100 }, cap: 45000, br: 1, dry: true }), prove: () => {},
+        hints: [['Run the calc on the riser: the design area says 1,950 ft² (1,500 + 30 percent). That is the dry pipe rule.', 28, 13],
+          ['The 30 percent larger area means about 30 percent more heads flowing, all from the tank. Try a smaller pump: the 1¼ in. lines need the pressure. The room is heated: does it need dry pipe at all?', 28, 13],
+          ['Replace the dry valve with a wet riser (wire it to the panel) and remove the compressor. The design area drops to 1,500 ft², the tank lasts over an hour, and both parts refund.', 28, 13]],
+        diag: { q: 'What empties the tank early?', opts: [
+          ['A dry system in a heated room: its design area is 30 percent larger', true, 'Yes. A wet system in the same room calculates 1,500 ft², not 1,950, and the tank lasts over an hour.'],
+          ['The pump is too big', false, 'A smaller pump cannot hold the pressure the 1¼ in. lines need: the calc fails first.'],
+          ['The tank is too small', false, 'For a wet system it lasts over an hour as it is. A 60,000 gal tank would cost about $9,000.'],
+          ['The hose allowance', false, 'It is fixed at 250 gpm for this hazard.']] },
+        goals: goals15,
+        cheap: { t: 'Wet riser in place of the dry valve', steps: ['Remove the dry valve, place a wet riser, wire it', 'Remove the compressor', 'Run the calc'], edit: (W, b) => wet15(W, b),
+          lesson: 'About $13,000 back, and faster water on the fire: no air to push out first.' },
+        maint: { t: 'Wet riser, and a 60,000 gal tank', steps: ['As the cheapest fix', 'Tank capacity to 60,000 gal'], edit: (W, b) => { wet15(W, b); const t = W.byType('tank')[0]; t.p.cap = t.p.gal = 60000; W.ver++; },
+          lesson: 'The odd 45,000 gal tank becomes a catalogue size with about 20 minutes of margin, for about $9,000 of the money the conversion gave back.' } },
+    ],
+  });
+
+  // =====================================================================================================
+  // Call 16. One pump house for several rooms. The pump house (6..19, 10..18) is the reference installation: tank (6,12),
+  // fire pump (11,12), check valve, jockey pump, test header; the discharge runs down to a 6 in. main along row 18. A
+  // weak city main joins it at (19,19). Each room has its riser off the main: control valve and system valve in its own
+  // column, the cross main up (north rooms) or down (south rooms) the same column. The pump and the tank start at the
+  // smallest catalogue nameplates (500 gpm, 80 psi, 60,000 gal): sizing them is the call.
+  //   room: [type, x0, x1, y0, y1, riser column, 'N' | 'S', system valve type, cross main size, branch line size]
+  const ROOMS16 = {
+    A: { mainEnd: 50, rooms: [['office', 22, 31, 21, 28, 26, 'S', 'wetv', 5, 2], ['stor', 22, 33, 6, 15, 27, 'N', 'wetv', 6, 2], ['dock', 36, 47, 6, 15, 41, 'N', 'dryv', 6, 3]] },
+    B: { mainEnd: 40, tail: 5, tailEnd: 55, rooms: [['stor', 22, 33, 6, 15, 27, 'N', 'wetv', 6, 3], ['office', 50, 61, 21, 28, 55, 'S', 'wetv', 5, 0]] },
+  };
+  const site16 = (W, b, o) => {
+    W.addRoom('pump', 4, 9, 14, 7).exempt = true;
+    b.p('city', 0, 24, 0, { stat: 40, resid: 15, flow: 500, fixed: true }); b.h(1, 1, 24, 6); b.p('bfp', 2, 24); b.h(3, 19, 24, 6); b.v(19, 19, 23, 6);
+    const pn = b.p('panel', 18, 10);
+    b.p('tank', 6, 12, 0, { cap: 60000, gal: 60000 }); b.h(7, 10, 12, 8); const ep = b.p('epump', 11, 12, 0, { gpm: 500, psi: 80, start: 100 }); ep.p.orig = 1;
+    b.h(12, 13, 12, 8); b.p('check', 14, 12); b.h(15, 19, 12, 8); b.v(19, 13, 18, 8);
+    b.v(9, 10, 11, 3); b.h(10, 10, 10, 3); b.p('jockey', 11, 10, 0, { gpm: 15, psi: 135, start: 115, stop: 125 }); b.h(12, 13, 10, 3); b.p('check', 14, 10); b.h(15, 15, 10, 3); b.v(15, 11, 11, 3);
+    b.v(17, 13, 15, 7); b.p('testhdr', 17, 16, 1); b.wire(pn, ep);
+    b.h(20, o.mainEnd, 18, 7); if (o.tail) b.h(o.mainEnd + 1, o.tailEnd, 18, o.tail);
+    for (const [type, x0, x1, y0, y1, rx, side, sys, cm, br] of o.rooms) {
+      W.addRoom(type, x0, y0, x1 - x0 + 1, y1 - y0 + 1); const N = side === 'N';
+      const g = b.p('gate', rx, N ? 17 : 19, N ? 3 : 1), v = b.p(sys, rx, N ? 16 : 20, N ? 3 : 1, sys === 'dryv' ? { qod: true } : undefined);
+      b.v(rx, y0, y1, cm, true); b.grid(x0, y0, x1, y1, br, 1); b.wire(pn, g, v);
+      if (sys === 'dryv') { b.p('comp', rx + 2, 16, 0, { scfm: 20 }); W.setAir(rx + 1, 16, 1); }
+    }
+  };
+  const plant16 = (W, gpm, psi, cap) => { const p = W.byType('epump')[0], t = W.byType('tank')[0]; p.p.gpm = gpm; p.p.psi = psi; if (cap) { t.p.cap = t.p.gal = cap; } W.ver++; };
+  // what each room's calc says, for the records: pass, or which of pressure, pump flow and tank duration fails
+  const roomLines = (S) => [...S.sysd.info.keys()].map((id) => { const c = PZ.calcAll(S, id), nm = DI.sysName(S, id).replace(/^.* - /, '');
+    if (!c || !c.ok) return nm + ': no result.';
+    const why = [c.pass ? '' : 'pressure (weakest head ' + DI.fmt(c.margin * 100) + ' percent)', c.over ? 'the pump past 150 percent of rating (' + DI.fmt(Math.max(...c.pumpPts.map((q) => q.pct))) + ' percent)' : '', c.durOk ? '' : 'the tank (' + DI.fmt(c.tankMin) + ' min of ' + c.hz.dur + ')'].filter(Boolean);
+    return nm + ' (' + c.hz.name + (c.dryLike ? ', dry' : '') + '): ' + Math.round(c.total).toLocaleString('en-US') + ' gpm at the riser. ' + (why.length ? 'FAILS on ' + why.join(', ') + '.' : 'Passes.'); });
+  const goals16 = [{ t: 'Every room’s calc passes at its most demanding area, with the tank lasting each hazard’s duration and the pump at 150 percent of rating or less', ok: (S) => PZ.calcEvery(S, true), hint: 'Select each riser and run the calc. The pump and the tank nameplates are on their inspectors.' },
+    { t: 'Plan review finds no code failures', ok: G.noFails, hint: 'Open Review.' }];
+  const C16 = ['One fire pump and one tank serve every room. Their nameplates (rated flow, rated pressure, tank capacity) are design settings on the inspector.', 'Every room passes: pressure at its most demanding area, the pump at 150 percent of rating or less, the tank for its hazard’s duration.'];
+  DI.PUZ.push({
+    id: 'p16', n: 16, name: 'One Supply, Many Rooms', kind: 'Nearly finished plant', design: true, w: 66, h: 30, parts: ['tank', 'epump', 'gate', 'check'],
+    builds: ['Churn: the pump curve and the tank', 'Call 15: a pump bigger than the demand over-discharges and shortens the tank', 'Call 9: friction where the flow concentrates', 'Hyperscale: one supply sized for the worst demand'],
+    question: 'Which room actually controls the design of a shared supply?',
+    learn: ['The governing room is the one that needs the most from the plant, and it is often not the highest hazard', 'Three numbers can be governed by three rooms: the pump’s pressure, the pump’s flow, the tank’s duration', 'A dry room calculates 30 percent more heads: at the same density it needs more water than the wet room beside it', 'More pressure for one room is more water from every other room: buying pressure can make the tank govern', 'When one far room governs, changing that room’s pipe is often cheaper than sizing the whole plant around it'],
+    variants: [
+      { key: 'A', name: 'Campus A: three rooms', money: 60000, area: [2, 5, 50, 29], impPar: null, constraints: C16,
+        decision: 'An office, a storage room at the highest density, and a dry dock at the same density as storage. The nameplates on order are the smallest in the catalogue. Size the pump and the tank once: for which room?',
+        symptom: ['Nearly finished plant. A pump house serves three rooms on one main: an office, a storage room and an unheated dock on dry pipe. The fire pump and the tank are set with placeholder nameplates, the smallest the catalogue has.', 'Size the pump and the tank so that every room passes, as cheaply as you can, and name the room that controls the design.'],
+        records: (S) => roomLines(S),
+        build: (W, b) => site16(W, b, ROOMS16.A), prove: (S) => S.warp(2400),
+        hints: [['Run the calc on every riser. Read the total demand at each riser and what fails: pressure, the pump’s flow, or the tank.', 41, 16],
+          ['The storage room has the highest density and passes on the placeholder pump. The dock, same density, calculates 1,950 ft² because it is dry: it draws more than the 500 gpm pump can give at 150 percent.', 41, 16],
+          ['Set the fire pump nameplate to 750 gpm at 80 psi and keep the 60,000 gal tank. A bigger or stronger pump makes the dock over-discharge and outrun the tank, and then the tank has to grow too.', 11, 12]],
+        diag: { q: 'Which room controls the pump and the tank?', opts: [
+          ['The dry dock: its design area is 30 percent larger, so it needs the most water', true, 'Yes. Same density as storage, 30 percent more heads flowing: the dock sets the pump’s flow and the tank.'],
+          ['The storage room: it has the highest density', false, 'The dock has the same density over a larger area. The storage room passes on a pump the dock overloads.'],
+          ['The office: it is the lowest hazard but on the far side', false, 'It needs the least water and passes three times over.'],
+          ['All three equally', false, 'One room fails first on every pump you try: the dock.']] },
+        goals: goals16.concat([{ t: 'The dock’s dry system set and up to pressure', ok: (S) => G.each(S, 'dock', (v, i, s) => s.state === 'dry' && s.set), hint: 'Let the compressor pump it up.' }]),
+        cheap: { t: 'A 750 gpm, 80 psi pump on the same tank', steps: ['Fire pump nameplate: 750 gpm, 80 psi', 'Run every calc'], edit: (W) => plant16(W, 750, 80),
+          lesson: 'About $5,000. Any pump with more flow or pressure makes the dock over-discharge, and the tank must then double.' },
+        maint: { t: 'A 750 gpm, 100 psi pump and a 120,000 gal tank', steps: ['Fire pump nameplate: 750 gpm, 100 psi', 'Tank capacity: 120,000 gal'], edit: (W) => plant16(W, 750, 100, 120000),
+          lesson: 'About $46,000: pressure headroom and two hours of water, so the next room on the main does not reopen the plant.' } },
+      { key: 'B', name: 'Campus B: the far office', money: 80000, area: [2, 5, 64, 29], impPar: null, editSlack: 0.25, constraints: C16.concat(['Pipe may change as well as the plant.']),
+        decision: 'A storage room near the pump house and a light-hazard office at the far end of a 3 in. tail main. One needs water, the other pressure. A pump that gives the office its pressure gives every head in the storage room more water too. Which room controls, and where is it cheapest to answer it?',
+        symptom: ['Nearly finished plant. A pump house serves a storage room near it and an office 350 ft away at the end of a 3 in. main. The fire pump and the tank are set with placeholder nameplates, the smallest the catalogue has.', 'Make every room pass as cheaply as you can, and name the room that controls the design.'],
+        records: (S) => roomLines(S),
+        build: (W, b) => site16(W, b, ROOMS16.B), prove: () => {},
+        hints: [['Run both calcs. The storage room overloads the 500 gpm pump; the office, light hazard, fails on pressure.', 55, 20],
+          ['A pump strong enough for the office (150 psi) makes the storage room over-discharge, and then the tank has to double: about $56,000. Hover the tail main to the office while its calc is shown: that is where the office’s pressure goes.', 50, 18],
+          ['Upsize the 3 in. tail main to the office (x 41 to 55, row 18) to 4 in., about $1,650. Then a 750 gpm, 100 psi pump on the 60,000 gal tank passes both rooms.', 50, 18]],
+        diag: { q: 'Which room controls the design, and where is it cheapest to answer it?', opts: [
+          ['The far office, and the answer is its tail main, not the plant', true, 'Yes. The office sets the pressure. Fix its 150 ft of 3 in. main and the plant only has to serve the storage room’s flow.'],
+          ['The storage room: it is the highest hazard', false, 'It passes on a 750 gpm pump at 80 psi. The office does not.'],
+          ['The office, so the pump must be sized for it', false, 'A pump that gives the office its pressure makes the storage room over-discharge, and then the tank governs: about $56,000 in all.'],
+          ['The tank', false, 'The tank is enough for both rooms once nobody over-discharges.']] },
+        goals: goals16,
+        cheap: { t: '4 in. tail main and a 750 gpm, 100 psi pump', steps: ['Main tool at 4 in. over the tail main to the office (x 41 to 55)', 'Fire pump nameplate: 750 gpm, 100 psi', 'Run both calcs'], edit: (W) => { resize(W, row(18, 41, 55), 6); plant16(W, 750, 100); },
+          lesson: 'About $11,650, and the office passes with under one percent to spare. Sizing the plant for the office instead costs about $56,000: a 150 psi pump and a doubled tank.' },
+        maint: { t: '6 in. tail main and a 750 gpm, 100 psi pump', steps: ['Main tool at 6 in. over the tail main to the office', 'Fire pump nameplate: 750 gpm, 100 psi'], edit: (W) => { resize(W, row(18, 41, 55), 7); plant16(W, 750, 100); },
+          lesson: 'About $3,600 more for five percent at the office, without raising the pressure on the storage room’s heads.' } },
+    ],
+  });
+})();
+
+</script>
+<script>
 // Field manual: the real-world knowledge behind each mechanic. Edition basis of the text: NFPA 13-2025,
 // NFPA 20, NFPA 25, NFPA 72 (the enforced NFPA 13 edition is a site setting; plan review cites that one).
 // Company rules and ASSUMED / NEEDS PE REVIEW values are listed on the 'site' page. Always verify against
@@ -5564,6 +6408,24 @@ DI.MANUAL = [
 <p><b>Afterwards</b> the report compares three fixes side by side: yours, the cheapest one and an easily maintained one, each drawn with its edits ringed (red where something was taken away), with its cost and what it teaches.</p>
 <p><b>Tools that matter here.</b> <b>Turn end for end</b> (select an inline part: a check valve, a pump, a backflow preventer, a control valve) reverses it in place for free. A cap shows as a short yellow bar across a joint, also where a pipe meets a part. A control valve can have <b>no tamper switch fitted</b> (an old sealed yard valve): closing it signals nothing until a switch is fitted and wired. A pump suction gauge cannot read below a full vacuum: the game shows a starved suction as -14.7 (full vacuum).</p>
 <p><b>Drills keep the commissioning record.</b> In a contract the goals are recorded when the acceptance drill starts. What was proved before the fire (a quiet half hour on the jockey, a refill, a passing calc) stays proved while the drill runs the plant hard.</p>` },
+  { id: 'design', t: 'Design calls (strong constraints)', h: `<p>A design call is a puzzle with one hard constraint and one decision, and both are in the briefing before you build anything: <b>THE CONSTRAINTS</b> (a budget, a part limit, pipe you must keep, a gallery where pipes cannot cross) and <b>THE DECISION</b> (where the money goes, where a loop is cut, which room governs). They are calls 9 to 16 on the menu, their own track: the first is open from the start and each one opens the next.</p>
+<table><tr><th>#</th><th>Call</th><th>The decision</th></tr>
+<tr><td>9</td><td>The Last $8,000</td><td>Where a small budget buys the most pressure: the feed main that carries the whole demand, a free grid on wet pipe, the cross main on dry pipe where a grid is illegal</td></tr>
+<tr><td>10</td><td>One Wall, Two Systems</td><td>How a wet room and a dry dock share one tap without their mains touching, in the rooms, through the wall and in the riser room</td></tr>
+<tr><td>11</td><td>Split Decision</td><td>Where to cut one preaction zone into zones of 500 gal or less with a limited number of valves, counting each zone&rsquo;s own feed main</td></tr>
+<tr><td>12</td><td>The Forbidden Grid</td><td>Where to break the loops of a dry grid so it still calculates, keeping the pipe</td></tr>
+<tr><td>13</td><td>The Valve Gallery</td><td>How a trunk in a three-tile gallery reaches risers on both sides, each room isolated on its own valve</td></tr>
+<tr><td>14</td><td>Keep the Good Pipe</td><td>The least you replace when inherited pipe refunds nothing</td></tr>
+<tr><td>15</td><td>The Small Tank</td><td>What uses the water: a pump bigger than the demand, or a dry system in a heated room</td></tr>
+<tr><td>16</td><td>One Supply, Many Rooms</td><td>Which room governs the pump and the tank, and where it is cheapest to answer it</td></tr></table>
+<ul><li><b>Answer</b> on the top bar takes the place of Diagnose: one pick, a wrong one answered and counted.</li>
+<li><b>Part limits</b> (call 11): the build tools refuse a part over the limit, and a goal checks it.</li>
+<li><b>No resale value</b> (call 14): erasing, resizing or replacing inherited pipe, heads or parts refunds nothing. What you laid during the call refunds in full. Laying a branch tile as a main at its own size only adds tees and costs nothing.</li>
+<li><b>Pipe kept</b> (calls 12 and 14): the scorecard counts the starting pipe tiles still there at their size. The edit star needs at least as many as the par fix keeps.</li>
+<li><b>The most demanding area.</b> These calls check the calc with the design area moved to the far end of every branch line, not only the farthest one. Strengthening just the two farthest lines moves the demanding area to the next lines; it does not remove it.</li>
+<li><b>Independent isolation</b> (call 13): each room&rsquo;s control valve shuts off that room and no other.</li>
+<li>On a call that builds a lot, the edit star allows a slack over the par fix (shown on the scorecard). Time out of service is not scored where nothing is in service yet.</li></ul>
+<p>Afterwards the report compares your design with the par fix (the cheapest, or on calls 12 and 14 the one that keeps the most pipe) and an easily maintained one.</p>` },
   { id: 'wet', t: 'Wet pipe systems', h: `<p>Pipe full of water under pressure, closed heat-activated sprinklers. Only the sprinklers that get hot open. Wet is the default: it is the most reliable and it puts water on the fire soonest.</p>
 <ul><li><b>Limits:</b> the whole system must stay at 40&nbsp;&deg;F or above. One riser may protect 52,000 ft&sup2; per floor for light and ordinary hazard (NFPA 13-2025 &sect;4.4.1).</li>
 <li><b>Riser:</b> control valve with tamper switch, alarm check valve or riser check with a waterflow switch, main drain, gauges above and below.</li>
@@ -6206,7 +7068,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     canvas(w, h, fn) { const i = upd.length; upd.push(() => { const c = document.getElementById('ic' + i); if (c) fn(c.getContext('2d'), w, h); return null; }); this.add('<canvas id="ic' + i + '" width="' + w * 2 + '" height="' + h * 2 + '" style="width:' + w + 'px;height:' + h + 'px"></canvas><b id="iv' + i + '" style="display:none"></b>'); },
   };
   const spend = (d) => { const G = g(); if (!G.sc.sandbox && d > G.W.money) { DI.ui.banner('Not enough budget (' + DI.money(d) + ').'); return false; } G.W.money -= d; return true; };
-  const reprice = (p, change) => { const c0 = DI.partCost(p.type, p.p), old = Object.assign({}, p.p); change(); const d = DI.partCost(p.type, p.p) - c0; if (!spend(d)) { Object.assign(p.p, old); return; } g().S.touch(); g().W.ver++; DI.edited(); };
+  // a design setting changed: the price difference (in a field call that refunds nothing for inherited material, downsizing
+  // an inherited part gives back only its salvage share, DI.puzReprice)
+  const reprice = (p, change) => { const c0 = DI.partCost(p.type, p.p), old = Object.assign({}, p.p); change(); const d = DI.puzReprice(g().S, p, DI.partCost(p.type, p.p) - c0); if (!spend(d)) { Object.assign(p.p, old); return; } g().S.touch(); g().W.ver++; DI.edited(); };
   const test = (kind, id) => { const m = DI.startTest(g().S, kind, id); if (m) DI.ui.banner(m); };
   const say = (m) => { if (m) DI.ui.banner(m); };
   const psi = (v) => DI.fmt(v, 1) + ' psi', gpm = (v) => DI.fmt(v) + ' gpm';
@@ -6225,9 +7089,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const r = DI.lastResult(S, 'pump', p.id); if (r && r.pts) { c.fillStyle = r.pass ? '#3ddc91' : '#ff4b3a'; for (const pt of r.pts) { c.beginPath(); c.arc(X(pt.q), Y(pt.pd - pt.ps), 3, 0, 7); c.fill(); } } };
   }
   function calcBlock(S, id) {
-    B.btns([['Run hydraulic calc', () => { const c = DI.hydCalc(S, id); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go', false, 'Checks hydraulics only: does every sprinkler in the remote area get its density. Coverage is checked in plan review.']]);
+    // (on a design call the calc is the one its goals read: the design area at the most demanding branch line end)
+    B.btns([['Run hydraulic calc', () => { const c = DI.puzCalc(S, id, true); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go', false, 'Checks hydraulics only: does every sprinkler in the remote area get its density. Coverage is checked in plan review.' + (S.puz && g().sc.pz && g().sc.pz.design ? ' On this call the design area is moved to the end of every branch line and the worst one is shown.' : '')]]);
     const c = S.calc.get(id); if (!c || !c.ok) return;
-    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' +
+    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' + (c.n ? 'Most demanding of ' + c.n + ' areas checked<br>' : '') +
       'Design area ' + DI.fmt(c.area) + ' ft²' + (c.dryLike ? ' (+30% dry)' : '') + ': ' + c.n + ' sprinklers<br>Need ' + DI.fmt(c.need, 1) + ' gpm each (' + c.hz.dens.toFixed(2) + ' gpm/ft²)<br>Weakest gets ' + DI.fmt(c.minQ, 1) + ' gpm (' + c.dens.toFixed(3) + ')<br>' +
       'Demand ' + DI.fmt(c.total) + ' gpm (incl. ' + c.hz.hose + ' hose) @ ' + DI.fmt(c.pRiser) + ' psi at riser' + c.pumpPts.filter((p) => p.on).map((p) => '<br>Pump #' + p.id + ' at ' + DI.fmt(p.pct) + '% of rated' + (p.pct > 150 ? ' - OVERLOADED' : '')).join('') +
       (isFinite(c.tankMin) ? '<br>Tank lasts ' + DI.fmt(c.tankMin) + ' min (need ' + c.hz.dur + ')' : '') + '</div>');
@@ -6484,7 +7349,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // a two-port part can be turned end for end in place (free): a check valve, a pump or a backflow preventer set the
     // wrong way round is a fault of its own (the field calls). The glyph shows which way the water is meant to go.
     if (!q.fixed && DI.PARTS[p.type].ports === 2 && !DI.SYSV[p.type]) B.btns([['Turn end for end', () => { DI.pushUndo(); p.rot = (p.rot + 2) % 4; W.ver++; S.touch(); DI.edited(); }, '', false, 'Reverse the part in place: inlet and outlet swap. The glyph points the way the water goes.']]);
-    if (!q.fixed) B.btns([['Remove (refund ' + DI.money(DI.partCost(p.type, q)) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.partCost(p.type, q) + (q.vent ? 3200 : 0); W.removePart(p.id); G.sel = null; DI.edited(); }]]);
+    if (!q.fixed) { const back = DI.puzPartRefund(S, p); B.btns([['Remove (refund ' + DI.money(back) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.puzPartRefund(S, p); W.removePart(p.id); G.sel = null; DI.edited(); }, '', false, back < DI.partWorth(p) ? 'Inherited material: it refunds nothing on this call.' : '']]); }
   }
   function tilePanel(S, W, k) {
     const x = k % W.w, y = (k / W.w) | 0, room = W.room(x, y), G = g();
@@ -6522,16 +7387,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
   }
   // a field call: the question, the goals, the running scorecard and the hints shown so far
   function puzPanel(G) {
-    const S = G.S, st = DI.puzStatus(S); B.title(G.sc.name, 'field call ' + G.sc.pz.n + ' · ' + G.sc.v.key); if (!st) return;
+    const S = G.S, st = DI.puzStatus(S), w = DI.puzWords(G.sc.pz); B.title(G.sc.name, w.call.toLowerCase() + ' ' + G.sc.pz.n + ' · ' + G.sc.v.key); if (!st) return;
     B.p(st.v.diag.q);
+    if (st.v.decision) { B.sec('THE DECISION'); B.p(st.v.decision); }
     G.sc.goals.forEach((q, i) => B.add('<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '" style="margin:0 10px;font-size:12.5px"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + '</div></div>'));
     B.sec('SO FAR');
     B.row('Edits', () => String(DI.puzStatus(S).edits)); B.row('Spent', () => DI.money(Math.max(0, DI.puzSpent(S))) + ' of ' + DI.money(G.sc.money));
-    B.row('Out of service', () => { const x = DI.puzStatus(S); return x.now.length ? [DI.dur(x.imp) + ' (now)', 'warn'] : DI.dur(x.imp); });
+    if (st.reuse) B.row('Starting pipe kept', () => { const r = DI.puzStatus(S).reuse; return r.kept + ' of ' + r.total + ' tiles'; });
+    if (st.v.limits) B.row('Limits', () => { const lim = st.v.limits, over = DI.puzStatus(S).overLimit; return [Object.keys(lim).map((t) => S.W.byType(t).length + ' of ' + lim[t] + ' ' + DI.PARTS[t].name.toLowerCase() + (lim[t] === 1 ? '' : 's')).join(', '), over.length ? 'bad' : '']; });
+    if (st.v.impPar !== null) B.row('Out of service', () => { const x = DI.puzStatus(S); return x.now.length ? [DI.dur(x.imp) + ' (now)', 'warn'] : DI.dur(x.imp); });
     if (st.v.live) B.row('Resets while the cause was live', () => { const n = S.puz.futile; return n ? [String(n), 'warn'] : '0'; });
     B.row('Hints used', () => (st.v.hints.length - DI.puzStatus(S).left) + ' of ' + st.v.hints.length);
     if (st.hints.length) { B.sec('HINTS'); st.hints.forEach((x, i) => B.p((i + 1) + '. ' + x[0])); }
-    B.btns([[st.left ? 'Hint (' + st.left + ' left)' : 'Hints', () => DI.puzUI.hint()], [S.puz.diag.ok ? 'Diagnosed' : 'Diagnose', () => DI.puzUI.diagnose(), S.puz.diag.ok ? '' : 'go'], ['Goals and records', () => DI.puzUI.goals()]]);
+    B.btns([[st.left ? 'Hint (' + st.left + ' left)' : 'Hints', () => DI.puzUI.hint()], [S.puz.diag.ok ? w.done : w.ask, () => DI.puzUI.diagnose(), S.puz.diag.ok ? '' : 'go'], ['Goals and records', () => DI.puzUI.goals()]]);
   }
   DI.inspect = { render(force) {
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }
@@ -6698,7 +7566,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('wx').textContent = DI.fmt(W.outTemp) + '°F  ' + (W.power ? 'UTILITY OK' : 'UTILITY OUT');
     $('wx').style.color = W.power ? '' : 'var(--red)';
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
-    if (G.sc.puzzle && S.puz) { const left = G.sc.v.hints.length - S.puz.hints; $('bHint').textContent = 'Hint (' + left + ')'; $('bDiag').classList.toggle('go', !S.puz.diag.ok); $('bDiag').textContent = S.puz.diag.ok ? 'Diagnosed' : 'Diagnose'; }
+    if (G.sc.puzzle && S.puz) { const left = G.sc.v.hints.length - S.puz.hints; $('bHint').textContent = 'Hint (' + left + ')'; $('bDiag').classList.toggle('go', !S.puz.diag.ok); const w = DI.puzWords(G.sc.pz); $('bDiag').textContent = S.puz.diag.ok ? w.done : w.ask; }
     // Impairment tags are riser tags, not signals: listed above the signals, and still shown with a dead panel.
     const imps = DI.impairments(S), ih = imps.length ? '<div class="hd3">IMPAIRMENT TAGS</div>' + imps.map((x) => '<div class="imp" data-p="' + x.id + '">' + esc(x.text) + '</div>').join('') : '';
     if ($('imp').dataset.h !== ih) { $('imp').innerHTML = ih; $('imp').dataset.h = ih; }
@@ -6988,26 +7856,36 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
 </script>
 <script>
-// Field calls, front end: the menu cards, the call briefing with its variants, hints, the diagnosis, the scorecard and
-// the comparison of fixes after a call is solved (your layout, the cheapest fix, the easily maintained fix).
-// The rules live in puz.js; this file only shows them.
+// Field calls, front end: the menu cards (two tracks: find the fault, calls 1-8, and design, calls 9-16), the call
+// briefing with its variants (a design call adds its constraints, its decision and the ideas it builds on), hints, the
+// diagnosis or the answer, the scorecard and the comparison of fixes after a call is solved (your layout, the cheapest
+// fix, the easily maintained fix). The rules live in puz.js; this file only shows them.
 var DI = globalThis.DI || (globalThis.DI = {});
 (function () {
   const $ = (id) => document.getElementById(id), g = () => DI.game;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const P = DI.puzUI = {};
+  // the design calls' calc at the most demanding area is recomputed at most once a second per system while you build
+  DI.PZ.throttleMs = 1000;
   const stars = (n) => '★'.repeat(n) + '<s>' + '★'.repeat(3 - n) + '</s>';
   const best = (pz) => { const d = g().prog.done[pz.id]; return d ? d.stars || 0 : -1; };
-  P.open = (pz) => pz.n === 1 || !!g().prog.done[DI.PUZ[pz.n - 2].id];
+  // each track unlocks in order on its own: the first call of a track is open, the next one opens when the one before is done
+  P.track = (pz) => DI.PUZ.filter((q) => !!q.design === !!pz.design);
+  P.open = (pz) => { const t = P.track(pz), i = t.indexOf(pz); return i <= 0 || !!g().prog.done[t[i - 1].id]; };
 
   // ---------- menu
   P.menuHtml = function () {
     if (!DI.PUZ.length) return '';
-    let h = '<h4 style="margin-top:22px">FIELD CALLS · FIND THE FAULT</h4><p style="margin:2px 0 0;font-size:13px">Small puzzles on an installation that already exists: a symptom, a small repair budget and one question. Fewest edits, the right diagnosis and the least time out of service earn the stars.</p><div class="cards">';
-    for (const pz of DI.PUZ) {
+    return P.section(DI.PUZ.filter((q) => !q.design), 'FIELD CALLS · FIND THE FAULT', 'Small puzzles on an installation that already exists: a symptom, a small repair budget and one question. Fewest edits, the right diagnosis and the least time out of service earn the stars.') +
+      P.section(DI.PUZ.filter((q) => q.design), 'DESIGN CALLS · STRONG CONSTRAINTS', 'One hard constraint and one decision, both in the briefing before you build: a budget, a part limit, pipe you must keep, a corridor where pipes cannot cross. The later calls combine ideas from the earlier ones. Fewest edits, the lowest cost and the right answer earn the stars.');
+  };
+  P.section = function (list, title, text) {
+    if (!list.length) return '';
+    let h = '<h4 style="margin-top:22px">' + title + '</h4><p style="margin:2px 0 0;font-size:13px">' + esc(text) + '</p><div class="cards">';
+    for (const pz of list) {
       const open = P.open(pz), d = g().prog.done[pz.id], sv = DI.LS.get('di.save.' + pz.id, null);
       const vs = pz.variants.map((v) => v.key + (d && d.v && d.v[v.key] ? '★'.repeat(d.v[v.key]) : '·')).join(' ');
-      h += '<button class="card puz' + (open ? '' : ' lock') + '" data-pz="' + pz.id + '"' + (open ? '' : ' disabled') + '><em>FIELD CALL ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</em>' + (d && d.stars ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') +
+      h += '<button class="card puz' + (pz.design ? ' design' : '') + (open ? '' : ' lock') + '" data-pz="' + pz.id + '"' + (open ? '' : ' disabled') + '><em>' + DI.puzWords(pz).call.toUpperCase() + ' ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</em>' + (d && d.stars ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') +
         '<b>' + esc(pz.name) + '</b><small>' + esc(pz.question) + '</small><small class="vs">' + esc(vs) + (sv ? ' · in progress' : '') + '</small></button>';
     }
     return h + '</div>';
@@ -7016,15 +7894,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   // ---------- briefing, with the variant picker
   P.brief = function (sc) {
-    const pz = sc.pz, v = sc.v, S = g().S, rec = (S.puz && S.puz.rec) || [], d = g().prog.done[pz.id];
-    let h = '<h4>FIELD CALL ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</h4><h2>' + esc(pz.name) + '</h2><div class="sub">' + esc(v.name.toUpperCase()) + ' · REPAIR BUDGET ' + DI.money(v.money) + '</div>' +
+    const pz = sc.pz, v = sc.v, S = g().S, rec = (S.puz && S.puz.rec) || [], d = g().prog.done[pz.id], w = DI.puzWords(pz), kind = v.kind || pz.kind;
+    const imp = v.impPar !== null, slack = v.editSlack ? ' (within ' + Math.round(v.editSlack * 100) + ' percent of them on a call that builds this much)' : '';
+    let h = '<h4>' + w.call.toUpperCase() + ' ' + pz.n + ' · ' + esc(kind.toUpperCase()) + '</h4><h2>' + esc(pz.name) + '</h2><div class="sub">' + esc(v.name.toUpperCase()) + ' · ' + (pz.design ? 'BUDGET ' : 'REPAIR BUDGET ') + DI.money(v.money) + '</div>' +
       v.symptom.map((t) => '<p>' + esc(t) + '</p>').join('') +
+      (v.constraints ? '<h4>THE CONSTRAINTS</h4><ul>' + v.constraints.map((t) => '<li>' + esc(t) + '</li>').join('') + (v.limits ? '<li>The build tools refuse a part over the limit: ' + esc(DI.puzLimitText(v.limits)) + '.</li>' : '') + '</ul>' : '') +
+      (v.decision ? '<h4>THE DECISION</h4><p class="decision"><b>' + esc(v.decision) + '</b></p>' : '') +
       (rec.length ? '<h4>RECORDS</h4><ul>' + rec.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
-      '<h4>THE QUESTION</h4><p><b>' + esc(v.diag.q || pz.question) + '</b> Answer it with Diagnose on the top bar once you know.</p>' +
+      (pz.builds ? '<h4>BUILDS ON</h4><ul>' + pz.builds.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
+      '<h4>THE QUESTION</h4><p><b>' + esc(v.diag.q || pz.question) + '</b> Answer it with ' + w.ask + ' on the top bar once you know.</p>' +
       '<h4>GOALS</h4>' + sc.goals.map((q) => '<div class="goal"><i>○</i><div>' + esc(q.t) + '</div></div>').join('') +
-      '<h4>HOW IT IS SCORED</h4><ul><li>One star for the fix: every goal, the diagnosis included.</li><li>One for the fewest edits, at no more than the cheapest fix costs. Operating a valve or a pump is not an edit; changing the layout, a wire or a setting is.</li>' +
-      '<li>One for a diagnosis right the first time, at most one hint, and no more time out of service than par' + (v.live ? ', with no panel reset made while the cause is still live' : '') + '.</li></ul>' +
-      '<h4>VARIANTS</h4><p style="font-size:13px">Each variant moves the fault, the supply, the layout or what else is going on. Switching starts that variant fresh.</p><div class="mrow" style="justify-content:flex-start;margin-top:4px">' +
+      '<h4>HOW IT IS SCORED</h4><ul><li>One star for the ' + (pz.design ? 'design' : 'fix') + ': every goal, the ' + w.noun.toLowerCase() + ' included.</li><li>One for the fewest edits' + slack + ', at no more than the cheapest fix costs' + (v.reuse ? ', keeping at least as much of the starting pipe as it does' : '') + '. Operating a valve or a pump is not an edit; changing the layout, a wire or a setting is.' + (v.salvage === 0 ? ' Removing inherited material refunds nothing.' : '') + '</li>' +
+      '<li>One for ' + (pz.design ? 'the answer' : 'a diagnosis') + ' right the first time, at most one hint' + (imp ? ', and no more time out of service than par' : '') + (v.live ? ', with no panel reset made while the cause is still live' : '') + '.</li></ul>' +
+      '<h4>VARIANTS</h4><p style="font-size:13px">' + (pz.design ? 'Each variant changes the constraint, the supply, the layout or the system type, and with it the right answer.' : 'Each variant moves the fault, the supply, the layout or what else is going on.') + ' Switching starts that variant fresh.</p><div class="mrow" style="justify-content:flex-start;margin-top:4px">' +
       pz.variants.map((x, i) => '<button data-vi="' + i + '" class="' + (i === sc.vi ? 'on' : '') + '">' + esc(x.name) + (d && d.v && d.v[x.key] ? ' ' + '★'.repeat(d.v[x.key]) : '') + '</button>').join('') + '</div>' +
       '<div class="mrow"><button id="mGo" class="go">Start</button></div>';
     DI.ui.modal(h); $('mGo').onclick = DI.ui.close;
@@ -7044,11 +7926,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
   };
   P.diagnose = function () {
     const S = g().S, v = DI.puzVariant(S); if (!v) return;
-    const dg = S.puz.diag;
-    let h = '<h4>DIAGNOSIS</h4><h2>' + esc(v.diag.q) + '</h2>';
+    const dg = S.puz.diag, w = DI.puzWords(g().sc.pz);
+    let h = '<h4>' + w.head + '</h4><h2>' + esc(v.diag.q) + '</h2>';
     if (dg.ok) { const o = v.diag.opts.find((x) => x[1]); h += '<div class="goal ok"><i>✓</i><div><b>' + esc(o[0]) + '</b><small>' + esc(o[2]) + '</small></div></div>'; }
     else {
-      h += '<p>Pick the fault. A wrong pick is answered and counted; the third star needs it right the first time.</p>';
+      h += '<p>' + w.pick + ' A wrong pick is answered and counted; the third star needs it right the first time.</p>';
       h += v.diag.opts.map((o, i) => { const tried = dg.picks.includes(i); return '<div class="goal' + (tried ? '' : '') + '"><i>' + (tried ? '✗' : '○') + '</i><div>' + (tried ? '<span style="color:var(--dim)">' + esc(o[0]) + '</span><small>' + esc(o[2]) + '</small>' : '<button class="dg" data-i="' + i + '">' + esc(o[0]) + '</button>') + '</div></div>'; }).join('');
     }
     h += '<div class="mrow"><button id="mGo" class="go">Close</button></div>';
@@ -7058,17 +7940,22 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   // ---------- goals dialog (the G key and the Goals pill)
   P.goals = function () {
-    const G = g(), S = G.S, sc = G.sc, st = DI.puzStatus(S); if (!st) return;
-    let h = '<h4>FIELD CALL ' + sc.pz.n + ' · ' + esc(sc.v.name.toUpperCase()) + '</h4><h2>' + esc(sc.pz.name) + '</h2>';
+    const G = g(), S = G.S, sc = G.sc, st = DI.puzStatus(S), w = DI.puzWords(sc.pz); if (!st) return;
+    let h = '<h4>' + w.call.toUpperCase() + ' ' + sc.pz.n + ' · ' + esc(sc.v.name.toUpperCase()) + '</h4><h2>' + esc(sc.pz.name) + '</h2>';
+    if (sc.v.decision) h += '<p class="decision"><b>' + esc(sc.v.decision) + '</b></p>';
     sc.goals.forEach((q, i) => { h += '<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + (!G.goalOk[i] && q.hint ? '<small>' + esc(q.hint) + '</small>' : '') + '</div></div>'; });
     h += '<h4>SO FAR</h4>' + P.status(st).map((t) => '<div class="goal"><i></i><div>' + esc(t) + '</div></div>').join('');
+    if (sc.v.constraints) h += '<h4>THE CONSTRAINTS</h4><ul>' + sc.v.constraints.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
     if (S.puz.rec && S.puz.rec.length) h += '<h4>RECORDS</h4><ul>' + S.puz.rec.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
-    h += '<div class="mrow"><button id="mRe" style="margin-right:auto">Restart this variant</button><button id="mBrief">Briefing</button><button id="mHintB">Hints</button><button id="mDiag">Diagnose</button>' + (S.puz.done ? '<button id="mRep">Report</button>' : '') + '<button id="mGo" class="go">Close</button></div>';
+    h += '<div class="mrow"><button id="mRe" style="margin-right:auto">Restart this variant</button><button id="mBrief">Briefing</button><button id="mHintB">Hints</button><button id="mDiag">' + w.ask + '</button>' + (S.puz.done ? '<button id="mRep">Report</button>' : '') + '<button id="mGo" class="go">Close</button></div>';
     DI.ui.modal(h); $('mGo').onclick = DI.ui.close; $('mBrief').onclick = () => P.brief(sc); $('mHintB').onclick = P.hint; $('mDiag').onclick = P.diagnose; if ($('mRep')) $('mRep').onclick = P.finish;
     $('mRe').onclick = () => { if ($('mRe').dataset.sure) { DI.LS.del('di.save.' + sc.id); DI.startScenario(sc.id, true, sc.vi); } else { $('mRe').dataset.sure = 1; $('mRe').textContent = 'Click again to start this variant over'; $('mRe').className = 'hot'; } };
   };
-  P.status = (st) => ['Edits so far: ' + st.edits, 'Spent: ' + DI.money(Math.max(0, st.spent)), 'Hints used: ' + (st.v.hints.length - st.left) + ' of ' + st.v.hints.length,
-    'Out of service: ' + DI.dur(st.imp) + (st.now.length ? ' (now: ' + st.now.slice(0, 2).join('; ') + ')' : '')].concat(st.v.live ? ['Resets made while the cause was live: ' + st.futile] : [], [st.diag.ok ? 'Diagnosis: given' + (st.diag.tries > 1 ? ' (try ' + st.diag.tries + ')' : '') : st.diag.tries ? 'Diagnosis: ' + st.diag.tries + ' wrong pick(s) so far' : 'Diagnosis: not given yet']);
+  P.status = (st) => { const n = st.design ? 'Answer' : 'Diagnosis';
+    return ['Edits so far: ' + st.edits, 'Spent: ' + DI.money(Math.max(0, st.spent)) + (st.spent < 0 ? ' (' + DI.money(-st.spent) + ' back)' : ''), 'Hints used: ' + (st.v.hints.length - st.left) + ' of ' + st.v.hints.length]
+      .concat(st.reuse ? ['Starting pipe kept: ' + st.reuse.kept + ' of ' + st.reuse.total + ' tiles'] : [], st.overLimit.length ? ['Over the limit: ' + st.overLimit.map((t) => DI.PARTS[t].name.toLowerCase()).join(', ')] : [],
+        st.v.impPar !== null ? ['Out of service: ' + DI.dur(st.imp) + (st.now.length ? ' (now: ' + st.now.slice(0, 2).join('; ') + ')' : '')] : [],
+        st.v.live ? ['Resets made while the cause was live: ' + st.futile] : [], [st.diag.ok ? n + ': given' + (st.diag.tries > 1 ? ' (try ' + st.diag.tries + ')' : '') : st.diag.tries ? n + ': ' + st.diag.tries + ' wrong pick(s) so far' : n + ': not given yet']); };
 
   // ---------- solved: the scorecard, the progress, the comparison
   P.finish = function () {
@@ -7076,16 +7963,18 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const d = G.prog.done[pz.id] || (G.prog.done[pz.id] = { stars: 0, v: {} }); d.v = d.v || {};
     d.stars = Math.max(d.stars || 0, sc2.stars); d.v[v.key] = Math.max(d.v[v.key] || 0, sc2.stars); DI.LS.set('di.progress', G.prog);
     S.puz.done = true; DI.saveGame();
-    const right = v.diag.opts.find((o) => o[1]);
-    let h = '<h4>FIELD CALL ' + pz.n + ' · ' + esc(v.name.toUpperCase()) + '</h4><h2>Fault found and fixed</h2><div class="stars">' + stars(sc2.stars) + '</div>' +
+    const right = v.diag.opts.find((o) => o[1]), w = DI.puzWords(pz);
+    let h = '<h4>' + w.call.toUpperCase() + ' ' + pz.n + ' · ' + esc(v.name.toUpperCase()) + '</h4><h2>' + w.solved + '</h2><div class="stars">' + stars(sc2.stars) + '</div>' +
       sc2.lines.map(([ok, t]) => '<div class="goal' + (ok ? ' ok' : '') + '"><i>' + (ok ? '✓' : '•') + '</i><div>' + esc(t) + '</div></div>').join('') +
-      '<h4>THE FAULT</h4><p><b>' + esc(right[0]) + '.</b> ' + esc(right[2].replace(/^Yes\. /, '')) + '</p>' +
+      '<h4>' + w.what + '</h4><p><b>' + esc(right[0]) + '.</b> ' + esc(right[2].replace(/^Yes\. /, '')) + '</p>' +
       '<h4>COMPARE THE FIXES</h4><div class="cmp">';
     const cols = [{ t: 'Your fix', W: S.W, diff: sc2.diff, cost: sc2.spent, steps: null, lesson: '' }];
-    for (const which of ['cheap', 'maint']) { const s = DI.puzSolution(S, which); if (s) cols.push({ t: (which === 'cheap' ? 'Cheapest: ' : 'Easily maintained: ') + s.sol.t, W: s.W, diff: s.diff, cost: s.cost, steps: s.sol.steps, lesson: s.sol.lesson }); }
+    // (where the pipe kept is scored, the par fix is the one that keeps the most, at the lowest cost that does)
+    for (const which of ['cheap', 'maint']) { const s = DI.puzSolution(S, which); if (s) cols.push({ t: (which === 'cheap' ? (v.reuse ? 'Most pipe kept: ' : 'Cheapest: ') : 'Easily maintained: ') + s.sol.t, W: s.W, diff: s.diff, cost: s.cost, steps: s.sol.steps, lesson: s.sol.lesson, reuse: s.reuse }); }
     cols.forEach((c, i) => {
-      h += '<div class="cmpc"><b>' + esc(c.t) + '</b><canvas id="pzc' + i + '" width="560" height="300"></canvas><small>' + c.diff.n + ' edit' + (c.diff.n === 1 ? '' : 's') + ' · ' + DI.money(Math.max(0, c.cost)) + '</small>' +
-        (c.diff.n ? '<ul>' + c.diff.items.slice(0, 8).map((x) => '<li>' + esc(x.what) + '</li>').join('') + (c.diff.n > 8 ? '<li>and ' + (c.diff.n - 8) + ' more</li>' : '') + '</ul>' : '<ul><li>no layout change</li></ul>') +
+      const ru = v.reuse ? c.reuse || DI.puzReuse(DI.puzStart(S), c.W) : null;
+      h += '<div class="cmpc"><b>' + esc(c.t) + '</b><canvas id="pzc' + i + '" width="560" height="300"></canvas><small>' + c.diff.n + ' edit' + (c.diff.n === 1 ? '' : 's') + ' · ' + (c.cost < 0 ? DI.money(-c.cost) + ' back' : DI.money(c.cost)) + (ru ? ' · ' + ru.kept + ' of ' + ru.total + ' tiles kept' : '') + '</small>' +
+        (c.diff.n ? '<ul>' + P.groups(c.diff.items).slice(0, 8).map(([w, n]) => '<li>' + esc(w) + (n > 1 ? ' &times; ' + n : '') + '</li>').join('') + (P.groups(c.diff.items).length > 8 ? '<li>and ' + (P.groups(c.diff.items).length - 8) + ' more kinds of edit</li>' : '') + '</ul>' : '<ul><li>no layout change</li></ul>') +
         (c.steps ? '<ol>' + c.steps.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '') + (c.lesson ? '<p>' + esc(c.lesson) + '</p>' : '') + '</div>';
     });
     h += '</div><h4>WHAT THIS CALL TEACHES</h4><ul>' + pz.learn.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>';
@@ -7098,6 +7987,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if ($('mNextP')) $('mNextP').onclick = () => DI.startScenario(np.id);
     if ($('mMenu')) $('mMenu').onclick = () => DI.ui.showMenu();
   };
+
+  // the edits of a fix, one line per kind of edit with its count, in the order they first appear
+  P.groups = (items) => { const m = new Map(); for (const x of items) m.set(x.what, (m.get(x.what) || 0) + 1); return [...m]; };
 
   // ---------- a schematic of the area around the fault: rooms, pipe by size, heads, caps, parts, and every edit
   // against the starting layout ringed in amber (red where something was taken away)
@@ -7153,7 +8045,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const G = g(), W = G.W, t = G.tool, a = drag.start; let tiles = [], cost = 0, label = '';
     if (t.type === 'pipe') {
       tiles = lpath(a, end, drag.hf).filter(([x, y]) => W.inb(x, y) && !W.partAt[W.k(x, y)]);
-      for (const [x, y] of tiles) { const k = W.k(x, y); cost += DI.PIPES[t.size].cost - (W.pd[k] ? DI.PIPES[W.pd[k] - 1].cost : 0); }
+      // a resize pays the new size and gets the old pipe back (in a field call with no salvage, inherited pipe gets nothing
+      // back: DI.puzPipeCredit); the same size again only re-lays the tile as a main and costs nothing
+      for (const [x, y] of tiles) { const k = W.k(x, y); if (W.pd[k] !== t.size + 1) cost += DI.PIPES[t.size].cost - (W.pd[k] ? DI.puzPipeCredit(G.S, k) : 0); }
       label = DI.PIPES[t.size].n + ' main · ' + tiles.length * 10 + ' ft · ' + DI.money(cost);
     } else if (t.type === 'branch') {
       tiles = rect(a, end).filter(([x, y]) => W.inb(x, y) && !W.partAt[W.k(x, y)]); let n = 0;
@@ -7169,7 +8063,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       return { tiles, cost: 0, label, ok: true, cap: single ? 'one' : horiz ? 'row' : 'col' };
     } else if (t.type === 'erase') {
       tiles = rect(a, end).filter(([x, y]) => W.inb(x, y));
-      for (const [x, y] of tiles) { const k = W.k(x, y), p = W.at(x, y); if (p && !p.p.fixed) cost -= DI.partCost(p.type, p.p); cost -= W.pipeCost(x, y); if (W.air[k]) cost -= AIR_COST; }
+      for (const [x, y] of tiles) { const k = W.k(x, y), p = W.at(x, y); if (p && !p.p.fixed) cost -= DI.puzPartRefund(G.S, p); cost -= DI.puzTileRefund(G.S, x, y); if (W.air[k]) cost -= DI.puzAirRefund(G.S, k); }
       label = 'Remove · refund ' + DI.money(-cost);
     }
     return { tiles, cost, label, ok: rich(cost) };
@@ -7202,7 +8096,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
       if ((w || e) && !(n || s2) || (here && (w || e) && rot % 2 === 0)) rot = w && !e ? 0 : e && !w ? 2 : rot % 2 ? 0 : (pr(tl.x + 1, tl.y) > pr(tl.x - 1, tl.y) + 1 ? 2 : pr(tl.x - 1, tl.y) > pr(tl.x + 1, tl.y) + 1 ? 0 : rot);
       else if ((n || s2) && !(w || e)) rot = n && !s2 ? 1 : s2 && !n ? 3 : rot % 2 ? (pr(tl.x, tl.y + 1) > pr(tl.x, tl.y - 1) + 1 ? 3 : pr(tl.x, tl.y - 1) > pr(tl.x, tl.y + 1) + 1 ? 1 : rot) : 1;
     }
-    const cost = DI.partCost(type, def.props) - W.pipeCost(tl.x, tl.y);
+    // a design call may limit how many of a part there can be: refused here, and checked by a goal
+    const lim = DI.puzLimit(G.S, type); if (lim) { DI.ui.banner(lim); return; }
+    const cost = DI.partCost(type, def.props) - DI.puzTileRefund(G.S, tl.x, tl.y);
     if (!rich(cost)) { DI.ui.banner('Not enough budget: ' + def.name + ' costs ' + DI.money(cost) + '.'); return; }
     DI.pushUndo(); W.erasePipe(tl.x, tl.y); const p = W.addPart(type, tl.x, tl.y, rot); if (!p) return;
     // Keep construction clear of inspector overlays; Select opens a placed device's controls.
@@ -7241,7 +8137,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
         if (G.sel && G.sel.kind === 'tile') DI.findHead(G.S, G.sel.k);       // selecting an operated head is "find the operated head" in the recovery log
         DI.inspect.render(true); if (p) DI.audio.play('click'); drag = { kind: 'pan', mx: e.clientX, my: e.clientY, cx: G.cam.x, cy: G.cam.y, moved: false, btn: 0 };
       } else if (t.type === 'part') placePart(tl);
-      else if (t.type === 'head') { if (!W.inb(tl.x, tl.y)) return; const k = W.k(tl.x, tl.y); if (!W.pd[k]) return; const add = !W.spk[k]; if (add && !rich(DI.SPK_COST)) return; DI.pushUndo(); W.spk[k] = add ? 1 : 0; W.ver++; W.money -= add ? DI.SPK_COST : -DI.SPK_COST; DI.edited(); DI.audio.play('place'); }
+      else if (t.type === 'head') { if (!W.inb(tl.x, tl.y)) return; const k = W.k(tl.x, tl.y); if (!W.pd[k]) return; const add = !W.spk[k]; if (add && !rich(DI.SPK_COST)) return; const back = add ? 0 : DI.puzHeadRefund(G.S, k); DI.pushUndo(); W.spk[k] = add ? 1 : 0; W.ver++; W.money -= add ? DI.SPK_COST : -back; DI.edited(); DI.audio.play('place'); }
       else if (t.type === 'wire') {
         const p = W.at(tl.x, tl.y); if (!p) { G.wireFrom = 0; return; }
         if (!G.wireFrom) { G.wireFrom = p.id; DI.audio.play('click'); }
@@ -7275,7 +8171,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
       else if (k === 'g') DI.ui.showGoals();
       else if (k === 'f') DI.ui.toggleFocus();
       else if (k === 'home') { e.preventDefault(); DI.ui.fitSite(); }
-      else if (k === 'delete' || k === 'backspace') { if (G.sel && G.sel.kind === 'part') { const p = G.W.parts.get(G.sel.id); if (p && !p.p.fixed) { DI.pushUndo(); G.W.money += DI.partCost(p.type, p.p); G.W.removePart(p.id); G.sel = null; DI.edited(); DI.inspect.render(true); } } }
+      else if (k === 'delete' || k === 'backspace') { if (G.sel && G.sel.kind === 'part') { const p = G.W.parts.get(G.sel.id); if (p && !p.p.fixed) { DI.pushUndo(); G.W.money += DI.puzPartRefund(G.S, p); G.W.removePart(p.id); G.sel = null; DI.edited(); DI.inspect.render(true); } } }
       else keys.add(k);
     });
     window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -7357,7 +8253,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const S = g.S, sc = g.sc; if (S.ver !== g.W.ver) S.sync();
     S.rv = DI.review(S);
     const ids = [...S.sysd.info.keys()]; for (const id of [...S.calc.keys()]) if (!S.sysd.info.has(id)) S.calc.delete(id);
-    if (ids.length && !S.fires.length && S.outFlow < 1) { const id = ids[g.calcI++ % ids.length]; if (S.sysd.info.get(id).nSpk) S.calc.set(id, DI.hydCalc(S, id)); else S.calc.delete(id); }
+    // (a design call shows the calc its goals read: DI.puzCalc, null while it waits out the throttle after an edit)
+    if (ids.length && !S.fires.length && S.outFlow < 1) { const id = ids[g.calcI++ % ids.length]; if (S.sysd.info.get(id).nSpk) { const c = DI.puzCalc(S, id); if (c) S.calc.set(id, c); } else S.calc.delete(id); }
     // During a drill the goals are the commissioning record taken when it started (S.drill.goals0): a quiet-operation
     // run or a refill that the fire then interrupts was still achieved, and the drill report is judged against it.
     g.goalOk = S.drill && S.drill.goals0 ? S.drill.goals0.slice() : sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });

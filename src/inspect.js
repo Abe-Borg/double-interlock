@@ -16,7 +16,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     canvas(w, h, fn) { const i = upd.length; upd.push(() => { const c = document.getElementById('ic' + i); if (c) fn(c.getContext('2d'), w, h); return null; }); this.add('<canvas id="ic' + i + '" width="' + w * 2 + '" height="' + h * 2 + '" style="width:' + w + 'px;height:' + h + 'px"></canvas><b id="iv' + i + '" style="display:none"></b>'); },
   };
   const spend = (d) => { const G = g(); if (!G.sc.sandbox && d > G.W.money) { DI.ui.banner('Not enough budget (' + DI.money(d) + ').'); return false; } G.W.money -= d; return true; };
-  const reprice = (p, change) => { const c0 = DI.partCost(p.type, p.p), old = Object.assign({}, p.p); change(); const d = DI.partCost(p.type, p.p) - c0; if (!spend(d)) { Object.assign(p.p, old); return; } g().S.touch(); g().W.ver++; DI.edited(); };
+  // a design setting changed: the price difference (in a field call that refunds nothing for inherited material, downsizing
+  // an inherited part gives back only its salvage share, DI.puzReprice)
+  const reprice = (p, change) => { const c0 = DI.partCost(p.type, p.p), old = Object.assign({}, p.p); change(); const d = DI.puzReprice(g().S, p, DI.partCost(p.type, p.p) - c0); if (!spend(d)) { Object.assign(p.p, old); return; } g().S.touch(); g().W.ver++; DI.edited(); };
   const test = (kind, id) => { const m = DI.startTest(g().S, kind, id); if (m) DI.ui.banner(m); };
   const say = (m) => { if (m) DI.ui.banner(m); };
   const psi = (v) => DI.fmt(v, 1) + ' psi', gpm = (v) => DI.fmt(v) + ' gpm';
@@ -35,9 +37,10 @@ var DI = globalThis.DI || (globalThis.DI = {});
       const r = DI.lastResult(S, 'pump', p.id); if (r && r.pts) { c.fillStyle = r.pass ? '#3ddc91' : '#ff4b3a'; for (const pt of r.pts) { c.beginPath(); c.arc(X(pt.q), Y(pt.pd - pt.ps), 3, 0, 7); c.fill(); } } };
   }
   function calcBlock(S, id) {
-    B.btns([['Run hydraulic calc', () => { const c = DI.hydCalc(S, id); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go', false, 'Checks hydraulics only: does every sprinkler in the remote area get its density. Coverage is checked in plan review.']]);
+    // (on a design call the calc is the one its goals read: the design area at the most demanding branch line end)
+    B.btns([['Run hydraulic calc', () => { const c = DI.puzCalc(S, id, true); S.calc.set(id, c); if (c.ok) g().calcShow = { tiles: c.tiles, pass: c.pass }; else say(c.err); }, 'go', false, 'Checks hydraulics only: does every sprinkler in the remote area get its density. Coverage is checked in plan review.' + (S.puz && g().sc.pz && g().sc.pz.design ? ' On this call the design area is moved to the end of every branch line and the worst one is shown.' : '')]]);
     const c = S.calc.get(id); if (!c || !c.ok) return;
-    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' +
+    B.add('<div class="res ' + (c.pass && c.covOk ? 'pass' : 'fail') + '"><b>' + esc(c.verdict) + ' · ' + esc(c.hz.name) + (c.room ? ' \u00b7 ' + esc(g().W.rooms[c.room - 1].name) : '') + '</b>' + (c.n ? 'Most demanding of ' + c.n + ' areas checked<br>' : '') +
       'Design area ' + DI.fmt(c.area) + ' ft²' + (c.dryLike ? ' (+30% dry)' : '') + ': ' + c.n + ' sprinklers<br>Need ' + DI.fmt(c.need, 1) + ' gpm each (' + c.hz.dens.toFixed(2) + ' gpm/ft²)<br>Weakest gets ' + DI.fmt(c.minQ, 1) + ' gpm (' + c.dens.toFixed(3) + ')<br>' +
       'Demand ' + DI.fmt(c.total) + ' gpm (incl. ' + c.hz.hose + ' hose) @ ' + DI.fmt(c.pRiser) + ' psi at riser' + c.pumpPts.filter((p) => p.on).map((p) => '<br>Pump #' + p.id + ' at ' + DI.fmt(p.pct) + '% of rated' + (p.pct > 150 ? ' - OVERLOADED' : '')).join('') +
       (isFinite(c.tankMin) ? '<br>Tank lasts ' + DI.fmt(c.tankMin) + ' min (need ' + c.hz.dur + ')' : '') + '</div>');
@@ -294,7 +297,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     // a two-port part can be turned end for end in place (free): a check valve, a pump or a backflow preventer set the
     // wrong way round is a fault of its own (the field calls). The glyph shows which way the water is meant to go.
     if (!q.fixed && DI.PARTS[p.type].ports === 2 && !DI.SYSV[p.type]) B.btns([['Turn end for end', () => { DI.pushUndo(); p.rot = (p.rot + 2) % 4; W.ver++; S.touch(); DI.edited(); }, '', false, 'Reverse the part in place: inlet and outlet swap. The glyph points the way the water goes.']]);
-    if (!q.fixed) B.btns([['Remove (refund ' + DI.money(DI.partCost(p.type, q)) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.partCost(p.type, q) + (q.vent ? 3200 : 0); W.removePart(p.id); G.sel = null; DI.edited(); }]]);
+    if (!q.fixed) { const back = DI.puzPartRefund(S, p); B.btns([['Remove (refund ' + DI.money(back) + ')', () => { const G = g(); DI.pushUndo(); W.money += DI.puzPartRefund(S, p); W.removePart(p.id); G.sel = null; DI.edited(); }, '', false, back < DI.partWorth(p) ? 'Inherited material: it refunds nothing on this call.' : '']]); }
   }
   function tilePanel(S, W, k) {
     const x = k % W.w, y = (k / W.w) | 0, room = W.room(x, y), G = g();
@@ -332,16 +335,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
   }
   // a field call: the question, the goals, the running scorecard and the hints shown so far
   function puzPanel(G) {
-    const S = G.S, st = DI.puzStatus(S); B.title(G.sc.name, 'field call ' + G.sc.pz.n + ' · ' + G.sc.v.key); if (!st) return;
+    const S = G.S, st = DI.puzStatus(S), w = DI.puzWords(G.sc.pz); B.title(G.sc.name, w.call.toLowerCase() + ' ' + G.sc.pz.n + ' · ' + G.sc.v.key); if (!st) return;
     B.p(st.v.diag.q);
+    if (st.v.decision) { B.sec('THE DECISION'); B.p(st.v.decision); }
     G.sc.goals.forEach((q, i) => B.add('<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '" style="margin:0 10px;font-size:12.5px"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + '</div></div>'));
     B.sec('SO FAR');
     B.row('Edits', () => String(DI.puzStatus(S).edits)); B.row('Spent', () => DI.money(Math.max(0, DI.puzSpent(S))) + ' of ' + DI.money(G.sc.money));
-    B.row('Out of service', () => { const x = DI.puzStatus(S); return x.now.length ? [DI.dur(x.imp) + ' (now)', 'warn'] : DI.dur(x.imp); });
+    if (st.reuse) B.row('Starting pipe kept', () => { const r = DI.puzStatus(S).reuse; return r.kept + ' of ' + r.total + ' tiles'; });
+    if (st.v.limits) B.row('Limits', () => { const lim = st.v.limits, over = DI.puzStatus(S).overLimit; return [Object.keys(lim).map((t) => S.W.byType(t).length + ' of ' + lim[t] + ' ' + DI.PARTS[t].name.toLowerCase() + (lim[t] === 1 ? '' : 's')).join(', '), over.length ? 'bad' : '']; });
+    if (st.v.impPar !== null) B.row('Out of service', () => { const x = DI.puzStatus(S); return x.now.length ? [DI.dur(x.imp) + ' (now)', 'warn'] : DI.dur(x.imp); });
     if (st.v.live) B.row('Resets while the cause was live', () => { const n = S.puz.futile; return n ? [String(n), 'warn'] : '0'; });
     B.row('Hints used', () => (st.v.hints.length - DI.puzStatus(S).left) + ' of ' + st.v.hints.length);
     if (st.hints.length) { B.sec('HINTS'); st.hints.forEach((x, i) => B.p((i + 1) + '. ' + x[0])); }
-    B.btns([[st.left ? 'Hint (' + st.left + ' left)' : 'Hints', () => DI.puzUI.hint()], [S.puz.diag.ok ? 'Diagnosed' : 'Diagnose', () => DI.puzUI.diagnose(), S.puz.diag.ok ? '' : 'go'], ['Goals and records', () => DI.puzUI.goals()]]);
+    B.btns([[st.left ? 'Hint (' + st.left + ' left)' : 'Hints', () => DI.puzUI.hint()], [S.puz.diag.ok ? w.done : w.ask, () => DI.puzUI.diagnose(), S.puz.diag.ok ? '' : 'go'], ['Goals and records', () => DI.puzUI.goals()]]);
   }
   DI.inspect = { render(force) {
     const G = g(); el = el || document.getElementById('side'); if (G.mode !== 'play') { el.innerHTML = ''; lastSig = null; return; }

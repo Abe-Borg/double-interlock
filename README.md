@@ -108,6 +108,57 @@ contracts menu under FIELD CALLS and unlock in order, independently of the contr
   (a supervised valve where one was missing, isolation valves on a jockey pump, a gridded wet system), each drawn
   with its edits ringed and its cost, with what it teaches.
 
+## Design calls (strong constraints)
+
+Calls 9 to 16 are design puzzles. Each has **one hard constraint and one decision**, and both are in the briefing
+before you build anything: under **THE CONSTRAINTS** (a budget, a part limit, pipe you must keep, a gallery where
+pipes cannot cross) and **THE DECISION** (where the money goes, where a loop is cut, which room governs). The briefing
+also lists what each call **builds on**: the harder calls combine two or three ideas from earlier calls and contracts.
+They are their own track on the menu, under DESIGN CALLS: call 9 is open from the start and each call opens the next,
+independently of the find-the-fault track. You answer the central question with **Answer** on the top bar.
+
+| # | Call | Starts as | The decision | Variants |
+|---|---|---|---|---|
+| 9 | The Last $8,000 | Nearly finished plant | Where does a small budget buy the most pressure? | A long 3 in. feed main (half of it one size up, about $1,300); long 1½ in. branch lines on a wet floor (tie their far ends into a grid: no cost); the same building as an unheated dock on dry pipe, where the grid is illegal and the end-fed cross main is the answer |
+| 10 | One Wall, Two Systems | Empty site | How do a heated room and an unheated dock share one tap without their systems joining? | The dry main must get past the heated room (round it through the yard, with one cap where it passes the foot of the storage cross main); the storage cross main runs down the shared wall, so the dock's riser and cross main need a column of clearance |
+| 11 | Split Decision | Nearly finished plant | Where do you cut one preaction zone so every zone is 500 gal or less, with the valves allowed? | Three valves for a 918 gal hall (three bands of rows, each with its own feed); one more valve for a 896 gal hall whose 6 in. feed main holds about 260 gal (downsize the feed, then split) |
+| 12 | The Forbidden Grid | Inherited installation | Where do you break a dry grid's loops so it still calculates, keeping the pipe? | A ring of mains (one cap at the far side; next to the riser the calc falls to 94 percent); a ladder grid (cap every line once and feed the far main with a new header, keeping all 342 tiles) |
+| 13 | The Valve Gallery | Empty site | How does one trunk in a three-tile gallery reach risers on both sides, each room isolated on its own valve? | Staggered entries (the trunk weaves across the gallery between risers); two entries one column apart (move one entry along its room's first row and cap the trunk over it) |
+| 14 | Keep the Good Pipe | Inherited installation | What is the least you replace when inherited material refunds nothing? | Office to storage (eight tiles of 4 in. feed against a $132,000 re-pipe proposal); office to data hall on double interlock (swap the valve, cap the grid off its tie column, ten tiles of feed) |
+| 15 | The Small Tank | Records-only investigation | What uses up the water, and what is the cheapest way to make it last? | An oversized pump over-discharges every open head (a smaller pump passes and refunds about $49,500); a heated storage room on dry pipe calculates 30 percent more heads (convert it to wet) |
+| 16 | One Supply, Many Rooms | Nearly finished plant | Which room controls the shared pump and tank? | The dry dock, not the highest-density storage room (750 gpm at 80 psi; anything bigger makes the dock outrun the tank); a far light-hazard office sets the pressure, and fixing its 3 in. tail main costs a fifth of sizing the plant around it |
+
+- **Constraints are enforced.** A part limit (call 11) is refused at the build tool with the constraint named, and a goal
+  checks it as well. **No resale value** (call 14): erasing, resizing or replacing inherited pipe, heads or parts refunds
+  nothing; what you laid during the call refunds in full. Laying a branch tile as a main at its own size adds tees, not
+  pipe, and costs nothing.
+- **Pipe kept** (calls 12 and 14): the scorecard counts the starting pipe tiles still there at their size, and the edit
+  star needs at least as many as the par fix keeps. On those calls the comparison calls the par fix "Most pipe kept".
+- **The most demanding area.** The design calls check the calc with the design area moved to the far end of every
+  branch line (`DI.hydCalcWorst`), not only the farthest one: NFPA 13 asks for the hydraulically most demanding area.
+  Strengthening only the two farthest lines passes the farthest area and fails the next one along. On a design call the
+  riser's **Run hydraulic calc** shows that same result ("Most demanding of N areas checked") and draws that area. While
+  you build it is recomputed at most once a second per system, so a goal can take a moment to tick after an edit.
+- **Independent isolation** (call 13): each room's own control valve shuts off that room and no other.
+- **Scoring** is the same three stars. A call that builds a lot allows a slack on the edit count over the par fix
+  (25 percent, a game value, shown on the scorecard), money back counts as spending less, and time out of service is not
+  scored where nothing is in service yet.
+
+### How the field calls meet the design rules
+
+- **Different starting states:** empty site, nearly finished plant, inherited installation, active incident and
+  records-only investigation, across both tracks.
+- **One central question per call**, and the later calls combine ideas: call 14 B is call 12's grid, contract 5's
+  valve, air and detection, and call 9's bottleneck in one; call 16 B is call 15's over-discharge and call 9's friction.
+- **Graduated hints:** the system to look at, a measurement to take, then the fault or the answer; the camera follows.
+- **Useful behaviour is scored:** fewest edits, cost, pipe kept, the recovery order (call 8), time out of service and an
+  accurate diagnosis or answer.
+- **Drills keep the commissioning record** (above): Churn remembers its quiet half hour through the fire.
+- **Variants change what matters:** the fault location, the supply, the layout, the system type or an interacting
+  incident, and with them the right answer; never just the budget.
+- **Compare afterwards:** your layout, the par fix and an easily maintained fix, drawn side by side with their edits,
+  cost, pipe kept and lesson.
+
 Two small additions came with the calls and work everywhere: **Turn end for end** (select an inline part: a check
 valve, a pump, a backflow preventer or a control valve) reverses it in place, free; and a control valve can have
 **no tamper switch fitted** (an old sealed yard valve, `sw: 0`): closing it signals nothing until a switch is fitted
@@ -1067,23 +1118,24 @@ src/
   alarm.js      detection stages, listed-range and NFPA 76 checks, signals with their transmission delays, panel battery and charger, DACT channels and the DACT queue (attempts, hold and send, restore order with OPEN last, restorals, the hazard case), the waterflow latch, the VEA Fire 1-only detection, the trouble resound, manual stations, dead panel, impairment tags, panel reset and silence, recovery score (water stopped, step 14) and rating, fire-department dispatch, technician
   cause.js      the cause-and-effect matrix of a preaction zone, the signal schedule and the standby reference table, generated from the class registry and the release state; hook elections and triggers
   sim.js        tick loop, pump controllers, control-valve reopen gate, operator log, tank, commissioning, fast-forward, save/load
-  calc.js       density/area hydraulic calculation
+  calc.js       density/area hydraulic calculation, and the same calc at the most demanding area (the design area moved to every branch line end)
   review.js     plan review rules
   proc.js       test procedures (trip, inspector's, main drain with its baseline and drop, pump, air, churn)
   scen*.js      scenario toolkit (the drill report lines: tiers, time and gallon lines, main drain follow-up, return-to-normal errors, shared-compressor note; the commissioning record a drill keeps) and the seven contracts + sandbox
-  puz.js        field calls: variants as scenarios, the edit count against the starting layout, hints, diagnosis, the out-of-service clock and resets made while the cause was live, the scorecard, the cheap and maintained fixes
-  puz1.js puz2.js   the eight field calls, each with two or three variants
+  puz.js        field calls: variants as scenarios, the edit count against the starting layout, hints, diagnosis, the out-of-service clock and resets made while the cause was live, the scorecard, the cheap and maintained fixes; for the design calls the part limits, salvage, the cost of a layout change, pipe reuse, independent isolation and the cached calc at the most demanding area
+  puz1.js puz2.js   the eight find-the-fault calls, each with two or three variants
+  puz3.js puz4.js   the eight design calls, each with two or three variants
   manual.js     the in-game field manual
-  glyphs.js render.js input.js inspect.js ui.js puzui.js audio.js main.js style.css   the front end (puzui.js: the field call menu, briefing, hints, diagnosis, report and comparison)
+  glyphs.js render.js input.js inspect.js ui.js puzui.js audio.js main.js style.css   the front end (puzui.js: the field call menu in two tracks, briefing with the constraints and the decision, hints, diagnosis or answer, report and comparison)
 test/
   solver.test.js  graph.test.js  sim.test.js  proc.test.js   engine tests against hand calcs
   truth-table.js              pins and self-checks the truth-table fixture, then runs it against the engine (used by sim.test.js and review/)
   campaign.test.js  bot.js    plays every contract headlessly with a reference solution and an operator
-  puzzle.test.js              plays every field call variant: broken at the start, both fixes solve it, edits and diagnosis counted
+  puzzle.test.js              plays every field call variant: broken at the start, both fixes solve it, edits and diagnosis counted; the design-call machinery
   ui.play.js  ui.c2.js  ui.c3.js  ui.c4.js  ui.c5.js  ui.c6.js  ui.c7.js  ui.c8.js  ui.puz.js  shot.js   browser tests (Playwright): a full contract by mouse and keyboard, the Cycle 2, 3, 4, 5, 6, 7 and 8 UI checks and the field calls
 ```
 
-About 6,800 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
+About 7,900 lines of vanilla JavaScript, no runtime dependencies, no assets. Sound is generated.
 
 ## Tests
 
@@ -1132,7 +1184,11 @@ node test/puzzle.test.js      # every field call variant: the fault is real afte
                               # steps, the cheap and the maintained fix both meet every goal, their edit
                               # counts match the comparison, a wrong diagnosis is counted and the right
                               # one accepted, the edit rules (a valve in a pipe run is one edit, a valve
-                              # position is none), save / load of the call's state
+                              # position is none), save / load of the call's state; every fix needs only
+                              # what the call's toolbar offers; a design call shows its constraints and
+                              # decision, its par fix fits the budget and keeps the par pipe; the part
+                              # limits, salvage, pipe reuse, independent isolation and the calc at the
+                              # most demanding area
 node review/truth-table-check.js   # the truth table against the engine, one line per row
 node test/ui.play.js out.png  # needs Playwright: plays contract 1 with real input events
 node test/ui.c2.js out.png    # needs Playwright: Site gate and round-trip, P latch and both reset
@@ -1176,9 +1232,13 @@ node test/ui.puz.js out.png   # needs Playwright: the field calls by mouse: the 
                               # the briefing, a hint that moves the camera, the flow test before and
                               # after a repair drawn with the Main tool, a wrong then a right diagnosis,
                               # the scorecard and the three drawn fixes, Turn end for end, the Cap tool
-                              # on a test blank, save and reload in a call, Unlock all, and the drill
-                              # commissioning record. Saves out-menu.png, -brief.png, -diagnose.png,
-                              # -report.png, -blank.png
+                              # on a test blank, save and reload in a call, Unlock all, the drill
+                              # commissioning record, and the design calls: the two menu tracks, the
+                              # briefing's constraints and decision, the Answer button, call 9 solved
+                              # with the Main tool, the part limit refused at the build tool (call 11)
+                              # and inherited pipe refunding nothing (call 14). Saves out-menu.png,
+                              # -brief.png, -diagnose.png, -report.png, -blank.png, -design-brief.png,
+                              # -design-report.png
 ```
 
 `npm test` runs the six engine suites and `npm run test:ui` the nine browser tests. `sim.test.js`
@@ -1189,7 +1249,7 @@ is needed only for the browser tests (it fetches Playwright); the game itself ha
 still runs from `file://`.
 
 `test/bot.js` holds a working layout for every contract, and every field call carries its own cheap and
-maintained fix in `src/puz1.js` / `src/puz2.js`. Those are spoilers.
+maintained fix in `src/puz1.js` to `src/puz4.js`. Those are spoilers.
 
 ## Ideas not built
 

@@ -44,10 +44,12 @@ Read README.md first for what the game is.
   station queue footnote on a 2019 site, INVESTIGATE, step 14 as company practice, and an old save with the NFPA
   76 flag on. Run it after a change to `ui.js`, `inspect.js`, `scen.js`, `review.js`, the NAC calculation, the
   NFPA 76 room logic or `World.fromJSON`.
-- `node test/ui.puz.js out.png` runs the field call checks (Playwright): the menu and its lock order, the briefing, a
-  hint, a repair with the Main tool and the flow test, the diagnosis, the scorecard and the three drawn fixes, Turn end
-  for end, the Cap tool on a test blank, save / reload in a call, and the drill commissioning record. Run it after a
-  change to `puz*.js`, `puzui.js`, `ui.js`, `inspect.js` or `main.js`.
+- `node test/ui.puz.js out.png` runs the field call checks (Playwright): the menu, its two tracks and their lock order, the
+  briefing, a hint, a repair with the Main tool and the flow test, the diagnosis, the scorecard and the three drawn fixes,
+  Turn end for end, the Cap tool on a test blank, save / reload in a call, the drill commissioning record, and the design
+  calls (the briefing's constraints and decision, Answer, call 9 solved by mouse, the part limit refused at the build tool,
+  inherited pipe refunding nothing). Run it after a change to `puz*.js`, `puzui.js`, `ui.js`, `inspect.js`, `input.js` or
+  `main.js`.
 - `sim.test.js` (A112) checks that `double-interlock.html` is what `build-standalone.js` makes from `src/` as it
   stands: build first, then test.
 - `package.json` provides tests and desktop builds. Playwright and the Tauri CLI are development-only
@@ -64,7 +66,7 @@ Everything hangs off one global, `DI`. Each file starts with
 Load order is the script order in `index.html`.
 
 Engine (no DOM, testable in Node): core, juris, data, world, solver, systems, graph, links, gas, fire,
-alarm, cause, sim, calc, review, proc, scen, scen1-3, puz, puz1-2. Front end: manual, audio, glyphs, render, inspect, ui,
+alarm, cause, sim, calc, review, proc, scen, scen1-3, puz, puz1-4. Front end: manual, audio, glyphs, render, inspect, ui,
 puzui, input, main.
 
 - `DI.World` is the map. Any topology change must bump `W.ver`; `Sim.step` then calls `sync()`.
@@ -158,7 +160,8 @@ puzui, input, main.
 
 ## Field calls (puzzles)
 
-- `DI.PUZ` (puz.js) is the list; the calls are in puz1.js (1-4) and puz2.js (5-8). A call is `{ id: 'pN', n, name,
+- `DI.PUZ` (puz.js) is the list; the find-the-fault calls are in puz1.js (1-4) and puz2.js (5-8), the design calls in
+  puz3.js (9-12) and puz4.js (13-16). A call is `{ id: 'pN', n, name,
   kind, question, learn, w, h, parts, variants }`; a variant is `{ key, name, money, symptom, records, build(W, b),
   setup(S), area, hints: [[text, x, y] x 3], diag: { q, opts: [[text, ok, why]] }, goals, prove(S), cheap, maint,
   live?, impPar?, cfg? }`. `cheap` / `maint` are `{ t, steps, edit(W, b)?, op(S)?, lesson }`: `edit` changes the
@@ -185,15 +188,45 @@ puzui, input, main.
 - "The station got it" is the `signal` bus event of a new waterflow signal that was transmitted at once
   (`DI.puzActive` is the running call's sim; `startScenario` clears it for a contract). A waterflow still latched from an
   earlier flow is not a new signal: reset the panel before the inspector's test.
-- Scoring (`DI.puzScore`): stars = fix + (edits <= par and cost within `DI.PUZ_COST_SLACK` of the cheap fix) +
-  (diagnosis first try, at most one hint, `imp` <= par, no futile reset). Par edits and cost come from the cheap fix.
-  These numbers are game values, not code values.
+- Scoring (`DI.puzScore`): stars = fix + (edits <= par (plus `editSlack`) and cost within `DI.PUZ_COST_SLACK` of the
+  cheap fix, and with `reuse` at least the cheap fix's pipe kept) + (diagnosis or answer first try, at most one hint,
+  `imp` <= par unless `impPar` is null, no futile reset). Par edits, cost and pipe kept come from the cheap fix. Money
+  back (a refund larger than the spend) counts as spending less. These numbers are game values, not code values.
 - Two engine additions came with the calls: a control valve may carry `sw: 0` (no tamper switch fitted: no `tm`
   signal, costs `DI.TAMPER_SW_COST` less; `undefined` = fitted, as before), and `DI.gaugeText` shows a pressure below
   a full vacuum as -14.7 (full vacuum) in the pump test report, the pump inspector and the pipe tooltip (display only:
   the solver has no cavitation). The inspector's "Turn end for end" reverses an inline part (not a system valve) in
   place, free, as an undoable edit.
-- Drills keep a commissioning record: `DI.startDrill(S, d, goals0)` stores the goals as they stood at the start
+- Design calls (`design: true` on the call; calls 9-16). A call may carry `builds` (the ideas it combines, shown in the
+  briefing); a variant may carry `constraints` (text), `decision` (text: the interesting decision, shown in the briefing
+  before anything is built), `limits` ({ partType: max }), `salvage` (0..1, default 1), `reuse` (score the starting pipe
+  kept), `editSlack` (fraction over the cheap fix's edits that still earns the star), `impPar: null` (time out of
+  service not scored) and `kind` (a starting state of its own). They are a track of their own on the menu: the first call
+  of each track is open, each call opens the next (`DI.puzUI.open`). `DI.puzWords(pz)` is the wording (Diagnose /
+  Answer, Fault found and fixed / Design accepted); keep UI text on it, never a literal.
+- Part limits count every part of the type, the starting ones included. `DI.puzLimit(S, type)` is the refusal the build
+  tool shows (input.js `placePart`), and `DI.puzScenario` adds a goal (`DI.puzOverLimit`) so a layout that got past the
+  tools still fails. Salvage: inherited material (`DI.puzOrigPipe`, `DI.puzOrigPart`: still as it was in `w0`) refunds
+  its salvage share; what the player laid refunds in full. Every refund in the front end goes through `DI.puzPipeCredit`,
+  `DI.puzTileRefund`, `DI.puzHeadRefund`, `DI.puzAirRefund`, `DI.puzPartRefund` and `DI.puzReprice`, which are the plain
+  costs outside a call. `DI.puzCost(W0, W1, salvage)` is the same rule for the comparison and the tests: never price a
+  solution with `DI.puzWorth` differences. A tile re-laid at its own size (a branch line made a main) costs nothing in
+  both, and still counts as kept pipe (`DI.puzReuse` compares sizes only).
+- Design-call goals read `DI.PZ.calcAll(S, id)` (`DI.hydCalcWorst`, calc.js: the design area moved to the far end of
+  every branch line, the worst result), cached on `W.ver`, the valve positions and the pump modes. The contracts keep
+  `DI.hydCalc`. `DI.PZ.calcAllOk(S, type, plant)` / `DI.PZ.calcEvery(S, plant)` add the tank duration and the 150 %
+  pump limit when `plant` is set. The riser's calc (the inspector button and the slow loop in main.js) goes through
+  `DI.puzCalc`, so a design call shows what its goals read. In the browser `DI.PZ.throttleMs` (1,000, set by puzui.js)
+  makes `calcAll` return null for a system edited again within the window (the goal reads not met; never a stale pass);
+  Node tests leave it at 0. `DI.calcVerdict` puts the coverage flag and the verdict on both calcs. `DI.PZ.notIsolated(S)` is independent isolation: each system valve's nearest upstream
+  control valve (`DI.ctrlValve`), shut, cuts off that system and no other (a walk from every city and tank outlet,
+  `DI.PZ.reached`).
+- Tuning a design call: prototype it headlessly first (a scratch script with `DI.buildScenario` and `DI.hydCalcWorst`),
+  sweep the alternatives a player would try, and make the cheap fix the true cheapest pass (or, where pipe kept is
+  scored, the most pipe kept at the lowest cost): the scorecard's par and the report's "Cheapest" label come from it.
+  Every number in the hints, answers and lessons was read from the engine: re-read them after any change to the layout.
+- `puzzle.test.js` checks that every part a fix places, and the wire or air tool it needs, is in the call's `parts` (the
+  Wire tool shows only when `parts` holds a panel, the Air tool only with a compressor or N2 generator). `DI.startDrill(S, d, goals0)` stores the goals as they stood at the start
   (`DI.goalState`), and `main.js` reads `S.drill.goals0` instead of the live goals while a drill exists, so a passed
   drill is judged on what was proved before it. The campaign test checks the record holds every goal.
 
@@ -492,6 +525,12 @@ puzui, input, main.
 
 ## Pitfalls already hit
 
+- A static check (A123) forbids `.over` in `inspect.js`, `ui.js`, `render.js` and `main.js` (it guards the measured refill
+  clock). The field call status calls its part-limit list `overLimit` for that reason.
+- `World.fromJSON` does not carry a room's `exempt` flag: `DI.puzWorld` copies it (as main.js does on a load), or a
+  solution world shows a coverage failure in the riser room.
+- `DI.mk(W).p(...)` returns null on a tile that already holds pipe: place detectors and other parts before `b.grid`, or
+  erase the tile first. A riser room's supply header blocks a feed row through the same column.
 - In a field call the report opens from the slow loop as soon as every goal is met, also while paused: it replaces
   whatever dialog is open (the Diagnose dialog, when the diagnosis is the last goal). A test must wait for it, not
   close the dialog after the right pick.

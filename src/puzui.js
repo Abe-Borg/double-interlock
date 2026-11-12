@@ -1,23 +1,33 @@
-// Field calls, front end: the menu cards, the call briefing with its variants, hints, the diagnosis, the scorecard and
-// the comparison of fixes after a call is solved (your layout, the cheapest fix, the easily maintained fix).
-// The rules live in puz.js; this file only shows them.
+// Field calls, front end: the menu cards (two tracks: find the fault, calls 1-8, and design, calls 9-16), the call
+// briefing with its variants (a design call adds its constraints, its decision and the ideas it builds on), hints, the
+// diagnosis or the answer, the scorecard and the comparison of fixes after a call is solved (your layout, the cheapest
+// fix, the easily maintained fix). The rules live in puz.js; this file only shows them.
 var DI = globalThis.DI || (globalThis.DI = {});
 (function () {
   const $ = (id) => document.getElementById(id), g = () => DI.game;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const P = DI.puzUI = {};
+  // the design calls' calc at the most demanding area is recomputed at most once a second per system while you build
+  DI.PZ.throttleMs = 1000;
   const stars = (n) => '★'.repeat(n) + '<s>' + '★'.repeat(3 - n) + '</s>';
   const best = (pz) => { const d = g().prog.done[pz.id]; return d ? d.stars || 0 : -1; };
-  P.open = (pz) => pz.n === 1 || !!g().prog.done[DI.PUZ[pz.n - 2].id];
+  // each track unlocks in order on its own: the first call of a track is open, the next one opens when the one before is done
+  P.track = (pz) => DI.PUZ.filter((q) => !!q.design === !!pz.design);
+  P.open = (pz) => { const t = P.track(pz), i = t.indexOf(pz); return i <= 0 || !!g().prog.done[t[i - 1].id]; };
 
   // ---------- menu
   P.menuHtml = function () {
     if (!DI.PUZ.length) return '';
-    let h = '<h4 style="margin-top:22px">FIELD CALLS · FIND THE FAULT</h4><p style="margin:2px 0 0;font-size:13px">Small puzzles on an installation that already exists: a symptom, a small repair budget and one question. Fewest edits, the right diagnosis and the least time out of service earn the stars.</p><div class="cards">';
-    for (const pz of DI.PUZ) {
+    return P.section(DI.PUZ.filter((q) => !q.design), 'FIELD CALLS · FIND THE FAULT', 'Small puzzles on an installation that already exists: a symptom, a small repair budget and one question. Fewest edits, the right diagnosis and the least time out of service earn the stars.') +
+      P.section(DI.PUZ.filter((q) => q.design), 'DESIGN CALLS · STRONG CONSTRAINTS', 'One hard constraint and one decision, both in the briefing before you build: a budget, a part limit, pipe you must keep, a corridor where pipes cannot cross. The later calls combine ideas from the earlier ones. Fewest edits, the lowest cost and the right answer earn the stars.');
+  };
+  P.section = function (list, title, text) {
+    if (!list.length) return '';
+    let h = '<h4 style="margin-top:22px">' + title + '</h4><p style="margin:2px 0 0;font-size:13px">' + esc(text) + '</p><div class="cards">';
+    for (const pz of list) {
       const open = P.open(pz), d = g().prog.done[pz.id], sv = DI.LS.get('di.save.' + pz.id, null);
       const vs = pz.variants.map((v) => v.key + (d && d.v && d.v[v.key] ? '★'.repeat(d.v[v.key]) : '·')).join(' ');
-      h += '<button class="card puz' + (open ? '' : ' lock') + '" data-pz="' + pz.id + '"' + (open ? '' : ' disabled') + '><em>FIELD CALL ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</em>' + (d && d.stars ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') +
+      h += '<button class="card puz' + (pz.design ? ' design' : '') + (open ? '' : ' lock') + '" data-pz="' + pz.id + '"' + (open ? '' : ' disabled') + '><em>' + DI.puzWords(pz).call.toUpperCase() + ' ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</em>' + (d && d.stars ? '<i>' + '★'.repeat(d.stars) + '</i>' : '') +
         '<b>' + esc(pz.name) + '</b><small>' + esc(pz.question) + '</small><small class="vs">' + esc(vs) + (sv ? ' · in progress' : '') + '</small></button>';
     }
     return h + '</div>';
@@ -26,15 +36,19 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   // ---------- briefing, with the variant picker
   P.brief = function (sc) {
-    const pz = sc.pz, v = sc.v, S = g().S, rec = (S.puz && S.puz.rec) || [], d = g().prog.done[pz.id];
-    let h = '<h4>FIELD CALL ' + pz.n + ' · ' + esc(pz.kind.toUpperCase()) + '</h4><h2>' + esc(pz.name) + '</h2><div class="sub">' + esc(v.name.toUpperCase()) + ' · REPAIR BUDGET ' + DI.money(v.money) + '</div>' +
+    const pz = sc.pz, v = sc.v, S = g().S, rec = (S.puz && S.puz.rec) || [], d = g().prog.done[pz.id], w = DI.puzWords(pz), kind = v.kind || pz.kind;
+    const imp = v.impPar !== null, slack = v.editSlack ? ' (within ' + Math.round(v.editSlack * 100) + ' percent of them on a call that builds this much)' : '';
+    let h = '<h4>' + w.call.toUpperCase() + ' ' + pz.n + ' · ' + esc(kind.toUpperCase()) + '</h4><h2>' + esc(pz.name) + '</h2><div class="sub">' + esc(v.name.toUpperCase()) + ' · ' + (pz.design ? 'BUDGET ' : 'REPAIR BUDGET ') + DI.money(v.money) + '</div>' +
       v.symptom.map((t) => '<p>' + esc(t) + '</p>').join('') +
+      (v.constraints ? '<h4>THE CONSTRAINTS</h4><ul>' + v.constraints.map((t) => '<li>' + esc(t) + '</li>').join('') + (v.limits ? '<li>The build tools refuse a part over the limit: ' + esc(DI.puzLimitText(v.limits)) + '.</li>' : '') + '</ul>' : '') +
+      (v.decision ? '<h4>THE DECISION</h4><p class="decision"><b>' + esc(v.decision) + '</b></p>' : '') +
       (rec.length ? '<h4>RECORDS</h4><ul>' + rec.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
-      '<h4>THE QUESTION</h4><p><b>' + esc(v.diag.q || pz.question) + '</b> Answer it with Diagnose on the top bar once you know.</p>' +
+      (pz.builds ? '<h4>BUILDS ON</h4><ul>' + pz.builds.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>' : '') +
+      '<h4>THE QUESTION</h4><p><b>' + esc(v.diag.q || pz.question) + '</b> Answer it with ' + w.ask + ' on the top bar once you know.</p>' +
       '<h4>GOALS</h4>' + sc.goals.map((q) => '<div class="goal"><i>○</i><div>' + esc(q.t) + '</div></div>').join('') +
-      '<h4>HOW IT IS SCORED</h4><ul><li>One star for the fix: every goal, the diagnosis included.</li><li>One for the fewest edits, at no more than the cheapest fix costs. Operating a valve or a pump is not an edit; changing the layout, a wire or a setting is.</li>' +
-      '<li>One for a diagnosis right the first time, at most one hint, and no more time out of service than par' + (v.live ? ', with no panel reset made while the cause is still live' : '') + '.</li></ul>' +
-      '<h4>VARIANTS</h4><p style="font-size:13px">Each variant moves the fault, the supply, the layout or what else is going on. Switching starts that variant fresh.</p><div class="mrow" style="justify-content:flex-start;margin-top:4px">' +
+      '<h4>HOW IT IS SCORED</h4><ul><li>One star for the ' + (pz.design ? 'design' : 'fix') + ': every goal, the ' + w.noun.toLowerCase() + ' included.</li><li>One for the fewest edits' + slack + ', at no more than the cheapest fix costs' + (v.reuse ? ', keeping at least as much of the starting pipe as it does' : '') + '. Operating a valve or a pump is not an edit; changing the layout, a wire or a setting is.' + (v.salvage === 0 ? ' Removing inherited material refunds nothing.' : '') + '</li>' +
+      '<li>One for ' + (pz.design ? 'the answer' : 'a diagnosis') + ' right the first time, at most one hint' + (imp ? ', and no more time out of service than par' : '') + (v.live ? ', with no panel reset made while the cause is still live' : '') + '.</li></ul>' +
+      '<h4>VARIANTS</h4><p style="font-size:13px">' + (pz.design ? 'Each variant changes the constraint, the supply, the layout or the system type, and with it the right answer.' : 'Each variant moves the fault, the supply, the layout or what else is going on.') + ' Switching starts that variant fresh.</p><div class="mrow" style="justify-content:flex-start;margin-top:4px">' +
       pz.variants.map((x, i) => '<button data-vi="' + i + '" class="' + (i === sc.vi ? 'on' : '') + '">' + esc(x.name) + (d && d.v && d.v[x.key] ? ' ' + '★'.repeat(d.v[x.key]) : '') + '</button>').join('') + '</div>' +
       '<div class="mrow"><button id="mGo" class="go">Start</button></div>';
     DI.ui.modal(h); $('mGo').onclick = DI.ui.close;
@@ -54,11 +68,11 @@ var DI = globalThis.DI || (globalThis.DI = {});
   };
   P.diagnose = function () {
     const S = g().S, v = DI.puzVariant(S); if (!v) return;
-    const dg = S.puz.diag;
-    let h = '<h4>DIAGNOSIS</h4><h2>' + esc(v.diag.q) + '</h2>';
+    const dg = S.puz.diag, w = DI.puzWords(g().sc.pz);
+    let h = '<h4>' + w.head + '</h4><h2>' + esc(v.diag.q) + '</h2>';
     if (dg.ok) { const o = v.diag.opts.find((x) => x[1]); h += '<div class="goal ok"><i>✓</i><div><b>' + esc(o[0]) + '</b><small>' + esc(o[2]) + '</small></div></div>'; }
     else {
-      h += '<p>Pick the fault. A wrong pick is answered and counted; the third star needs it right the first time.</p>';
+      h += '<p>' + w.pick + ' A wrong pick is answered and counted; the third star needs it right the first time.</p>';
       h += v.diag.opts.map((o, i) => { const tried = dg.picks.includes(i); return '<div class="goal' + (tried ? '' : '') + '"><i>' + (tried ? '✗' : '○') + '</i><div>' + (tried ? '<span style="color:var(--dim)">' + esc(o[0]) + '</span><small>' + esc(o[2]) + '</small>' : '<button class="dg" data-i="' + i + '">' + esc(o[0]) + '</button>') + '</div></div>'; }).join('');
     }
     h += '<div class="mrow"><button id="mGo" class="go">Close</button></div>';
@@ -68,17 +82,22 @@ var DI = globalThis.DI || (globalThis.DI = {});
 
   // ---------- goals dialog (the G key and the Goals pill)
   P.goals = function () {
-    const G = g(), S = G.S, sc = G.sc, st = DI.puzStatus(S); if (!st) return;
-    let h = '<h4>FIELD CALL ' + sc.pz.n + ' · ' + esc(sc.v.name.toUpperCase()) + '</h4><h2>' + esc(sc.pz.name) + '</h2>';
+    const G = g(), S = G.S, sc = G.sc, st = DI.puzStatus(S), w = DI.puzWords(sc.pz); if (!st) return;
+    let h = '<h4>' + w.call.toUpperCase() + ' ' + sc.pz.n + ' · ' + esc(sc.v.name.toUpperCase()) + '</h4><h2>' + esc(sc.pz.name) + '</h2>';
+    if (sc.v.decision) h += '<p class="decision"><b>' + esc(sc.v.decision) + '</b></p>';
     sc.goals.forEach((q, i) => { h += '<div class="goal' + (G.goalOk[i] ? ' ok' : '') + '"><i>' + (G.goalOk[i] ? '✓' : '○') + '</i><div>' + esc(q.t) + (!G.goalOk[i] && q.hint ? '<small>' + esc(q.hint) + '</small>' : '') + '</div></div>'; });
     h += '<h4>SO FAR</h4>' + P.status(st).map((t) => '<div class="goal"><i></i><div>' + esc(t) + '</div></div>').join('');
+    if (sc.v.constraints) h += '<h4>THE CONSTRAINTS</h4><ul>' + sc.v.constraints.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
     if (S.puz.rec && S.puz.rec.length) h += '<h4>RECORDS</h4><ul>' + S.puz.rec.map((t) => '<li>' + esc(t) + '</li>').join('') + '</ul>';
-    h += '<div class="mrow"><button id="mRe" style="margin-right:auto">Restart this variant</button><button id="mBrief">Briefing</button><button id="mHintB">Hints</button><button id="mDiag">Diagnose</button>' + (S.puz.done ? '<button id="mRep">Report</button>' : '') + '<button id="mGo" class="go">Close</button></div>';
+    h += '<div class="mrow"><button id="mRe" style="margin-right:auto">Restart this variant</button><button id="mBrief">Briefing</button><button id="mHintB">Hints</button><button id="mDiag">' + w.ask + '</button>' + (S.puz.done ? '<button id="mRep">Report</button>' : '') + '<button id="mGo" class="go">Close</button></div>';
     DI.ui.modal(h); $('mGo').onclick = DI.ui.close; $('mBrief').onclick = () => P.brief(sc); $('mHintB').onclick = P.hint; $('mDiag').onclick = P.diagnose; if ($('mRep')) $('mRep').onclick = P.finish;
     $('mRe').onclick = () => { if ($('mRe').dataset.sure) { DI.LS.del('di.save.' + sc.id); DI.startScenario(sc.id, true, sc.vi); } else { $('mRe').dataset.sure = 1; $('mRe').textContent = 'Click again to start this variant over'; $('mRe').className = 'hot'; } };
   };
-  P.status = (st) => ['Edits so far: ' + st.edits, 'Spent: ' + DI.money(Math.max(0, st.spent)), 'Hints used: ' + (st.v.hints.length - st.left) + ' of ' + st.v.hints.length,
-    'Out of service: ' + DI.dur(st.imp) + (st.now.length ? ' (now: ' + st.now.slice(0, 2).join('; ') + ')' : '')].concat(st.v.live ? ['Resets made while the cause was live: ' + st.futile] : [], [st.diag.ok ? 'Diagnosis: given' + (st.diag.tries > 1 ? ' (try ' + st.diag.tries + ')' : '') : st.diag.tries ? 'Diagnosis: ' + st.diag.tries + ' wrong pick(s) so far' : 'Diagnosis: not given yet']);
+  P.status = (st) => { const n = st.design ? 'Answer' : 'Diagnosis';
+    return ['Edits so far: ' + st.edits, 'Spent: ' + DI.money(Math.max(0, st.spent)) + (st.spent < 0 ? ' (' + DI.money(-st.spent) + ' back)' : ''), 'Hints used: ' + (st.v.hints.length - st.left) + ' of ' + st.v.hints.length]
+      .concat(st.reuse ? ['Starting pipe kept: ' + st.reuse.kept + ' of ' + st.reuse.total + ' tiles'] : [], st.overLimit.length ? ['Over the limit: ' + st.overLimit.map((t) => DI.PARTS[t].name.toLowerCase()).join(', ')] : [],
+        st.v.impPar !== null ? ['Out of service: ' + DI.dur(st.imp) + (st.now.length ? ' (now: ' + st.now.slice(0, 2).join('; ') + ')' : '')] : [],
+        st.v.live ? ['Resets made while the cause was live: ' + st.futile] : [], [st.diag.ok ? n + ': given' + (st.diag.tries > 1 ? ' (try ' + st.diag.tries + ')' : '') : st.diag.tries ? n + ': ' + st.diag.tries + ' wrong pick(s) so far' : n + ': not given yet']); };
 
   // ---------- solved: the scorecard, the progress, the comparison
   P.finish = function () {
@@ -86,16 +105,18 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const d = G.prog.done[pz.id] || (G.prog.done[pz.id] = { stars: 0, v: {} }); d.v = d.v || {};
     d.stars = Math.max(d.stars || 0, sc2.stars); d.v[v.key] = Math.max(d.v[v.key] || 0, sc2.stars); DI.LS.set('di.progress', G.prog);
     S.puz.done = true; DI.saveGame();
-    const right = v.diag.opts.find((o) => o[1]);
-    let h = '<h4>FIELD CALL ' + pz.n + ' · ' + esc(v.name.toUpperCase()) + '</h4><h2>Fault found and fixed</h2><div class="stars">' + stars(sc2.stars) + '</div>' +
+    const right = v.diag.opts.find((o) => o[1]), w = DI.puzWords(pz);
+    let h = '<h4>' + w.call.toUpperCase() + ' ' + pz.n + ' · ' + esc(v.name.toUpperCase()) + '</h4><h2>' + w.solved + '</h2><div class="stars">' + stars(sc2.stars) + '</div>' +
       sc2.lines.map(([ok, t]) => '<div class="goal' + (ok ? ' ok' : '') + '"><i>' + (ok ? '✓' : '•') + '</i><div>' + esc(t) + '</div></div>').join('') +
-      '<h4>THE FAULT</h4><p><b>' + esc(right[0]) + '.</b> ' + esc(right[2].replace(/^Yes\. /, '')) + '</p>' +
+      '<h4>' + w.what + '</h4><p><b>' + esc(right[0]) + '.</b> ' + esc(right[2].replace(/^Yes\. /, '')) + '</p>' +
       '<h4>COMPARE THE FIXES</h4><div class="cmp">';
     const cols = [{ t: 'Your fix', W: S.W, diff: sc2.diff, cost: sc2.spent, steps: null, lesson: '' }];
-    for (const which of ['cheap', 'maint']) { const s = DI.puzSolution(S, which); if (s) cols.push({ t: (which === 'cheap' ? 'Cheapest: ' : 'Easily maintained: ') + s.sol.t, W: s.W, diff: s.diff, cost: s.cost, steps: s.sol.steps, lesson: s.sol.lesson }); }
+    // (where the pipe kept is scored, the par fix is the one that keeps the most, at the lowest cost that does)
+    for (const which of ['cheap', 'maint']) { const s = DI.puzSolution(S, which); if (s) cols.push({ t: (which === 'cheap' ? (v.reuse ? 'Most pipe kept: ' : 'Cheapest: ') : 'Easily maintained: ') + s.sol.t, W: s.W, diff: s.diff, cost: s.cost, steps: s.sol.steps, lesson: s.sol.lesson, reuse: s.reuse }); }
     cols.forEach((c, i) => {
-      h += '<div class="cmpc"><b>' + esc(c.t) + '</b><canvas id="pzc' + i + '" width="560" height="300"></canvas><small>' + c.diff.n + ' edit' + (c.diff.n === 1 ? '' : 's') + ' · ' + DI.money(Math.max(0, c.cost)) + '</small>' +
-        (c.diff.n ? '<ul>' + c.diff.items.slice(0, 8).map((x) => '<li>' + esc(x.what) + '</li>').join('') + (c.diff.n > 8 ? '<li>and ' + (c.diff.n - 8) + ' more</li>' : '') + '</ul>' : '<ul><li>no layout change</li></ul>') +
+      const ru = v.reuse ? c.reuse || DI.puzReuse(DI.puzStart(S), c.W) : null;
+      h += '<div class="cmpc"><b>' + esc(c.t) + '</b><canvas id="pzc' + i + '" width="560" height="300"></canvas><small>' + c.diff.n + ' edit' + (c.diff.n === 1 ? '' : 's') + ' · ' + (c.cost < 0 ? DI.money(-c.cost) + ' back' : DI.money(c.cost)) + (ru ? ' · ' + ru.kept + ' of ' + ru.total + ' tiles kept' : '') + '</small>' +
+        (c.diff.n ? '<ul>' + P.groups(c.diff.items).slice(0, 8).map(([w, n]) => '<li>' + esc(w) + (n > 1 ? ' &times; ' + n : '') + '</li>').join('') + (P.groups(c.diff.items).length > 8 ? '<li>and ' + (P.groups(c.diff.items).length - 8) + ' more kinds of edit</li>' : '') + '</ul>' : '<ul><li>no layout change</li></ul>') +
         (c.steps ? '<ol>' + c.steps.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ol>' : '') + (c.lesson ? '<p>' + esc(c.lesson) + '</p>' : '') + '</div>';
     });
     h += '</div><h4>WHAT THIS CALL TEACHES</h4><ul>' + pz.learn.map((l) => '<li>' + esc(l) + '</li>').join('') + '</ul>';
@@ -108,6 +129,9 @@ var DI = globalThis.DI || (globalThis.DI = {});
     if ($('mNextP')) $('mNextP').onclick = () => DI.startScenario(np.id);
     if ($('mMenu')) $('mMenu').onclick = () => DI.ui.showMenu();
   };
+
+  // the edits of a fix, one line per kind of edit with its count, in the order they first appear
+  P.groups = (items) => { const m = new Map(); for (const x of items) m.set(x.what, (m.get(x.what) || 0) + 1); return [...m]; };
 
   // ---------- a schematic of the area around the fault: rooms, pipe by size, heads, caps, parts, and every edit
   // against the starting layout ringed in amber (red where something was taken away)

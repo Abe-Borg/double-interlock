@@ -104,7 +104,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
     $('wx').textContent = DI.fmt(W.outTemp) + '°F  ' + (W.power ? 'UTILITY OK' : 'UTILITY OUT');
     $('wx').style.color = W.power ? '' : 'var(--red)';
     const dr = S.drill && !S.drill.done; $('bDrill').textContent = dr ? 'Drill running…' : 'Run drill'; $('bDrill').disabled = !!dr; $('bDrill').classList.toggle('go', !dr && DI.goalsDone()); $('bDrill').classList.toggle('hot', !!dr);
-    if (G.sc.puzzle && S.puz) { const left = G.sc.v.hints.length - S.puz.hints; $('bHint').textContent = 'Hint (' + left + ')'; $('bDiag').classList.toggle('go', !S.puz.diag.ok); $('bDiag').textContent = S.puz.diag.ok ? 'Diagnosed' : 'Diagnose'; }
+    if (G.sc.puzzle && S.puz) { const left = G.sc.v.hints.length - S.puz.hints; $('bHint').textContent = 'Hint (' + left + ')'; $('bDiag').classList.toggle('go', !S.puz.diag.ok); const w = DI.puzWords(G.sc.pz); $('bDiag').textContent = S.puz.diag.ok ? w.done : w.ask; }
     // Impairment tags are riser tags, not signals: listed above the signals, and still shown with a dead panel.
     const imps = DI.impairments(S), ih = imps.length ? '<div class="hd3">IMPAIRMENT TAGS</div>' + imps.map((x) => '<div class="imp" data-p="' + x.id + '">' + esc(x.text) + '</div>').join('') : '';
     if ($('imp').dataset.h !== ih) { $('imp').innerHTML = ih; $('imp').dataset.h = ih; }

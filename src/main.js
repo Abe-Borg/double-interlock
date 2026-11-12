@@ -68,7 +68,8 @@ var DI = globalThis.DI || (globalThis.DI = {});
     const S = g.S, sc = g.sc; if (S.ver !== g.W.ver) S.sync();
     S.rv = DI.review(S);
     const ids = [...S.sysd.info.keys()]; for (const id of [...S.calc.keys()]) if (!S.sysd.info.has(id)) S.calc.delete(id);
-    if (ids.length && !S.fires.length && S.outFlow < 1) { const id = ids[g.calcI++ % ids.length]; if (S.sysd.info.get(id).nSpk) S.calc.set(id, DI.hydCalc(S, id)); else S.calc.delete(id); }
+    // (a design call shows the calc its goals read: DI.puzCalc, null while it waits out the throttle after an edit)
+    if (ids.length && !S.fires.length && S.outFlow < 1) { const id = ids[g.calcI++ % ids.length]; if (S.sysd.info.get(id).nSpk) { const c = DI.puzCalc(S, id); if (c) S.calc.set(id, c); } else S.calc.delete(id); }
     // During a drill the goals are the commissioning record taken when it started (S.drill.goals0): a quiet-operation
     // run or a refill that the fire then interrupts was still achieved, and the drill report is judged against it.
     g.goalOk = S.drill && S.drill.goals0 ? S.drill.goals0.slice() : sc.goals.map((q) => { try { return !!q.ok(S); } catch (e) { return false; } });

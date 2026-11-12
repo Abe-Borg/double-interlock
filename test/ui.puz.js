@@ -1,9 +1,11 @@
 // node test/ui.puz.js [out.png] - field call (puzzle) browser checks (Playwright), with real mouse events: the Field
-// Calls section of the menu and its lock order, the briefing with records and variants, a hint that moves the camera,
+// Calls and Design Calls sections of the menu and their lock order, the briefing with records and variants, a hint that moves the camera,
 // a wrong and a right diagnosis, the repair itself drawn with the Main tool, the flow test from the inspector, the
 // scorecard and the three-way comparison (your fix, the cheapest, the easily maintained), progress and variant stars,
 // "Turn end for end" on a check valve, the Cap tool on a test blank at a pump inlet, a save and reload in the middle of
-// a call, and the drill commissioning record (contract 3). One screenshot per panel, beside the one named on the
+// a call, the drill commissioning record (contract 3), and the design calls: the briefing's constraints and decision,
+// the Answer button, call 9 solved with the Main tool, the part limit refused at the build tool (call 11) and inherited
+// material refunding nothing (call 14). One screenshot per panel, beside the one named on the
 // command line. The game is paused and sim time is advanced by hand (S.warp) where a test would take long.
 const { chromium } = require('playwright'); const path = require('path');
 (async () => {
@@ -24,10 +26,10 @@ const { chromium } = require('playwright'); const path = require('path');
   const press = async (t) => { const e = btn(t); await e.evaluate((x) => x.scrollIntoView({ block: 'center' })); await e.click(); await tick(); };
   const warp = (s) => ev((sec) => { DI.game.S.warp(sec); DI.puzTick(DI.game.S); }, s);
 
-  // 1. the menu: eight calls, only the first open
+  // 1. the menu: eight find-the-fault calls and eight design calls, two tracks, the first of each open
   await p.waitForSelector('.card.puz');
   const cards = await ev(() => [...document.querySelectorAll('.card.puz')].map((e) => (e.disabled ? 'L' : 'O') + ':' + e.querySelector('b').textContent));
-  ok('menu: eight field calls, the first open and the rest locked in order', cards.length === 8 && cards[0].startsWith('O') && cards.slice(1).every((c) => c.startsWith('L')), cards.join(' | '));
+  ok('menu: sixteen calls in two tracks, the first of each open and the rest locked in order', cards.length === 16 && cards[0].startsWith('O') && cards[8].startsWith('O') && cards.slice(1, 8).every((c) => c.startsWith('L')) && cards.slice(9).every((c) => c.startsWith('L')) && /DESIGN CALLS · STRONG CONSTRAINTS/.test(await text('#mbox')) && (await ev(() => document.querySelectorAll('.card.puz.design').length)) === 8, cards.join(' | '));
   await shot('menu');
 
   // 2. call 1, variant A: the briefing shows the records, the question, the variants
@@ -110,6 +112,54 @@ const { chromium } = require('playwright'); const path = require('path');
   await ev(() => { const G = DI.game; G.goalOk = G.sc.goals.map(() => true); const S = G.S; DI.startDrill(S, G.sc.drill, G.goalOk.slice()); for (const p of S.W.byType('jockey')) p.p.auto = false; S.warp(300); });
   await p.waitForTimeout(1300);
   ok('during the drill the goals read the commissioning record, not the live plant', await ev(() => DI.game.goalOk.every(Boolean) && DI.game.S.drill.goals0.length === DI.game.sc.goals.length));
+
+  // 12. design call 9, variant A: the briefing shows the constraints, the decision and what the call builds on
+  await ev(() => { DI.ui.showMenu(); }); await tick();
+  await p.click('.card.puz[data-pz="p9"]'); await tick();
+  const b9 = await text('#mbox');
+  ok('design briefing: design call, the constraints, the decision, builds on, Answer', /DESIGN CALL 9/.test(b9) && /THE CONSTRAINTS/.test(b9) && /THE DECISION/.test(b9) && /BUILDS ON/.test(b9) && /Answer it with Answer on the top bar/.test(b9) && (await ev(() => !!document.querySelector('#mbox .decision'))), b9.slice(0, 200));
+  await shot('design-brief');
+  await p.click('#mGo'); await tick(); await pause();
+  ok('design call: the top bar reads Answer, the inspector shows the decision', (await ev(() => document.getElementById('bDiag').textContent)) === 'Answer' && /THE DECISION/.test(await text('#side')));
+  // the fix with the Main tool: 4 in. over the first twelve tiles of the 3 in. feed main
+  await ev(() => { const G = DI.game; G.cam.x = 10; G.cam.y = 12; G.cam.z = 26; DI.game.sel = null; DI.inspect.render(true); }); await tick();
+  await p.keyboard.press('1'); await p.click('.tb.sz >> text="4\\""'); await drag(4, 12, 15, 12); await tick(); await p.keyboard.press('q');
+  ok('design call 9: twelve tiles of 4 in. feed, twelve edits, $1,320', (await ev(() => DI.puzStatus(DI.game.S).edits)) === 12 && (await ev(() => DI.puzSpent(DI.game.S))) === 1320);
+  await ev(() => { const S = DI.game.S; DI.game.sel = { kind: 'part', id: S.W.byType('wetv')[0].id }; DI.inspect.render(true); }); await tick();
+  await press('Run hydraulic calc');
+  ok('design call: the riser’s calc is the one the goal reads, at the most demanding of every branch line end', /PASS/.test(await text('#side')) && /Most demanding of \d+ areas checked/.test(await text('#side')) && (await ev(() => DI.game.calcShow && DI.game.calcShow.tiles.length > 0)));
+  await ev(() => { DI.game.sel = null; DI.game.calcShow = null; DI.inspect.render(true); }); await tick();
+  await p.click('#bDiag'); await tick();
+  ok('the answer dialog: THE ANSWER, pick the answer', /THE ANSWER/.test(await text('#mbox')) && /Pick the answer/.test(await text('#mbox')));
+  await p.locator('#mbox button.dg', { hasText: 'whole demand' }).click(); await tick();
+  for (let i = 0; i < 12 && !/Design accepted/i.test(await text('#mbox')); i++) await p.waitForTimeout(400);
+  const r9 = await text('#mbox');
+  ok('design report: design accepted, three stars, the answer explained, the cheapest fix compared', /Design accepted/i.test(r9) && /Answer: right the first time/.test(r9) && /THE ANSWER/.test(r9) && /Cheapest: Half the feed main/.test(r9) && (await ev(() => DI.game.prog.done.p9 && DI.game.prog.done.p9.v.A)) === 3, r9.slice(0, 220));
+  await shot('design-report');
+
+  // 13. design call 11, variant A: the part limit is refused at the build tool
+  await ev(() => { DI.startScenario('p11', true, 0); DI.ui.close(); DI.setSpeed(0); const G = DI.game; G.cam.x = 8; G.cam.y = 10; G.cam.z = 30; }); await tick();
+  await ev(() => DI.ui.setTool('part', 'prev')); await click(7, 6); await click(7, 17); await tick();
+  const n2 = await ev(() => DI.game.W.byType('prev').length);
+  await click(7, 8); await tick();
+  const ban = await ev(() => document.getElementById('banner').textContent);
+  ok('limits: two more preaction valves place, a fourth is refused with the constraint named', n2 === 3 && (await ev(() => DI.game.W.byType('prev').length)) === 3 && /at most 3 preaction valves/.test(ban), ban);
+  await ev(() => DI.ui.setTool('select')); await tick();
+  ok('limits: the inspector home shows the count against the limit', /3 of 3 preaction valves/.test(await text('#side')));
+
+  // 14. design call 14, variant A: inherited pipe refunds nothing; pipe laid in the call refunds in full
+  await ev(() => { DI.startScenario('p14', true, 0); DI.ui.close(); DI.setSpeed(0); const G = DI.game; G.cam.x = 9; G.cam.y = 13; G.cam.z = 30; }); await tick();
+  const m0 = await ev(() => DI.game.W.money);
+  await p.keyboard.press('x'); await drag(8, 12, 8, 12); await tick();
+  const m1 = await ev(() => DI.game.W.money);
+  await p.keyboard.press('1'); await p.click('.tb.sz >> text="4\\""'); await drag(8, 12, 8, 12); await tick();
+  const m2 = await ev(() => DI.game.W.money);
+  await p.keyboard.press('x'); await drag(8, 12, 8, 12); await tick();
+  const m3 = await ev(() => DI.game.W.money);
+  ok('salvage: erasing an inherited tile refunds nothing, a new 4 in. tile costs $400, erasing it refunds $400', m1 === m0 && m2 === m0 - 400 && m3 === m0, [m0, m1, m2, m3].join(' / '));
+  await p.keyboard.press('q'); await ev(() => { const S = DI.game.S; DI.game.sel = { kind: 'part', id: S.W.at(3, 12).id }; DI.inspect.render(true); }); await tick();
+  ok('salvage: the inspector offers the inherited riser for a refund of $0', /Remove \(refund \$0\)/.test(await text('#side')));
+  ok('salvage: the scorecard counts the starting pipe kept', /Starting pipe kept/.test(await ev(() => { DI.game.sel = null; DI.inspect.render(true); return document.getElementById('side').innerText; })));
 
   console.log(errs.length ? errs.join('\n') : 'no page errors'); if (errs.length) fail++;
   console.log(fail ? fail + ' FAILED' : 'all field call UI checks passed'); await b.close(); process.exit(fail ? 1 : 0);
