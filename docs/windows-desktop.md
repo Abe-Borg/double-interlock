@@ -36,11 +36,20 @@ not explicitly delete that profile. Browser saves are separate and are not impor
 
 ## Update checks
 
+The menu's **About & License** section summarizes the proprietary personal-use terms, simulation-only
+warning, warranty disclaimer and liability limitation. **Full license** and **Third-party notices**
+show the complete documents offline in both the desktop app and the browser game. `node build-standalone.js`
+regenerates `src/legal.js` from `LICENSE`, `THIRD_PARTY_NOTICES.txt` and the package version before bundling;
+`npm run test:desktop` checks that the embedded documents are current.
+
 The contracts menu shows **Check for updates** only in the desktop app. A manual check fetches
 `https://api.github.com/repos/Abe-Borg/double-interlock/releases/latest`, times out after 10 seconds,
 compares stable semantic versions numerically, and requires an uploaded Windows installer with the
 expected name and repository URL. Drafts, preview releases, downgrades, and incomplete releases
 cannot produce an update offer. Offline and rate-limit errors leave a **View releases** fallback.
+The update dialog also displays the license restrictions and opens **About & License** without losing
+the check result. It distinguishes the current copy's documents from the new release's terms, which
+users should review before installing; the new installer presents its full license for acceptance.
 
 The native bridge can open only this repository's release page or its versioned installer URL.
 The webview has no general filesystem or shell permissions. Downloading opens the default browser;

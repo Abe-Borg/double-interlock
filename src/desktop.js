@@ -21,22 +21,37 @@ var DI = globalThis.DI || (globalThis.DI = {});
     },
     async check() {
       if (!desktop.available) return;
-      DI.ui.modal('<h4>DOUBLE INTERLOCK</h4><h2>Check for updates</h2><p id="updateStatus" role="status" aria-live="polite">Checking for updates…</p><div class="mrow"><button id="updateDownload" class="go" hidden>Download update</button><button id="updateReleases">View releases</button><button id="updateClose">Back</button></div>', false);
-      const status = document.getElementById('updateStatus'), download = document.getElementById('updateDownload');
-      const open = async (version) => { try { await invoke('open_release', { version }); } catch (e) { status.textContent = 'Could not open your browser. Visit ' + REPO + '/releases/latest to download the installer.'; } };
-      document.getElementById('updateClose').onclick = DI.ui.showMenu;
-      document.getElementById('updateReleases').onclick = () => open(null);
+      let message = 'Checking for updates…', update = null, status;
+      const refresh = () => { if (document.getElementById('updateStatus') === status) render(); };
+      const open = async (version) => {
+        try { await invoke('open_release', { version }); }
+        catch (e) { message = 'Could not open your browser. Visit ' + REPO + '/releases/latest to download the installer.'; refresh(); }
+      };
+      const render = () => {
+        DI.ui.modal('<h4>DOUBLE INTERLOCK</h4><h2>Check for updates</h2><p id="updateStatus" role="status" aria-live="polite"></p>' +
+          '<h3>License for updates</h3><p id="updateLicenseNotice">' + DI.ui.licenseSummary + '</p>' +
+          '<p>Review the license and notices supplied with the new release before installing. The installer presents that release\'s full license for acceptance. The documents below apply to your current copy.</p>' +
+          '<div class="mrow"><button id="updateLegal">About &amp; License</button><button id="updateDownload" class="go" hidden>Download update</button><button id="updateReleases">View releases</button><button id="updateClose">Back</button></div>', false);
+        status = document.getElementById('updateStatus'); status.textContent = message;
+        const download = document.getElementById('updateDownload');
+        download.hidden = !update;
+        if (update) download.onclick = () => open(update.version);
+        document.getElementById('updateLegal').onclick = () => DI.ui.showAbout(render);
+        document.getElementById('updateClose').onclick = DI.ui.showMenu;
+        document.getElementById('updateReleases').onclick = () => open(null);
+      };
+      render();
       try {
         const info = await invoke('desktop_info');
         if (info.arch !== 'x86_64') throw new Error('Use View releases to find an installer for this machine.');
         const response = await fetch(API, { headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(10000), cache: 'no-store' });
         if (!response.ok) throw new Error(response.status === 404 ? 'No published release was found. Use View releases to check GitHub.' : response.status === 403 || response.status === 429 ? 'GitHub is limiting update checks. Try again later or use View releases.' : 'The update service is unavailable. Try again later.');
-        const update = desktop.readRelease(await response.json(), info.version);
-        status.textContent = update ? 'Version ' + update.version + ' is available. You have ' + info.version + '. Download the installer, close the game, then run it to update. Your saved progress is kept.' : 'You’re up to date. Installed version: ' + info.version + '.';
-        if (update) { download.hidden = false; download.onclick = () => open(update.version); }
+        update = desktop.readRelease(await response.json(), info.version);
+        message = update ? 'Version ' + update.version + ' is available. You have ' + info.version + '. Download the installer, close the game, then run it to update. Your saved progress is kept.' : 'You’re up to date. Installed version: ' + info.version + '.';
       } catch (e) {
-        status.textContent = e.name === 'TimeoutError' || e.name === 'AbortError' ? 'The update check timed out. Check your connection and try again.' : e instanceof TypeError ? 'Could not reach GitHub. Check your connection and try again, or use View releases.' : e.message || 'Could not check for updates. Try again later.';
+        message = e.name === 'TimeoutError' || e.name === 'AbortError' ? 'The update check timed out. Check your connection and try again.' : e instanceof TypeError ? 'Could not reach GitHub. Check your connection and try again, or use View releases.' : e.message || 'Could not check for updates. Try again later.';
       }
+      refresh();
     }
   };
 })();

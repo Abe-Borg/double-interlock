@@ -4,6 +4,7 @@ var DI = globalThis.DI || (globalThis.DI = {});
   const $ = (id) => document.getElementById(id), g = () => DI.game;
   const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const ui = DI.ui = { modalOpen: false };
+  ui.licenseSummary = 'Personal, non-commercial use of unmodified official releases only. No redistribution, modification, commercial use, or AI training or evaluation. Third-party components retain their own license rights.';
   const TOOLS = [['select', 'Select', 'Q'], ['pipe', 'Main', '1'], ['branch', 'Sprinklers', '2'], ['head', 'Head', '3'], ['air', 'Air line', '4'], ['wire', 'Wire', '5'], ['cap', 'Cap', '6'], ['erase', 'Erase', 'X']];
   const SHORT = { city: 'City Tap', tank: 'Tank', epump: 'Electric', dpump: 'Diesel', jockey: 'Jockey', bfp: 'Backflow', gate: 'Valve', check: 'Check', fdc: 'FDC', testhdr: 'Test Hdr', wetv: 'Wet', dryv: 'Dry', prev: 'Preaction', comp: 'Compr.', n2: 'N\u2082 Gen', panel: 'Panel', vesda: 'VESDA', smoke: 'Smoke', mstn: 'Station' };
   const HINT = { select: 'Click anything to inspect and operate it. Right-drag or WASD to pan, wheel to zoom.', pipe: 'Drag to lay main pipe. [ and ] change size. Drawing over pipe resizes it.',
@@ -183,13 +184,31 @@ var DI = globalThis.DI || (globalThis.DI = {});
       if (!sc.sandbox && !d) unlocked = false;
     });
     h += '</div>' + DI.puzUI.menuHtml() + '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">' + (DI.desktop && DI.desktop.available ? 'Progress saves on this PC.' : 'Progress saves in this browser.') + ' Numbers follow NFPA 13 (the enforced edition is a site setting, default 2025), NFPA 20, NFPA 25 and NFPA 72, plus the company rules listed under Site. Verify against the adopted edition before using them on a job.</span><button id="mUnlock">Unlock all</button><button id="mMan">Field manual</button></div>';
-    if (DI.desktop && DI.desktop.available) h += '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Windows desktop · Progress saves on this PC.</span><button id="mUpdates">Check for updates</button></div>';
+    h += '<div class="mrow"><span style="color:var(--dim);font-size:12px;margin-right:auto">Copyright (c) 2026 Abraham Borg. All rights reserved. Personal, non-commercial use only.</span><button id="mAbout">About &amp; License</button>' + (DI.desktop && DI.desktop.available ? '<button id="mUpdates">Check for updates</button>' : '') + '</div>';
     ui.modal(h, false);
     $('mbox').classList.add('menu-box'); $('modal').classList.add('menu-mode');
     if ($('mUpdates')) $('mUpdates').onclick = DI.desktop.check;
+    $('mAbout').onclick = () => ui.showAbout();
     $('mbox').querySelectorAll('.card[data-sc]').forEach((b) => { b.onclick = () => DI.startScenario(b.dataset.sc); }); DI.puzUI.bindMenu();
     $('mMan').onclick = () => ui.showManual(null, ui.showMenu);
     $('mUnlock').onclick = () => { for (const sc of DI.SCEN) if (!sc.sandbox && !G.prog.done[sc.id]) G.prog.done[sc.id] = { stars: 0, spent: 0 }; for (const pz of DI.PUZ) if (!G.prog.done[pz.id]) G.prog.done[pz.id] = { stars: 0, v: {} }; DI.LS.set('di.progress', G.prog); ui.showMenu(); };
+  };
+  ui.showAbout = function (back = ui.showMenu) {
+    ui.modal('<h4>DOUBLE INTERLOCK · ' + esc(DI.legal.version) + '</h4><h2>About &amp; License</h2>' +
+      '<p>A fire protection simulation game.</p><p>Copyright (c) 2026 Abraham Borg. All rights reserved.</p>' +
+      '<h3>Proprietary software</h3><p>' + esc(ui.licenseSummary) + '</p><p>This summary does not replace the full license.</p>' +
+      '<h3>Simulation only</h3><p>Not engineering advice. Do not use this game to design, install, inspect, test, maintain or approve real fire protection, fire alarm or life safety systems, or to make life safety decisions.</p>' +
+      '<p>Provided as is, without warranties. Liability is limited to the maximum extent permitted by law; see the full license.</p>' +
+      '<div class="mrow"><button id="aboutLicense">Full license</button><button id="aboutNotices">Third-party notices</button><button id="aboutBack">Back</button></div>', false);
+    $('aboutLicense').onclick = () => ui.showLegal('license', () => ui.showAbout(back));
+    $('aboutNotices').onclick = () => ui.showLegal('notices', () => ui.showAbout(back));
+    $('aboutBack').onclick = back;
+  };
+  ui.showLegal = function (kind, back) {
+    const title = kind === 'license' ? 'Full license' : 'Third-party notices';
+    ui.modal('<h4>DOUBLE INTERLOCK</h4><h2>' + title + '</h2><pre id="legalText" class="legal-text" tabindex="0" aria-label="' + title + '"></pre><div class="mrow"><button id="legalBack">Back</button></div>', false);
+    $('legalText').textContent = DI.legal[kind];
+    $('legalBack').onclick = back;
   };
   ui.showBrief = function (sc) {
     if (sc.puzzle) return DI.puzUI.brief(sc);

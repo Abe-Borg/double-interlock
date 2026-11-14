@@ -7,7 +7,7 @@
     "build": "node build-standalone.js && node scripts/prepare-desktop.js",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "test:desktop": "node --test test/desktop.test.js && node test/ui.desktop.js",
+    "test:desktop": "node scripts/legal-content.js --check && node --test test/desktop.test.js && node test/ui.desktop.js",
     "test:visual": "node test/ui.visual.js",
     "test": "node test/solver.test.js && node test/graph.test.js && node test/sim.test.js && node test/proc.test.js && node test/campaign.test.js && node test/puzzle.test.js",
     "test:ui": "node test/ui.layout.js /tmp/layout.png && node test/ui.play.js /tmp/play.png && node test/ui.c2.js /tmp/c2.png && node test/ui.c3.js /tmp/c3.png && node test/ui.c4.js /tmp/c4.png && node test/ui.c5.js /tmp/c5.png && node test/ui.c6.js /tmp/c6.png && node test/ui.c7.js /tmp/c7.png && node test/ui.c8.js /tmp/c8.png && node test/ui.puz.js /tmp/puz.png"
