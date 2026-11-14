@@ -1329,3 +1329,8 @@ beside the app; each release also carries both files. After any change to `src-t
 `src-tauri/Cargo.lock`, run `node scripts/third-party-notices.js` and commit the result. The Windows workflow
 runs it with `--check` and fails on a stale file. If a new crate is published without a license file, the
 script stops and names it: add its text under `scripts/licenses/` and an entry in its `FALLBACK` table.
+
+Open **About & License** from the game menu to read a summary, the full license and the third-party notices
+offline. The update dialog repeats the restrictions and links to this section, while reminding users to
+review the new release's terms before installing. `node build-standalone.js` refreshes the embedded legal
+documents from the files above; rebuild after changing either document or the package version.
